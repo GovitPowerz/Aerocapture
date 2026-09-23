@@ -1,8 +1,10 @@
 """Compare guidance schemes on identical Monte Carlo scenarios.
 
-Runs each guidance scheme with its own training TOML config (so scheme-specific
-settings like network architecture, navigation params, etc. are preserved),
-then prints a summary table of performance metrics.
+Flies each scheme's deployed cell (`training_output/<scheme>/`: the optimized
+TOML of a classical scheme, or the base training TOML + `best_model.json` +
+co-trained scaffolding of an NN scheme) through the config's own Monte Carlo
+(`cell_eval.fly_mc`), so every scheme sees the same `n_sims` dispersed scenarios
+drawn from the shared `[monte_carlo] seed`, then prints a summary table.
 
 Usage:
     uv run python -m aerocapture.training.compare_guidance \
@@ -17,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,9 +26,8 @@ from typing import Any
 import numpy as np
 
 from aerocapture.training import charts
+from aerocapture.training.cell_eval import fly_mc
 from aerocapture.training.cost import compute_cost
-from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.toml_utils import set_dot_path
 
 SCHEMES = [
     "equilibrium_glide",
@@ -98,149 +98,53 @@ _NN_DEPLOY_SCHEMES = {
 }
 
 
-def _apply_optimized_params_to_toml(toml_data: dict, params: dict, scheme: str, *, scaffolding_only: bool = False) -> None:
-    """Apply best_params.json overrides into the nested TOML tree (in place), routing each key."""
-    for dot_path, value in overrides_from_params(params, scheme, scaffolding_only=scaffolding_only).items():
-        set_dot_path(toml_data, dot_path, value)
-
-
 def run_scheme(
     scheme: str,
     n_sims: int,
-    executable: str,
-    cwd: Path,
     params_dir: Path | None = None,
     cost_kwargs: dict[str, Any] | None = None,
     base_toml_override: Path | None = None,
+    sim_timeout_secs: float | None = None,
 ) -> dict | None:
-    """Run a single guidance scheme and return metrics.
+    """Fly one scheme's deployed cell on the config's Monte Carlo; return its metrics.
 
     Uses the scheme's own training TOML as base config (so network architecture,
     navigation params, etc. are preserved). If base_toml_override is provided,
-    uses that instead (fallback for schemes without a dedicated config).
-
-    If params_dir/<scheme>/best_params.json exists, uses optimized params.
-    Otherwise uses defaults from the training TOML.
+    uses that instead (fallback for schemes without a dedicated config). The cell
+    is `params_dir/<scheme>`; a missing cell flies the TOML's defaults.
     """
-    from aerocapture.training.toml_utils import load_toml_with_bases
-
-    # Use scheme-specific training TOML, or fallback to override
-    scheme_toml_path = cwd / SCHEME_TRAINING_CONFIGS.get(scheme, "")
-    if scheme_toml_path.exists():
-        toml_data = load_toml_with_bases(scheme_toml_path)
-        print(f"  Config: {SCHEME_TRAINING_CONFIGS[scheme]}")
+    scheme_toml = Path(SCHEME_TRAINING_CONFIGS.get(scheme, ""))
+    if scheme_toml.exists():
+        print(f"  Config: {scheme_toml}")
     elif base_toml_override and base_toml_override.exists():
-        toml_data = load_toml_with_bases(base_toml_override)
+        scheme_toml = base_toml_override
         print(f"  Config: {base_toml_override} (fallback)")
     else:
         print(f"  ERROR: No training config found for {scheme}")
         return None
 
-    # Override n_sims and results suffix
-    results_suffix = f".compare_{scheme}"
-    toml_data.setdefault("simulation", {})["n_sims"] = n_sims
-    toml_data.setdefault("data", {})["results_suffix"] = results_suffix
-
-    # Set guidance type. NN-deploying schemes (neural_network, neural_network_rl)
-    # both route through the Rust `neural_network` guidance runtime.
-    if scheme in _NN_DEPLOY_SCHEMES:
-        toml_data.setdefault("guidance", {})["type"] = "neural_network"
-    else:
-        toml_data.setdefault("guidance", {})["type"] = scheme
-
-    # Handle NN: always prefer best_model.json from training output
-    if scheme in _NN_DEPLOY_SCHEMES:
-        nn_path = params_dir / scheme / "best_model.json" if params_dir else None
-        if nn_path and nn_path.exists():
-            toml_data.setdefault("data", {})["neural_network"] = str(nn_path)
-            print(f"  Using optimized NN from {nn_path}")
-        elif "neural_network" not in toml_data.get("data", {}):
-            default_nn = "data/neural_network/nn_model.json"
-            toml_data["data"]["neural_network"] = default_nn
-            print(f"  Using default NN weights from {default_nn}")
-
-        # Load optimized scaffolding params if present (written when scaffolding != "off")
-        scaff_path = params_dir / scheme / "best_params.json" if params_dir else None
-        if scaff_path and scaff_path.exists():
-            with open(scaff_path) as f:
-                scaff_params = json.load(f)
-            # Scaffolding pack only: an unprefixed key would route to
-            # [guidance.<scheme>], which Rust rejects as an unknown field (#105).
-            _apply_optimized_params_to_toml(toml_data, scaff_params, scheme, scaffolding_only=True)
-            print(f"  Using optimized NN scaffolding from {scaff_path}")
-    else:
-        toml_data.get("data", {}).pop("neural_network", None)
-
-    # Load optimized params if available
-    if params_dir and scheme not in _NN_DEPLOY_SCHEMES:
-        params_file = params_dir / scheme / "best_params.json"
-        if params_file.exists():
-            with open(params_file) as f:
-                params = json.load(f)
-            # Joint-reference deploys: ref_bank is not a guidance TOML key (Rust
-            # rejects it as an unknown field, #105) -- it deploys as the scheme's
-            # own reference table written at training end.
-            ref_bank = params.pop("ref_bank", None)
-            if ref_bank is not None:
-                scheme_ref = params_dir / scheme / "ref_trajectory.dat"
-                if not scheme_ref.exists():
-                    print(f"  ERROR: best_params.json has ref_bank but {scheme_ref} is missing")
-                    return None
-                toml_data.setdefault("data", {})["reference_trajectory"] = str(scheme_ref)
-                print(f"  Using joint-optimized reference (ref_bank {ref_bank:.2f} deg) from {scheme_ref}")
-            # Route prefixed params to correct TOML sections
-            _apply_optimized_params_to_toml(toml_data, params, scheme)
-            print(f"  Using optimized params from {params_file}")
-        else:
-            print(f"  Using default params (no {params_file})")
-
-    # Delete stale output files to avoid reading old results (both CSV and text)
-    output_dir = toml_data.get("data", {}).get("output_dir", "output")
-    suffix = results_suffix.lstrip(".")
-    for pattern in [f"final{results_suffix}", f"final.{suffix}.csv"]:
-        stale_file = cwd / output_dir / pattern
-        stale_file.unlink(missing_ok=True)
-
-    # Write temp TOML
-    from aerocapture.training.toml_utils import write_toml
-
-    temp_toml = cwd / f"_compare_{scheme}.toml"
-    write_toml(toml_data, temp_toml)
-
-    # Run simulator
-    exe = (cwd / executable).resolve()
-    try:
-        result = subprocess.run(
-            [str(exe), str(temp_toml.resolve())],
-            capture_output=True,
-            cwd=str(cwd.resolve()),
-            timeout=600,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"  ERROR: {e}")
-        temp_toml.unlink(missing_ok=True)
+    # NN-deploying schemes all route through the Rust `neural_network` guidance runtime.
+    guidance_type = "neural_network" if scheme in _NN_DEPLOY_SCHEMES else scheme
+    cell_dir = params_dir / scheme if params_dir is not None else None
+    if cell_dir is None or not cell_dir.exists():
+        print("  Using TOML defaults (no deployed cell)")
+    try:  # a classical cell with best_params.json but no optimized TOML is refused by cell_eval
+        res = fly_mc(cell_dir, scheme_toml, n_sims=n_sims, extra_overrides={"guidance.type": guidance_type}, sim_timeout_secs=sim_timeout_secs)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  ERROR: {exc}")
         return None
+    if res.toml_path != scheme_toml.resolve():
+        print(f"  Using optimized params from {res.toml_path}")
+    if "data.neural_network" in res.overrides:
+        print(f"  Using optimized NN from {res.overrides['data.neural_network']}")
+    scaffolding = sorted(k for k in res.overrides if k not in ("simulation.n_sims", "guidance.type", "data.neural_network"))
+    if scaffolding:
+        print(f"  Using optimized scaffolding: {', '.join(scaffolding)}")
 
-    temp_toml.unlink(missing_ok=True)
-
-    # Parse final file -- auto-detect CSV vs legacy text
-    output_dir = toml_data.get("data", {}).get("output_dir", "output")
-    suffix = results_suffix.lstrip(".")
-    final_file = cwd / output_dir / f"final.{suffix}.csv"
-    if not final_file.exists():
-        final_file = cwd / output_dir / f"final{results_suffix}"
-    if not final_file.exists():
-        print(f"  ERROR: final file not found in {output_dir}")
-        if result.stderr:
-            print(f"  stderr: {result.stderr.decode()[:500]}")
+    final = res.final_records
+    if len(final) == 0:
         return None
-
-    from aerocapture.training.evaluate import _parse_final_to_legacy_array
-
-    final = _parse_final_to_legacy_array(final_file)
-    if final is None or len(final) == 0:
-        return None
-    captured = charts.is_captured(final)
+    captured = res.captured
 
     metrics: dict = {
         "n_sims": len(final),
@@ -250,11 +154,11 @@ def run_scheme(
     }
 
     if captured.any():
-        metrics["apo_err_mean"] = float(np.abs(final[captured, 30]).mean())
-        metrics["apo_err_std"] = float(np.abs(final[captured, 30]).std())
-        metrics["peri_err_mean"] = float(np.abs(final[captured, 29]).mean())
-        metrics["peri_err_std"] = float(np.abs(final[captured, 29]).std())
-        dv = final[captured, 41]
+        metrics["apo_err_mean"] = float(np.abs(final[captured, charts._FR_APO_ERR]).mean())
+        metrics["apo_err_std"] = float(np.abs(final[captured, charts._FR_APO_ERR]).std())
+        metrics["peri_err_mean"] = float(np.abs(final[captured, charts._FR_PERI_ERR]).mean())
+        metrics["peri_err_std"] = float(np.abs(final[captured, charts._FR_PERI_ERR]).std())
+        dv = res.dv
         metrics["dv_mean"] = float(np.mean(dv))
         metrics["dv_std"] = float(np.std(dv))
     else:
@@ -300,13 +204,13 @@ def main() -> None:
         choices=SCHEMES,
         help="Schemes to compare",
     )
-    parser.add_argument("--params-dir", type=str, default="training_output", help="Directory with optimized params")
-    parser.add_argument("--executable", type=str, default="src/rust/target/release/aerocapture")
-    parser.add_argument("--cwd", type=str, default=".")
+    parser.add_argument("--params-dir", type=str, default="training_output", help="Directory with the deployed cells (one per scheme)")
+    parser.add_argument(
+        "--sim-timeout", type=float, default=30.0, help="Per-sim wall-clock timeout in seconds (a non-terminating sim would hang the comparison)"
+    )
     args = parser.parse_args()
 
     base_toml = Path(args.base_toml) if args.base_toml else None
-    cwd = Path(args.cwd)
     params_dir = Path(args.params_dir)
 
     # Parse cost function config from the first scheme's TOML (all inherit from
@@ -317,7 +221,7 @@ def main() -> None:
     from aerocapture.training.report import read_cost_kwargs
 
     first_scheme = args.schemes[0]
-    cost_toml_path = cwd / SCHEME_TRAINING_CONFIGS.get(first_scheme, "")
+    cost_toml_path = Path(SCHEME_TRAINING_CONFIGS.get(first_scheme, ""))
     if cost_toml_path.exists():
         cost_kwargs: dict[str, Any] = read_cost_kwargs(cost_toml_path)
     elif base_toml and base_toml.exists():
@@ -329,15 +233,7 @@ def main() -> None:
     results: dict[str, dict] = {}
     for scheme in args.schemes:
         print(f"\nRunning {scheme}...")
-        metrics = run_scheme(
-            scheme,
-            args.n_sims,
-            args.executable,
-            cwd,
-            params_dir,
-            cost_kwargs=cost_kwargs,
-            base_toml_override=base_toml,
-        )
+        metrics = run_scheme(scheme, args.n_sims, params_dir, cost_kwargs=cost_kwargs, base_toml_override=base_toml, sim_timeout_secs=args.sim_timeout)
         if metrics:
             results[scheme] = metrics
             print(f"  Captured: {metrics['captured']}/{metrics['n_sims']}, cost={metrics['cost']:.2e}")

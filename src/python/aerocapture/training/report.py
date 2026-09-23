@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training import charts
-from aerocapture.training.deploy_overrides import resolve_eval_toml
+from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 from aerocapture.training.report_render import render_pdf, staged_assets
 
@@ -106,43 +106,34 @@ def run_final_evaluation(
     Returns ``(final_records, trajectories, dispersions)`` or None on failure.
     """
     try:
-        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: F401
     except ImportError:
         print("PyO3 bindings not available -- skipping final evaluation")
         return None
 
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
-
-    toml_data = load_toml_with_bases(eval_toml)
-    base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
-    reserved_seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
 
     if scaffolding_overrides:
         print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
 
     # State the regime with every number (ADR-0003): resolve it here, pass it explicitly, print it.
-    regime = toml_data.get("monte_carlo", {}).get("noise_seeding", "per_draw")
+    regime = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("noise_seeding", "per_draw")
     print(f"  Noise regime: {regime} ({'per-scenario, ADR-0006' if regime == 'per_draw' else 'shared path, reproduction only'})")
 
     try:
-        base_overrides: dict[str, object] = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": regime, **scaffolding_overrides}
-        # Pin the evaluated NN to this run's own deployed model: the TOML's
-        # [data] neural_network path is shared by every --output-dir variant of
-        # the same config, and a concurrent run's checkpoint deploy can rewrite
-        # it mid-eval, silently scoring a foreign model into final_eval.parquet.
-        local_model = scheme_dir / "best_model.json"
-        if local_model.exists():
-            base_overrides["data.neural_network"] = str(local_model.resolve())
-        overrides_list = [{**base_overrides, "monte_carlo.seed": s} for s in reserved_seeds]
-        results = aerocapture_rs.run_batch(
-            toml_path=str(eval_toml.resolve()),
-            overrides_list=overrides_list,
+        results = evaluate_cell(
+            scheme_dir,
+            toml_path,
+            pool=(FINAL_EVAL_SEED_OFFSET, n_sims),
+            extra_overrides={"monte_carlo.noise_seeding": regime},
             include_trajectories=True,
             sim_timeout_secs=sim_timeout_secs,
         )
+        assert results.trajectories is not None
         return (results.final_records, results.trajectories, results.dispersions)
     except Exception:
         import traceback
@@ -590,37 +581,20 @@ def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
 
 
 def _run_undispersed_nominal(toml_path: Path, scheme_dir: Path, sim_timeout_secs: float | None = None) -> npt.NDArray[np.float64] | None:
-    """Run a single undispersed simulation to get the nominal trajectory."""
+    """Run a single undispersed simulation to get the nominal trajectory.
+
+    Flies the cell like the final MC does (same TOML, co-trained scaffolding, the
+    cell's own model) so the nominal overlay and the dispersed corridor agree.
+    """
     try:
-        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+        import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: F401
     except ImportError:
         return None
 
-    # NN schemes with scaffolding != "off" write best_params.json sibling to best_model.json;
-    # without loading it here, the nominal overlay would use TOML-default scaffolding
-    # while the dispersed MC corridor uses the GA-tuned values — visually inconsistent.
-    eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
-
-    # Disable ALL dispersion domains, not a subset — the stale 5-of-10 list
-    # left wind/OU-density/vehicle/pilot/nav_filter draws in the "nominal".
-    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS  # noqa: PLC0415
-
-    overrides: dict[str, object] = {
-        "simulation.n_sims": 1,
-        **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS},
-        **scaffolding_overrides,
-    }
-
     try:
-        results = aerocapture_rs.run_mc(
-            toml_path=str(eval_toml.resolve()),
-            overrides=overrides,
-            include_trajectories=True,
-            sim_timeout_secs=sim_timeout_secs,
-        )
+        results = fly_nominal(scheme_dir, toml_path, sim_timeout_secs=sim_timeout_secs)
         if results.trajectories:
-            traj: npt.NDArray[np.float64] = results.trajectories[0]
-            return traj
+            return results.trajectories[0]
     except Exception as exc:
         print(f"Warning: undispersed nominal run failed: {exc}")
     return None

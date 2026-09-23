@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 from matplotlib.figure import Figure
 
+from aerocapture.training.cell_eval import fly_mc
 from aerocapture.training.charts import (
     _TC_BANK,
     _TC_ENERGY,
@@ -364,7 +365,7 @@ def generate_animation(
     Returns:
         Path to generated GIF file.
     """
-    aero_rs = _load_pyo3()
+    _load_pyo3()  # fail early with the build hint; the flights go through cell_eval
 
     if output is None:
         output = training_dir / "animation.gif"
@@ -388,15 +389,14 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    toml_resolved = str(toml_path.resolve())
-
     # Step 1: Pre-compute axis ranges from the final checkpoint
     # NOTE: Axis ranges are computed from the final (most converged) checkpoint's trajectories.
     # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
     # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
     last = checkpoints[-1]
     last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims)
-    last_results = aero_rs.run_mc(toml_path=toml_resolved, overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+    last_results = fly_mc(None, toml_path, extra_overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+    assert last_results.trajectories is not None
     all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
     axis_ranges = _compute_axis_ranges(last_results.trajectories, all_costs_for_range)
 
@@ -433,7 +433,8 @@ def generate_animation(
 
             # Decode + run MC
             overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims)
-            results = aero_rs.run_mc(toml_path=toml_resolved, overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+            results = fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+            assert results.trajectories is not None
             trajectories = results.trajectories
             final_records = results.final_records
 

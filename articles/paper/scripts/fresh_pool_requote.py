@@ -31,34 +31,23 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sim-timeout", type=float, default=5.0)
     args = parser.parse_args(argv)
 
-    import aerocapture_rs
+    from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
-    from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     run_dir = Path(args.run_dir)
     model = run_dir / "best_model.json"
     if not model.exists():
         sys.exit(f"{model} not found -- train/deploy the cell first")
 
-    toml_data = load_toml_with_bases(Path(args.toml))
-    base_mc_seed = toml_data.get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_mc_seed, HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims)
-
     scaffolding = load_scaffolding_overrides(run_dir)
-    base = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model.resolve()), **scaffolding}
-    results = aerocapture_rs.run_batch(
-        toml_path=str(Path(args.toml).resolve()),
-        overrides_list=[{**base, "monte_carlo.seed": s} for s in seeds],
-        sim_timeout_secs=args.sim_timeout,
+    results = evaluate_cell(
+        run_dir, Path(args.toml), pool=(HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims), extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=args.sim_timeout
     )
 
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-
-    records = np.asarray(results.final_records)
-    col = {name: records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    cap = (col["ifinal"] == 3) & (col["eccentricity"] < 1.0)
-    dvc = np.sort(col["dv_total_m_s"][cap])
+    records = results.final_records
+    cap = results.captured
+    dvc = np.sort(results.dv)
     out = {
         "pool": "fresh (offset 8M)",
         "n": int(len(records)),

@@ -41,25 +41,19 @@ OUT = REPO / "articles/paper/data/compute_benchmark.json"
 
 def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     import aerocapture_rs
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
-    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
-    base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-
-    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **scaffolding}
-    local_model = scheme_dir / "best_model.json"
-    if local_model.exists():
-        base["data.neural_network"] = str(local_model.resolve())
-    overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
+    # Warmup (discard: caches, page-ins) through cell_eval, which resolves the cell once; the
+    # timed repeats replay that resolved batch on the bare seam so cell resolution stays untimed.
+    warm = evaluate_cell(scheme_dir, Path(toml), pool=(FINAL_EVAL_SEED_OFFSET, n_sims), extra_overrides=LEGACY_NOISE_REGIME, n_threads=1)
+    overrides = [{**warm.overrides, "monte_carlo.seed": s} for s in warm.seeds]
 
     def run() -> None:
-        aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, n_threads=1)
+        aerocapture_rs.run_batch(str(warm.toml_path), overrides, n_threads=1)
 
-    run()  # warmup (discard: caches, page-ins)
     reps = []
     for _ in range(5):
         t0 = time.perf_counter()

@@ -106,16 +106,14 @@ def run_ablation(
 
     Returns dict with keys: baseline_cost, n_sims, results, ranked.
     """
-    import aerocapture_rs
+    from aerocapture.training.cell_eval import fly_mc
 
     nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
 
-    common_overrides: dict = {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path), **(extra_overrides or {})}
-
     # Baseline run (no ablation)
-    baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
+    baseline = fly_mc(None, Path(toml_path), n_sims=n_sims, model=nn_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
     baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
 
     # Only ablate inputs that the model actually reads (in the mask).
@@ -146,8 +144,7 @@ def run_ablation(
             ablated_json["ablated_input"] = idx
             tmp_model_path.write_text(json.dumps(ablated_json))
 
-            overrides = {**common_overrides, "data.neural_network": str(tmp_model_path)}
-            ablated = aerocapture_rs.run_mc(toml_path, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
+            ablated = fly_mc(None, Path(toml_path), n_sims=n_sims, model=tmp_model_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
             ablated_mean = _mean_per_sim_cost(ablated.final_records, cost_kwargs)
             delta = ablated_mean - baseline_mean
 
@@ -194,14 +191,13 @@ def run_flip_ablation(
 
     `model_path` / `extra_overrides`: same semantics as run_ablation (pin the
     run-local model; apply co-trained scaffolding to all runs)."""
-    import aerocapture_rs
+    from aerocapture.training.cell_eval import fly_mc
 
     nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
-    common_overrides: dict = {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path), **(extra_overrides or {})}
 
-    baseline = aerocapture_rs.run_mc(toml_path, overrides=common_overrides, sim_timeout_secs=sim_timeout_secs)
+    baseline = fly_mc(None, Path(toml_path), n_sims=n_sims, model=nn_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
     baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
 
     active_mask = set(model_json["input_mask"]) if model_json.get("input_mask") else None
@@ -216,8 +212,7 @@ def run_flip_ablation(
                 fj["ablated_input"] = idx
                 fj["ablated_value"] = frozen
                 tmp_model_path.write_text(json.dumps(fj))
-                overrides = {**common_overrides, "data.neural_network": str(tmp_model_path)}
-                run = aerocapture_rs.run_mc(toml_path, overrides=overrides, sim_timeout_secs=sim_timeout_secs)
+                run = fly_mc(None, Path(toml_path), n_sims=n_sims, model=tmp_model_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
                 mean = _mean_per_sim_cost(run.final_records, cost_kwargs)
                 results.append(
                     {

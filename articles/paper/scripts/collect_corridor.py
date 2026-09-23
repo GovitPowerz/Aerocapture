@@ -35,7 +35,7 @@ OUT = REPO / "articles/paper/data/corridor.npz"
 CORRIDOR_SEED_OFFSET = 10_000_000  # raw monte_carlo.seed base for the bank draws (NOT a make_reserved_seeds stream; registered as a note in training/seeds.py)
 CORRIDOR_BANK_SEED = 20260706  # fixed -> reproducible bank draws
 
-FR_ECC, FR_APO, FR_IFINAL = 9, 15, 31  # final record (52,)
+FR_APO = 15  # final record (52,)
 TC_ENERGY, TC_PDYN = 8, 9  # trajectory (N, 17)
 
 E_LO, E_HI = -6.0, 5.0
@@ -68,7 +68,7 @@ def _smooth(e_centers, y, sigma):
 
 
 def build_corridor(args):
-    import aerocapture_rs
+    from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 
     e_edges = np.linspace(E_LO, E_HI, args.n_energy_bins + 1)
@@ -84,21 +84,18 @@ def build_corridor(args):
     while done < args.n_sims:
         m = min(args.chunk_size, args.n_sims - done)
         banks = rng.uniform(bank_lo, 180.0, size=(m, args.n_segments))
-        ov = []
-        for j in range(m):
-            d = {
-                "simulation.n_sims": 1,
-                **LEGACY_NOISE_REGIME,
-                "monte_carlo.seed": CORRIDOR_SEED_OFFSET + done + j,
-                "guidance.piecewise_constant.n_segments": args.n_segments,
-            }
-            for i in range(args.n_segments):
-                d[f"guidance.piecewise_constant.bank_angle_{i}"] = float(banks[j, i])
-            ov.append(d)
-        batch = aerocapture_rs.run_batch(toml_path=str(BASE_TOML.resolve()), overrides_list=ov, include_trajectories=True, sim_timeout_secs=5.0)
-        recs = np.asarray(batch.final_records)
-        all_trajs = batch.trajectories  # getter REBUILDS the whole list per access -- call it ONCE per chunk
-        cap = (recs[:, FR_IFINAL] == 3) & (recs[:, FR_ECC] < 1.0)
+        batch = evaluate_cell(
+            None,
+            BASE_TOML,
+            [CORRIDOR_SEED_OFFSET + done + j for j in range(m)],
+            extra_overrides={**LEGACY_NOISE_REGIME, "guidance.piecewise_constant.n_segments": args.n_segments},
+            per_seed_overrides=[{f"guidance.piecewise_constant.bank_angle_{i}": float(banks[j, i]) for i in range(args.n_segments)} for j in range(m)],
+            include_trajectories=True,
+            sim_timeout_secs=5.0,
+        )
+        recs = batch.final_records
+        all_trajs = batch.trajectories
+        cap = batch.captured
         apo = recs[:, FR_APO]
         caps = np.nonzero(cap)[0]
         n_cap += len(caps)
@@ -130,29 +127,28 @@ def build_corridor(args):
 
 def build_overlay(n_ens):
     """Deployed Mamba dispersed ensemble (energy, pdyn per trajectory) + undispersed nominal."""
-    import aerocapture_rs
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
-    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
-    eval_toml, scaffolding = resolve_eval_toml(MAMBA_TOML, MAMBA_RUN)
-    pin = dict(scaffolding)
     bundle_model = MAMBA_BUNDLE / "best_model.json"
-    if bundle_model.exists():
-        pin["data.neural_network"] = str(bundle_model.resolve())
-    base_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_ens)
-    ov = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
-    batch = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=ov, include_trajectories=True, sim_timeout_secs=5.0)
+    model = bundle_model if bundle_model.exists() else None  # else the run-local model
+    batch = evaluate_cell(
+        MAMBA_RUN,
+        MAMBA_TOML,
+        pool=(FINAL_EVAL_SEED_OFFSET, n_ens),
+        model=model,
+        extra_overrides=LEGACY_NOISE_REGIME,
+        include_trajectories=True,
+        sim_timeout_secs=5.0,
+    )
     ens_e, ens_p = [], []
     for t in batch.trajectories:
-        a = np.asarray(t)[::DOWNSAMPLE]
+        a = t[::DOWNSAMPLE]
         ens_e.append(a[:, TC_ENERGY])
         ens_p.append(a[:, TC_PDYN])
-    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS}, **pin}
-    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov, include_trajectories=True, sim_timeout_secs=5.0)
-    nt = np.asarray(nom.trajectories[0])
+    nom = fly_nominal(MAMBA_RUN, MAMBA_TOML, model=model, extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=5.0)
+    nt = nom.trajectories[0]
     return (np.array(ens_e, dtype=object), np.array(ens_p, dtype=object), nt[:, TC_ENERGY], nt[:, TC_PDYN])
 
 
@@ -162,21 +158,14 @@ def build_boundaries():
     undershoot/crash-side limit -- the trace runs to its crash termination).
     These are the two classical corridor-defining profiles of section 2.1,
     overlaid on the empirical occupancy envelope (reviewer R1-11)."""
-    import aerocapture_rs
-    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
-
-    out = {}
+    from aerocapture.training.cell_eval import fly_nominal
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 
+    out = {}
     for name, bank in (("liftup", 0.0), ("liftdown", 180.0)):
-        ov = {
-            "simulation.n_sims": 1,
-            **LEGACY_NOISE_REGIME,
-            **{f"monte_carlo.{dom}.level": "off" for dom in _MC_DISPERSION_DOMAINS},
-            **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)},
-        }
-        r = aerocapture_rs.run_mc(toml_path=str(BASE_TOML.resolve()), overrides=ov, include_trajectories=True, sim_timeout_secs=30.0)
-        t = np.asarray(r.trajectories[0])
+        ov = {**LEGACY_NOISE_REGIME, **{f"guidance.piecewise_constant.bank_angle_{i}": bank for i in range(10)}}
+        r = fly_nominal(None, BASE_TOML, extra_overrides=ov, sim_timeout_secs=30.0)
+        t = r.trajectories[0]
         out[f"{name}_energy"] = t[:, TC_ENERGY]
         out[f"{name}_pdyn"] = t[:, TC_PDYN]
         print(f"boundary {name} (bank {bank:.0f} deg): {len(t)} pts, E [{t[:, TC_ENERGY].min():.2f}, {t[:, TC_ENERGY].max():.2f}] MJ/kg")

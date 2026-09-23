@@ -216,6 +216,7 @@ class TestGenerateAnimation:
         mock_results.final_records[:5, 9] = 0.5
         mock_results.final_records[5:, 31] = 1.0
         mock_results.trajectories = [rng.standard_normal((50, 17)).astype(np.float64) for _ in range(n_sims)]
+        mock_results.dispersions = np.zeros((n_sims, 26))
 
         mock_aero = MagicMock()
         mock_aero.run_mc.return_value = mock_results

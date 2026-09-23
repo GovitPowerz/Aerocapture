@@ -117,34 +117,31 @@ def _eval_cell(
     sim_timeout: float,
     noise_seeding: str,
 ) -> dict:
-    import aerocapture_rs
-    from aerocapture.training.deploy_overrides import resolve_eval_toml
+    from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
 
     src = scaffolding_from or label
     scheme_dir = REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
-    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
-    hfl, gll, hll = _read_constraint_limits(eval_toml)
+    hfl, gll, hll = (None, None, None)
 
-    base: dict = {"simulation.n_sims": 1, "monte_carlo.noise_seeding": noise_seeding, **scaffolding, **extra}
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
-    local_model = scheme_dir / "best_model.json"
-    model = bundle_model if bundle_model is not None and bundle_model.exists() else local_model
     if bundle_key and (bundle_model is None or not bundle_model.exists()):
         raise SystemExit(f"{label}: bundle key {bundle_key} given but {bundle_model} missing (refusing local fallback)")
-    if model.exists():
-        base["data.neural_network"] = str(model.resolve())
+    overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
 
     reps: list[dict] = []
     pooled_parts: list[np.ndarray] = []
+    model_used = None
     for r, seeds in enumerate(pools):
-        overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
-        res = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=sim_timeout)
-        recs = np.asarray(res.final_records)
+        res = evaluate_cell(scheme_dir, Path(toml), seeds, model=bundle_model, extra_overrides=overrides, sim_timeout_secs=sim_timeout)
+        if hfl is None:
+            hfl, gll, hll = _read_constraint_limits(res.toml_path)
+        model_used = res.overrides.get("data.neural_network")
+        recs = res.final_records
         col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-        cap = (col["ifinal"] == 3) & (col["eccentricity"] < 1.0)
-        x = np.sort(col["dv_total_m_s"][cap])
+        cap = res.captured
+        x = np.sort(res.dv)
         over_flux = col["max_heat_flux_kw_m2"] > hfl
         over_g = col["max_load_factor_g"] > gll
         over_hl = col["integrated_flux_mj_m2"] * 1e3 > hll
@@ -170,7 +167,7 @@ def _eval_cell(
         "label": label,
         "toml": toml,
         "bundle_key": bundle_key,
-        "model": str(model) if model.exists() else None,
+        "model": model_used,
         "extra_overrides": extra or None,
         "replicates": reps,
         "pooled": {

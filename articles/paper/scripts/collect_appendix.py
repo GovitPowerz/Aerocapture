@@ -114,40 +114,43 @@ def chart_dv_cdf_overlay(final_records, output):
     plt.close(fig)
 
 
-def collect_one(slug, title, run_dir, toml, results_key, n_sims):
-    import aerocapture_rs
-    from aerocapture.training import charts
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
-    from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
-    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+def _fly(run_dir, toml, results_key, n_sims):
+    """The cell's final-eval pool batch (with trajectories) and its undispersed nominal.
+
+    Pins the NN weights to the committed bundle's frozen model (the deploy
+    results.json was computed from) when present -- training_output can drift
+    from the bundle on a later resume (dense_p515 did: mean 114.1 vs 109.71).
+    Falls back to the run-local model otherwise (evaluate_cell's default).
+    Classical schemes have neither and get no data.neural_network override.
+    """
+    from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
-    eval_toml, scaffolding = resolve_eval_toml(REPO / toml, scheme_dir)
-    base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-
-    # Pin the NN weights to the committed bundle's frozen model (the deploy
-    # results.json was computed from) when present -- training_output can drift
-    # from the bundle on a later resume (dense_p515 did: mean 114.1 vs 109.71).
-    # Fall back to the run-local model otherwise. Classical schemes have neither
-    # and set no data.neural_network override.
-    pin = dict(scaffolding)
     bundle_model = REPO / "articles/paper/data/runs" / results_key / "best_model.json"
-    local_model = scheme_dir / "best_model.json"
-    model = bundle_model if bundle_model.exists() else local_model
-    if model.exists():
-        pin["data.neural_network"] = str(model.resolve())
-    overrides = [{"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "monte_carlo.seed": s, **pin} for s in seeds]
-    batch = aerocapture_rs.run_batch(
-        toml_path=str(eval_toml.resolve()),
-        overrides_list=overrides,
+    model = bundle_model if bundle_model.exists() else None
+    batch = evaluate_cell(
+        scheme_dir,
+        REPO / toml,
+        pool=(FINAL_EVAL_SEED_OFFSET, n_sims),
+        model=model,
+        extra_overrides=LEGACY_NOISE_REGIME,
         include_trajectories=True,
         sim_timeout_secs=5.0,
     )
-    recs = np.asarray(batch.final_records)
-    trajs = [np.asarray(t) for t in batch.trajectories]
+    nom = fly_nominal(scheme_dir, REPO / toml, model=model, extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=5.0)
+    return batch, nom
+
+
+def collect_one(slug, title, run_dir, toml, results_key, n_sims):
+    from aerocapture.training import charts
+    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
+
+    batch, nom = _fly(run_dir, toml, results_key, n_sims)
+    eval_toml = batch.toml_path
+    recs = batch.final_records
+    trajs = batch.trajectories
 
     # drift self-check vs results.json (the far_tail mislabel trap)
     ref = json.loads(RESULTS.read_text())["runs"][results_key]
@@ -166,9 +169,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     sub_trajs = [trajs[i][::POINT_STRIDE] for i in idx]
     sub_class = traj_class[idx]
 
-    nom_ov = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **{f"monte_carlo.{d}.level": "off" for d in _MC_DISPERSION_DOMAINS}, **pin}
-    nom = aerocapture_rs.run_mc(toml_path=str(eval_toml.resolve()), overrides=nom_ov, include_trajectories=True, sim_timeout_secs=5.0)
-    undispersed = np.asarray(nom.trajectories[0]) if nom.trajectories else None
+    undispersed = nom.trajectories[0] if nom.trajectories else None
     nk = {"undispersed_nominal": undispersed}
 
     out = FIGROOT / slug

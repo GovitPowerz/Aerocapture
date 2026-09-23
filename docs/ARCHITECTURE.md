@@ -105,7 +105,8 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 ## Where the paper's numbers come from
 
 `articles/paper/scripts/*.py` evaluate deployed cells (`training_output/<cell>/best_model.json` +
-`best_params.json`, resolved by `deploy_overrides.resolve_eval_toml`) on the pools above and write
+`best_params.json`, flown by `cell_eval.evaluate_cell`, the one deploy-side evaluation path that
+the demo, the reports and `compare_guidance` also take) on the pools above and write
 `articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_eval.json`, the
 quantization finalists and `confirmatory_marginal.json` (the per-scenario far-tail confirmatory,
 extracted from `experiments/ou_marginal/`) at compile time for the headline tables and the
@@ -123,8 +124,9 @@ producers, and the `FROZEN` block names the data files with no producer in the t
   `initialization.py`, `initialization_v2.py`, `population.py`
 - **Loop and optimizers**: `train.py` (orchestration + CLI), `trainer.py` (loop contract, two
   adapters), `optimizer.py`, `qpso.py`, `island_model.py`, `seed_curator.py`, `final_select.py`
-- **Evaluation**: `problem.py` (`run_grid` chokepoint), `evaluate.py` (validation gate, NN JSON
-  writer), `cost.py`, `seeds.py`, `deploy_overrides.py`, `reference.py`, `make_reference.py`
+- **Evaluation**: `problem.py` (`run_grid` chokepoint, training side), `cell_eval.py` (`evaluate_cell`
+  chokepoint, deploy side), `evaluate.py` (validation gate, NN JSON writer), `cost.py`, `seeds.py`,
+  `deploy_overrides.py`, `reference.py`, `make_reference.py`
 - **NN specifics**: `torch_mirror/` (the differentiable PyTorch mirror of the Rust runtime:
   one torch module per cell type under `layers/`, the `LayerSpec` union in `schemas.py` that
   validates every v2 architecture and sizes every NN chromosome, `V2Policy`, and the v2 JSON
