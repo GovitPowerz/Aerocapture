@@ -49,11 +49,13 @@ last on 2026-09-23 with #137); the arxiv-v3 build is the `arxiv-v3` tag.
   `make check`, and covered by `data/SHA256SUMS` and the provenance digest. `results.typ` gains
   `marg()` (pooled capture from n_captured / n, scenarios lost, CVaR95, CVaR99.9 with its
   replicate s.e., worst case; the per_draw regime is asserted at load) and `mamba_seeds()` (mean
-  and sd over the three fine-tune seeds). Now accessor calls: every cell of the Appendix E far-tail
-  table and its caption's FNPAG non-capture share, the table's prose and the seed-robustness
-  paragraph, and the per-scenario quotes of the abstract, Section 9 and the conclusion (99.996%,
-  99.9995%, 163.2 +- 1.3, 163.0 +- 0.3, the 73 m/s margin, "past 236"). The colophon names the new
-  file and its regime. No value moved: every page except the colophon renders pixel-identical to
-  the #134 build. Still transcribed: "near 237" (abstract, conclusion), the loss rates
-  "5 x 10^-6 to 8 x 10^-5", and the n = 1000 per-scenario quotes, whose source
-  `experiments/ou_marginal/quote_results.json` is still outside the bundle.
+  and sd over the three fine-tune seeds); every cell must cover the full pool, and the table
+  asserts the 10 x 100,000 shape its caption and prose quote. Now accessor calls: every cell of the
+  Appendix E far-tail table (its bold marks the lowest CVaR95 / CVaR99.9, derived rather than
+  flagged) and its caption's FNPAG non-capture share, the table's prose and the seed-robustness
+  paragraph with its loss rates, and the per-scenario quotes of the abstract, Section 9 and the
+  conclusion (99.996%, 99.9995%, 163.2 +- 1.3, 163.0 +- 0.3, the 73 m/s margin, "past 236"). The
+  colophon names the new file and its regime. No value moved: every page except the colophon
+  renders pixel-identical to the #134 build. Still transcribed: "near 237" (abstract, conclusion)
+  and the n = 1000 per-scenario quotes, whose source `experiments/ou_marginal/quote_results.json`
+  is still outside the bundle.

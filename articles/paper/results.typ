@@ -29,14 +29,16 @@
   row
 }
 
-// A per-scenario confirmatory cell, pooled over the 10^6: capture % from n_captured / n (the
-// source's capture_pct is rounded to 2 decimals, 100.0 for 5 losses), the scenarios lost, the
-// pooled CVaR95 / CVaR99.9 / worst case and the CVaR99.9 standard error over the ten replicates.
+// A per-scenario confirmatory cell, pooled over the full pool (asserted): n, capture % from
+// n_captured / n (the source's capture_pct is rounded to 2 decimals, 100.0 for 5 losses), the
+// scenarios lost, the pooled CVaR95 / CVaR99.9 / worst case and the CVaR99.9 standard error over
+// the replicates.
 #let marg(label) = {
   let cell = marginal.cells.find(c => c.label == label)
   assert(cell != none, message: "confirmatory_marginal.json has no cell " + label)
   let p = cell.pooled
-  (capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
+  assert(p.n == marginal.n_replicates * marginal.n_per_replicate, message: label + " does not cover the full confirmatory pool")
+  (n: p.n, capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
     cvar999_se: cell.replicate_stats.cvar999.se, max: p.max)
 }
 // Mean and sample sd (n - 1) of one marg() field over the three fine-tune seeds of the deployed Mamba.
@@ -65,12 +67,14 @@
 #let signed(x, d: 1) = (if x < 0 { "\u{2212}" } else { "+" }) + fixed(calc.abs(x), d: d)
 // "lo, hi" of a two-element interval, signed.
 #let ci(iv, d: 1) = signed(iv.at(0), d: d) + ", " + signed(iv.at(1), d: d)
+// One significant digit times a power of ten, as an equation (x > 0).
+#let sci(x) = {
+  let e = calc.floor(calc.log(x, base: 10))
+  let m = int(calc.round(x / calc.pow(10.0, e)))
+  if m == 10 { m = 1; e += 1 }
+  $#m times 10^(#e)$
+}
 // Wilcoxon p: the saturated normal-approximation statistic (~1e-165 at sign unanimity) is shown
 // as "< 1e-15" as the tbl-paired caption states; resolved values keep one significant digit
 // below 0.01 and two decimals above.
-#let pval(p) = if p < 1e-100 { $< 10^(-15)$ } else if p < 0.01 {
-  let e = calc.floor(calc.log(p, base: 10))
-  let m = int(calc.round(p / calc.pow(10.0, e)))
-  if m == 10 { m = 1; e += 1 }
-  $#m times 10^(#e)$
-} else { $#fixed(p, d: 2)$ }
+#let pval(p) = if p < 1e-100 { $< 10^(-15)$ } else if p < 0.01 { sci(p) } else { $#fixed(p, d: 2)$ }

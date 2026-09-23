@@ -113,7 +113,7 @@ per-scenario headline quotes, the colophon reads `provenance.json`, `appendix.ty
 `figures/appendix/<scheme>/stats.json` (the other prose numbers are still transcribed from the
 data files). `make -C articles/paper paper`
 is the one command from the committed bundle to the PDF (`articles/paper/Makefile`: results.json,
-the 18 figures, provenance, checksums; the `mc-*` targets are the opt-in simulator-backed
+the per-scenario confirmatory extract, the 18 figures, provenance, checksums; the `mc-*` targets are the opt-in simulator-backed
 producers, and the `FROZEN` block names the data files with no producer in the tree).
 `models/demo/ft_mamba_962/` is the committed copy of the headline cell that `aerocapture.demo` flies.
 

@@ -29,7 +29,8 @@ POOLED = ("n", "n_captured", "cvar95", "cvar999", "max")
 
 def build() -> dict:
     src = json.loads(SRC.read_text())
-    assert src["noise_seeding"] == "per_draw", f"{SRC.relative_to(REPO)} is not a per_draw confirmatory"
+    if src["noise_seeding"] != "per_draw":
+        sys.exit(f"{SRC.relative_to(REPO)} is not a per_draw confirmatory")
     by_label = {c["label"]: c for c in src["cells"]}
     return {
         "source": str(SRC.relative_to(REPO)),
@@ -50,10 +51,15 @@ def build() -> dict:
 
 
 def main() -> None:
+    if sys.argv[1:] not in ([], ["--check"]):
+        sys.exit(f"usage: {Path(__file__).name} [--check]")
     text = json.dumps(build(), indent=1) + "\n"
     if sys.argv[1:] == ["--check"]:
         if not OUT.exists() or OUT.read_text() != text:
-            sys.exit(f"{OUT.relative_to(REPO)} is not what {SRC.relative_to(REPO)} yields: run `make -C articles/paper confirmatory-marginal` and commit it")
+            sys.exit(
+                f"{OUT.relative_to(REPO)} is not what {SRC.relative_to(REPO)} yields: "
+                "run `make -C articles/paper confirmatory-marginal sums provenance`, commit, then recompile the PDF"
+            )
         print(f"{OUT.relative_to(REPO)}: current")
         return
     OUT.write_text(text)

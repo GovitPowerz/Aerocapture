@@ -58,12 +58,19 @@
 // confirmatory_marginal.json).
 #import "results.typ" as R
 // The per-scenario far-tail headline (data/confirmatory_marginal.json): the deployed fine-tune
-// seed, the three-seed means, and the margin to the better of the dense fine-tune and FNPAG,
+// seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG, the three-seed
+// means, the seeds' loss rates, and the margin to the better of the dense fine-tune and FNPAG,
 // floored so that both "N m/s below" and "more than N m/s below" hold.
 #let ou_ft = R.marg("ou_marginal/ft_mamba_p962")
+#let ou_s2 = R.marg("ou_marginal/ft_mamba_p962_s2")
+#let ou_s3 = R.marg("ou_marginal/ft_mamba_p962_s3")
+#let ou_dense = R.marg("ou_marginal/ft_dense_p515")
+#let ou_champ = R.marg("mamba_p962_long")
+#let ou_fnpag = R.marg("fnpag")
 #let ou_ft3 = R.mamba_seeds("cvar999")
 #let ou_ft3_capture = R.mamba_seeds("capture_pct").mean
-#let ou_rival999 = calc.min(R.marg("ou_marginal/ft_dense_p515").cvar999, R.marg("fnpag").cvar999)
+#let ou_rival999 = calc.min(ou_dense.cvar999, ou_fnpag.cvar999)
+#let ou_loss_rates = (ou_ft, ou_s2, ou_s3).map(c => c.lost / c.n)
 #let ou_margin(x) = calc.floor(ou_rival999 - x)
 
 #v(0.15in)
@@ -1867,14 +1874,18 @@ and FNPAG.
 
 // One tbl-ou-confirmatory row from data/confirmatory_marginal.json (per_draw): capture with cap_d
 // decimals (the deployed seed needs 4 to show its 5 losses), CVaR95, CVaR99.9 +- replicate s.e.,
-// worst case; best95 / best999 bold the column winners.
-#let ou_row(policy, label, cap_d: 2, best95: false, best999: false) = {
-  let c = R.marg(label)
-  let hi(s, on) = if on { math.bold(s) } else { s }
-  (policy, [$#R.fixed(c.capture_pct, d: cap_d)%$], [$#hi(R.fixed(c.cvar95), best95)$],
-    [$#hi(R.fixed(c.cvar999), best999) plus.minus #R.fixed(c.cvar999_se)$], [$#R.fixed(c.max, d: 0)$])
+// worst case; the lowest CVaR95 and CVaR99.9 of the four rows are bold. The caption and the prose
+// quote the pool shape, so it is asserted here.
+#assert(R.marginal.n_replicates == 10 and R.marginal.n_per_replicate == 100000, message: "tbl-ou-confirmatory quotes a 10 x 100 000 pool")
+#let ou_rows = (ou_ft, ou_champ, ou_dense, ou_fnpag)
+#let ou_row(policy, c, cap_d: 2) = {
+  let hi(field) = {
+    let s = R.fixed(c.at(field))
+    if c.at(field) == calc.min(..ou_rows.map(r => r.at(field))) { math.bold(s) } else { s }
+  }
+  (policy, [$#R.fixed(c.capture_pct, d: cap_d)%$], [$#hi("cvar95")$],
+    [$#hi("cvar999") plus.minus #R.fixed(c.cvar999_se)$], [$#R.fixed(c.max, d: 0)$])
 }
-#let ou_dense = R.marg("ou_marginal/ft_dense_p515")
 #figure(
   table(
     columns: (auto, auto, auto, auto, auto),
@@ -1882,15 +1893,15 @@ and FNPAG.
     table.hline(stroke: 0.7pt),
     table.header([Policy], [Capture], [$"CVaR"_95$], [$"CVaR"_(99.9)$ ($plus.minus$ s.e.)], [Max]),
     table.hline(stroke: 0.4pt),
-    ..ou_row([Mamba $962$ fine-tune], "ou_marginal/ft_mamba_p962", cap_d: 4, best999: true),
-    ..ou_row([Shared-path Mamba champion], "mamba_p962_long"),
-    ..ou_row([Dense $515$ fine-tune], "ou_marginal/ft_dense_p515", best95: true),
-    ..ou_row([FNPAG], "fnpag"),
+    ..ou_row([Mamba $962$ fine-tune], ou_ft, cap_d: 4),
+    ..ou_row([Shared-path Mamba champion], ou_champ),
+    ..ou_row([Dense $515$ fine-tune], ou_dense),
+    ..ou_row([FNPAG], ou_fnpag),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Far-tail confirmatory under per-scenario noise: $10 times 100\,000$ scenarios per
   policy, the pre-registered pools of Section 4.3. $Delta v$ statistics in m/s over captured
-  scenarios; standard errors over the ten replicates. FNPAG's $#R.fixed(100 - R.marg("fnpag").capture_pct, d: 2)%$ non-captures are physical
+  scenarios; standard errors over the ten replicates. FNPAG's $#R.fixed(100 - ou_fnpag.capture_pct, d: 2)%$ non-captures are physical
   crashes: a $500$-seed sample re-runs as crashes with no timeout censoring.],
 ) <tbl-ou-confirmatory>
 
@@ -1900,14 +1911,14 @@ far tail reaches $#R.fixed(ou_dense.cvar999, d: 0)$ m/s with a worst case of $#R
 $"CVaR"_(99.9) = #R.fixed(ou_ft.cvar999) plus.minus #R.fixed(ou_ft.cvar999_se)$ m/s -- more than $#ou_margin(ou_ft.cvar999)$ m/s below both the dense fine-tune and FNPAG --
 loses $#ou_ft.lost$ of $10^6$ scenarios, and posts the smallest worst case of the study ($#R.fixed(ou_ft.max, d: 0)$ m/s). As could
 be expected from the shared-path results, the shared-path-trained champion is confirmed broken at this
-depth ($#R.fixed(R.marg("mamba_p962_long").capture_pct)%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
+depth ($#R.fixed(ou_champ.capture_pct)%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
 survives the honest regime precisely where the paper always located it: the extreme tail that
 sizes the tanks.
 
 The far-tail claim is seed-robust. Two further fine-tunes from the same shared-path checkpoint
-under independent trainer seeds land at $"CVaR"_(99.9) = #R.fixed(R.marg("ou_marginal/ft_mamba_p962_s2").cvar999)$ and $#R.fixed(R.marg("ou_marginal/ft_mamba_p962_s3").cvar999)$ m/s -- a three-seed
-mean of $#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ (one standard deviation), an order of magnitude below the $#ou_margin(ou_ft.cvar999)$ m/s margin. The three seeds lose $#ou_ft.lost$, $#R.marg("ou_marginal/ft_mamba_p962_s2").lost$ and $#R.marg("ou_marginal/ft_mamba_p962_s3").lost$
-of the $10^6$ scenarios ($5 times 10^(-6)$ to $8 times 10^(-5)$; all genuine crashes, none a timeout), so the recipe's
+under independent trainer seeds land at $"CVaR"_(99.9) = #R.fixed(ou_s2.cvar999)$ and $#R.fixed(ou_s3.cvar999)$ m/s -- a three-seed
+mean of $#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ (one standard deviation), an order of magnitude below the $#ou_margin(ou_ft.cvar999)$ m/s margin. The three seeds lose $#ou_ft.lost$, $#ou_s2.lost$ and $#ou_s3.lost$
+of the $10^6$ scenarios (#R.sci(calc.min(..ou_loss_rates)) to #R.sci(calc.max(..ou_loss_rates))\; all genuine crashes, none a timeout), so the recipe's
 capture guarantee is seed-dependent at the $10^(-4)$ level and a deployed policy must be
 confirmatory-screened, exactly as the shared-path protocol always required. (A reproducibility
 note: a checkpoint resume restores the saved trainer RNG state, which silently overrides the seed

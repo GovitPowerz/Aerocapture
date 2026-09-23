@@ -171,12 +171,15 @@ check-schema:
 	$(UVPY) articles/paper/scripts/check_results_schema.py
 
 # Regenerate both checksum files after a deliberate bundle change (12_collect_results.sh, mc-* targets).
-# SHA256SUMS.runlogs only when the run logs are present: without them the find is empty and the
-# manifest `check-logs` verifies the Release asset against would be truncated.
+# SHA256SUMS.runlogs only when at least as many run logs are present as it lists: with none or a
+# subset (a fresh clone, or one re-collected cell) the find would shrink the manifest `check-logs`
+# verifies the Release asset against. To drop a cell's log on purpose, delete the manifest first.
 sums:
 	cd $(DATA) && $(TRACKED_DATA_SUMS) > SHA256SUMS
-	@if [ -z "$(RUN_LOGS)" ]; then echo "run logs absent: SHA256SUMS.runlogs left as is (make fetch-logs, then sums, to regenerate it)"; \
-	else cd $(DATA) && find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs; fi
+	@cd $(DATA) && have=$$(find runs -name run.jsonl.gz | wc -l | tr -d ' ') && listed=$$(cat SHA256SUMS.runlogs 2>/dev/null | wc -l | tr -d ' ') && \
+	if [ $$have -eq 0 ] || [ $$have -lt $$listed ]; then \
+	  echo "run logs: $$have present, $$listed listed: SHA256SUMS.runlogs left as is (make fetch-logs, then sums)"; \
+	else find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs; fi
 
 help:
 	@sed -n '2,8p' $(lastword $(MAKEFILE_LIST))

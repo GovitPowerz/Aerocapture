@@ -684,7 +684,8 @@ validation_n_sims` sims each).
   abstract, Section 9 and the conclusion, and the colophon reads `provenance.json`; other prose
   numbers are still transcribed. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
-  regenerates it + `SHA256SUMS.runlogs`) + `check_results_schema.py` +
+  regenerates it + `SHA256SUMS.runlogs`, the latter only when no fewer run logs are present than it
+  lists) + `check_results_schema.py` +
   `extract_confirmatory_marginal.py --check` + `write_provenance.py
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets

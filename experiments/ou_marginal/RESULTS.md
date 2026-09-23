@@ -60,7 +60,8 @@ score 170-228 marginal (and lstm_p1082_long is 17% heat-load infeasible).
 `monte_carlo.noise_seeding = per_draw`; raw data `confirmatory_marginal.json`.
 The paper reads its quoted cells through `articles/paper/data/confirmatory_marginal.json`:
 after re-running `confirmatory_marginal.py`, run `make -C articles/paper
-confirmatory-marginal sums` (`make check` fails until then).
+confirmatory-marginal sums provenance`, commit, then `make -C articles/paper pdf`
+from the clean HEAD (`make check` fails until then).
 CVaR999 +- se over replicates, m/s over captured scenarios:
 
 | policy                  | capture  | CVaR95 | CVaR999       | max |
