@@ -1,7 +1,8 @@
 # CPAG (Convex Predictor-Corrector Aerocapture Guidance) -- shelved negative result
 
 Date: 2026-09-23 (work done 2026-07-16..19)
-Branch: `feature/cpag-c1-rust-mvp`, tip `d19de90` (unmerged, forked from `main` 2026-07-16)
+Branch: `feature/cpag-c1-rust-mvp`, tip `d19de90`, tagged `cpag-c2-negative` (unmerged, forked from
+`main` 2026-07-16)
 Status: shelved (#135). The code stays on the branch; this note is the record on `main`.
 
 ## What was built
@@ -66,4 +67,4 @@ Any of the C2 doc's C3 items: a matched-budget campaign (CPAG trained on ~38k co
 analytic Jacobians, FOH, larger segment dt); replan telemetry on the worst 50 draws to tell late
 detection from authority limits from density-lag mismatch; margin-as-gene (internal limits below
 mission limits). Or a mission where the constraints bind, e.g. the CPAG paper's Neptune case with
-Q_max at the median. Start from `d19de90` and port onto current `main`.
+Q_max at the median. Start from tag `cpag-c2-negative` and port onto current `main`.
