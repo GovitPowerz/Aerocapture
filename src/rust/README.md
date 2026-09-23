@@ -24,7 +24,7 @@ Key dependency: `nalgebra` for vector/matrix ops.
 # From the repo root:
 cargo build --release --manifest-path src/rust/Cargo.toml
 ./src/rust/target/release/aerocapture configs/test/test_ref_orig.toml
-cargo test --release --manifest-path src/rust/Cargo.toml   # or ./check_all.sh
+cargo test --release --workspace --manifest-path src/rust/Cargo.toml   # or ./check_all.sh
 ```
 
 ## Module map
