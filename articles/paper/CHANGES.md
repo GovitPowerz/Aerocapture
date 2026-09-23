@@ -38,4 +38,7 @@ last on 2026-09-23 with #134); the arxiv-v3 build is the `arxiv-v3` tag.
   value in Appendix E's far-tail confirmatory table. The conclusion's second quote of the
   CVaR99.9 (163.2) gains the same label; the table's 163.0 is the deployed seed. Per-seed
   captures on the 10^6 confirmatory pool: 999995 / 999970 / 999920 (s1 deployed / s2 / s3).
-  No number changes.
+  Review follow-up (PR #136): the abstract also gives the deployed seed's 99.9995%, and every
+  three-seed +- (abstract, Section 9, conclusion, Appendix E, README, TODO) is labelled one seed
+  standard deviation; the far-tail table's +- stays the replicate standard error. No number
+  changes.
