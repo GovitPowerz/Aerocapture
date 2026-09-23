@@ -8,8 +8,8 @@ A high-fidelity Mars aerocapture guidance simulator and an ML/control research p
 
 - **Numerical and systems implementation in two languages.** A closed-loop GNC simulator in Rust (J2-J4 gravity, tabulated atmosphere and winds, bias or 13-state EKF navigation, seven guidance schemes, Monte Carlo dispersions), bit-identical to a legacy reference on 22 of 24 output columns across a 725-step guided trajectory, driven from Python through one PyO3 seam ([ADR-0007](docs/adr/0007-the-pyo3-seam-has-five-tiers.md)).
 - **Cross-language ML deployment at machine epsilon.** Ten neural layer types (dense, GRU, LSTM, windowed, Transformer, Mamba and four probe cells) run natively in the Rust flight loop; the per-layer equivalence gates against their PyTorch mirrors observe differences between 1e-17 and 4e-14, and training evaluates through one bit-identity chokepoint ([ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)).
-- **Controlled experiments, judged on the tail.** Disjoint reserved seed pools for training, validation, final evaluation and a frozen 10⁶-scenario confirmatory; paired comparisons and seed-repeat error bars; every result quoted as the CVaR99.9 of the correction delta-v (the statistic the propellant is sized on) next to capture rate, constraint violations and the worst case.
-- **A documented self-correction, reproducible from one command.** A conditioning defect in the project's own evaluation pipeline was found after the paper's first release, quantified on paired pools, repaired as the new default and every headline cell retrained under the repair (paper Appendix E). One command rebuilds the [paper](#paper) from its committed evaluation bundle, and CI proves its figures byte-identical on every PR.
+- **Controlled experiments, judged on the tail.** Disjoint reserved seed pools for training, validation, final evaluation and a frozen 10⁶-scenario confirmatory; paired comparisons and seed-repeat error bars; every table row quoted as the CVaR99.9 of the correction delta-v (the statistic the propellant is sized on) next to capture rate, constraint violations and the worst case.
+- **A documented self-correction, reproducible from one command.** A conditioning defect in the project's own evaluation pipeline was found after the paper's first release, quantified on paired pools, repaired as the new default and every headline cell retrained under the repair (paper Appendix E). One command rebuilds the [paper](#paper) (figures from the committed evaluation bundle, results from the archived run logs it fetches), and CI proves the figures byte-identical on every PR.
 
 ## The headline result
 
@@ -17,12 +17,14 @@ Under independent per-scenario density noise (the simulator's default regime, [A
 
 ![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
 
+*The figure is the paper's main-body deployability scatter under the historical shared noise path (Mamba 125 m/s and dense 141 as three-seed means, joint-FTC 165, FNPAG 199), the regime of the [Historical result and evaluation correction](#historical-result-and-evaluation-correction) below; the per-scenario numbers behind the headline are the first [Results](#results) table.*
+
 ## Review this project in 15 minutes
 
 1. **How it works** (5 min): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Two languages and one seam, a training run in fifteen lines, a simulation tick in eight, where the paper's numbers come from.
 2. **The self-correction** (3 min): [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md), then Appendix E of the [paper](articles/paper/paper.pdf). A shared noise path the networks exploited 2-4x more than the classical laws: found, quantified, repaired, retrained under.
 3. **One representative change** (3 min, the description rather than the diff): [PR #94](https://github.com/GovitPowerz/Aerocapture/pull/94). An invariant stated up front (each layer declares its tensors once; that list is the flat order and the JSON key set), one source of truth exported across the seam, byte-identity fixtures frozen before the refactor, the cross-language gates re-run.
-4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper -B figures check` regenerates every paper figure from the committed bundle (pure Python, no build) and verifies it byte-identical to git.
+4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper -B figures check` regenerates every paper figure from the committed bundle (Python only, no Rust build; the provenance check also needs Typst 0.15.1 on `PATH`) and verifies it byte-identical to git.
 5. **Why not reinforcement learning** (2 min): Section 5 of the [paper](articles/paper/paper.pdf). PPO from scratch and warm-started, under the protocol of the population-trained cells it is compared against.
 
 ## Results
@@ -62,7 +64,7 @@ Full protocol and results: paper Sections 6–7, per-scheme mission cards in App
 
 ## Paper
 
-This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* - the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/). One command rebuilds it from the committed bundle: `make -C articles/paper paper` fetches the raw training logs (195 MB, a GitHub Release asset) if absent, regenerates `data/results.json` and every figure, writes `data/provenance.json`, and compiles the PDF; `make -C articles/paper check` verifies the bundle checksums and that the figures are byte-identical to git (CI runs it on every PR). See [articles/paper/Makefile](articles/paper/Makefile).
+This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* - the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/). One command rebuilds it from the committed bundle: `make -C articles/paper paper` fetches the raw training logs (195 MB, a GitHub Release asset) if absent, regenerates `data/results.json` and every figure, writes `data/provenance.json`, and compiles the PDF; `make -C articles/paper -B figures check` regenerates every figure, then verifies the bundle checksums and that the figures are byte-identical to git (CI runs the same on every PR). See [articles/paper/Makefile](articles/paper/Makefile).
 
 The paper's three contributions, in one line each (paper Section 1):
 
@@ -91,7 +93,7 @@ uv run python -m aerocapture.demo
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
 # Tests (CI runs every test file on every PR and every push to main):
-cargo test --release --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
 
@@ -482,7 +484,7 @@ The Rust simulator has been validated against a reference implementation across 
 
 ```bash
 # Rust tests
-cargo test --release --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --manifest-path src/rust/Cargo.toml
 
 # Python tests
 uv run pytest tests/
