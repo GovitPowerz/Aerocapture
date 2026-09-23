@@ -50,8 +50,9 @@ flew. What AMAT does and where its conventions differ from ours is in
   `data/atmosphere/mars.dat`, exported to AMAT's column format and interpolated linearly as the Rust
   lookup does (AMAT's cubic default would not match); exit at 130.988 km and crash at the surface;
   beta and L/D.
-- Switched off on our side because AMAT lacks them: oblateness (polar radius set to the equatorial
-  one), J3 and J4. Winds and every dispersion are already off in the mission base.
+- Switched off on our side: oblateness (polar radius set to the equatorial one) and J4, which AMAT
+  lacks, and J3, which AMAT has but the issue's J2-only model excludes. Winds and every dispersion
+  are already off in the mission base.
 - Conventions mapped: AMAT's heading runs from east toward north (`90 deg - azimuth`); its positive
   bank turns left and ours right, so AMAT flies `delta = -bank`; AMAT's accelerations are divided by
   our G0 = 9.81 instead of its 9.80665.

@@ -179,9 +179,10 @@ def fly_matched(frozen: dict[str, Any], integration: dict[str, object] | None = 
     records = _fly(block["inputs"]["config"], [{**(integration or {}), "guidance.reference_bank_angle": c["bank_deg"]} for c in cases.values()])
     out: dict[str, dict[str, Any]] = {}
     for name, fr in zip(cases, records, strict=True):
-        outcome = OUTCOMES[int(fr[idx["ifinal"]])]
-        values = {k: float(fr[idx[q.record_key]]) for k, q in QUANTITIES.items() if outcome == "exit" or not q.exit_only}
-        out[name] = {"outcome": outcome, **values}
+        # Every column is read whatever our outcome; `matched_rows` decides which rows exist from AMAT's,
+        # so an outcome disagreement prints failing rows instead of raising KeyError.
+        values = {k: float(fr[idx[q.record_key]]) for k, q in QUANTITIES.items()}
+        out[name] = {"outcome": OUTCOMES[int(fr[idx["ifinal"]])], **values}
     return out
 
 
