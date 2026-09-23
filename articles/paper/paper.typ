@@ -85,7 +85,7 @@
   independent per-scenario realizations of the time-varying density noise, a 962-parameter
   recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
   confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
-  #box[$163.2 plus.minus 1.3$ m/s] over three fine-tune seeds -- $73$ m/s below both the best
+  #box[$163.2 plus.minus 1.3$ m/s] (both means over three fine-tune seeds) -- $73$ m/s below both the best
   classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms]
   per simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of
   this paper led with: the historical evaluation pipeline conditioned every scenario on a single
@@ -1190,8 +1190,8 @@ regime-dependent: under per-scenario noise the scratch-retrained networks beat F
 one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
 fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
 But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
-always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds, with
-$99.996%$ of scenarios captured, while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
+always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s with $99.996%$ of scenarios
+captured (both means over three fine-tune seeds; the deployed seed captures $99.9995%$), while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
 $236$. The recurrent advantage lives at the extreme tail, and only a million-scenario pool can see
 it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern is the same:
 the network is exactly as good as the distribution it trains on, and widening the training
@@ -1244,7 +1244,8 @@ against predictor--correctors. This paper delivers it, and the answer is favorab
 on the metric that matters. Under independent per-scenario density noise, a #box[$962$-parameter]
 recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
 confirmatory scenarios at full constraint feasibility and, on the far tail that sizes the propellant
-tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds -- $73$ m/s below
+tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (both means over three fine-tune seeds; the
+deployed seed captures $99.9995%$) -- $73$ m/s below
 both the best classical scheme and the best dense network -- running $28 times$ faster than the
 numerical predictor--corrector.
 

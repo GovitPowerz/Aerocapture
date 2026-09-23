@@ -4,7 +4,7 @@ The committed `paper.pdf` is recompiled from the Typst source below (`make -C ar
 last on 2026-09-22 with #120); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
-  result (fine-tuned Mamba, CVaR99.9 163.2 +- 1.3 m/s over three seeds, 99.996% capture of 10^6,
+  result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
   73 m/s below FNPAG and the best dense network) and state the shared-path result (123.3 +- 0.1 at
   100% capture) as the historical headline that Appendix E corrects. Sections 5-7 and their tables
   still quote the shared-path regime and say so; per-scenario re-quotes of those sections are not
@@ -32,3 +32,8 @@ last on 2026-09-22 with #120); the arxiv-v3 build is the `arxiv-v3` tag.
   One cell moved: the QAT fine-tune CVaR99.9 is 122.85 pooled, which rounds to 122.9 (the
   transcription had rounded it down); the two prose quotes follow. Every other converted cell
   reproduces its literal.
+- 2026-09-23 (#134): every prose quote of the 99.996% capture rate (abstract, Section 7,
+  conclusion) is labelled as a three-fine-tune-seed mean, the label the CVaR99.9 beside it
+  already carried; Section 7 and the conclusion also give the deployed seed's 99.9995%, the
+  value in the performance table. Per-seed captures on the 10^6 confirmatory pool:
+  999995 / 999970 / 999920 (s1 deployed / s2 / s3). No number changes.
