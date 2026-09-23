@@ -27,9 +27,14 @@ def test_frozen_outputs_come_from_the_committed_oracle(frozen: dict[str, Any]) -
 def test_validation_doc_quotes_the_current_tables(capsys: pytest.CaptureFixture[str]) -> None:
     pytest.importorskip("aerocapture_rs")
     crosscheck.main()
-    doc = (crosscheck.REPO / "docs/validation.md").read_text()
-    stale = [line for line in capsys.readouterr().out.splitlines() if line.startswith("| ") and line not in doc]
+    printed = [line for line in capsys.readouterr().out.splitlines() if line.startswith("| ")]
+    doc = (crosscheck.REPO / "docs/validation.md").read_text().splitlines()
+    stale = [line for line in printed if line not in doc]
     assert not stale, "docs/validation.md is stale; paste `python -m aerocapture.physics_crosscheck`:\n" + "\n".join(stale)
+    # The converse: a doc row keyed like a printed one (case, corridor or bound label) that is no longer printed.
+    keys = {line.split("|")[1].strip() for line in printed}
+    extra = [line for line in doc if line.startswith("| ") and line.split("|")[1].strip() in keys and line not in printed]
+    assert not extra, "docs/validation.md keeps rows the cross-check no longer prints:\n" + "\n".join(extra)
 
 
 @pytest.mark.slow
