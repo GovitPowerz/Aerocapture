@@ -137,6 +137,44 @@ def test_results_schema_check_rejects_a_dropped_run(tmp_path: Path) -> None:
     assert "only-in-bundle" in out.stderr
 
 
+def test_confirmatory_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make check`'s extract gate: current on the committed pair, a failure once the source moves."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import extract_confirmatory_marginal as ecm  # type: ignore[import-not-found]
+
+    src = tmp_path / "experiments/ou_marginal/confirmatory_marginal.json"
+    out = tmp_path / "articles/paper/data/confirmatory_marginal.json"
+    src.parent.mkdir(parents=True)
+    out.parent.mkdir(parents=True)
+    shutil.copy(ecm.SRC, src)
+    shutil.copy(ecm.OUT, out)
+    monkeypatch.setattr(ecm, "REPO", tmp_path)
+    monkeypatch.setattr(ecm, "SRC", src)
+    monkeypatch.setattr(ecm, "OUT", out)
+    monkeypatch.setattr(sys, "argv", ["extract_confirmatory_marginal.py", "--check"])
+    ecm.main()
+
+    d = json.loads(src.read_text())
+    next(c for c in d["cells"] if c["label"] == "fnpag")["pooled"]["cvar999"] += 1.0
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="is not what"):
+        ecm.main()
+
+    # The recovery the message prescribes: regenerate, then --check passes again.
+    before = out.read_text()
+    monkeypatch.setattr(sys, "argv", ["extract_confirmatory_marginal.py"])
+    ecm.main()
+    assert out.read_text() != before
+    monkeypatch.setattr(sys, "argv", ["extract_confirmatory_marginal.py", "--check"])
+    ecm.main()
+
+    # A partially re-collected source names the missing cell instead of a KeyError.
+    d["cells"] = [c for c in d["cells"] if c["label"] != "fnpag"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag"):
+        ecm.main()
+
+
 def test_aggregate_fails_without_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bundle without run.jsonl.gz is an exit, not a degraded results.json."""
     monkeypatch.syspath_prepend(str(SCRIPTS))

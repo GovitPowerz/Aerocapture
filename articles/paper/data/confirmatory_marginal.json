@@ -1,0 +1,111 @@
+{
+ "source": "experiments/ou_marginal/confirmatory_marginal.json",
+ "noise_seeding": "per_draw",
+ "freeze_commit": "738d612fb7f739b857bc9de51a725f0d73093677",
+ "n_replicates": 10,
+ "n_per_replicate": 100000,
+ "cells": [
+  {
+   "label": "ou_marginal/ft_mamba_p962",
+   "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999995,
+    "cvar95": 138.68,
+    "cvar999": 163.02,
+    "max": 249.36,
+    "viol_pct": 0.0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.29
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_mamba_p962_s2",
+   "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999970,
+    "cvar95": 139.98,
+    "cvar999": 164.55,
+    "max": 240.3,
+    "viol_pct": 0.0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.33
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_mamba_p962_s3",
+   "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999920,
+    "cvar95": 138.44,
+    "cvar999": 161.89,
+    "max": 211.38,
+    "viol_pct": 0.0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.33
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_dense_p515",
+   "toml": "configs/training/ou_marginal/dense_p515.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 128.75,
+    "cvar999": 236.3,
+    "max": 404.86,
+    "viol_pct": 0.03
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.48
+    }
+   }
+  },
+  {
+   "label": "mamba_p962_long",
+   "toml": "configs/training/sweep/mamba_p962.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 979330,
+    "cvar95": 188.17,
+    "cvar999": 221.27,
+    "max": 269.55,
+    "viol_pct": 0.91
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.47
+    }
+   }
+  },
+  {
+   "label": "fnpag",
+   "toml": "configs/training/msr_aller_fnpag_train.toml",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 993679,
+    "cvar95": 152.54,
+    "cvar999": 236.66,
+    "max": 579.23,
+    "viol_pct": 0.0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.34
+    }
+   }
+  }
+ ]
+}

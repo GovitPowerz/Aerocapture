@@ -1,8 +1,8 @@
 # Rebuild the paper's figures, results.json and PDF from the committed bundle.
 #
 #   make -C articles/paper                 figures (default): the 18 fig_*.svg from data/ + the bundle
-#   make -C articles/paper paper           fetch-logs (if absent) -> results -> figures -> provenance -> pdf
-#   make -C articles/paper check           SHA256SUMS + results.json schema + figures/results.json unchanged in git
+#   make -C articles/paper paper           fetch-logs (if absent) -> results -> confirmatory-marginal -> figures -> provenance -> pdf
+#   make -C articles/paper check           SHA256SUMS + results.json schema + per-draw extract + figures/results.json unchanged in git
 #   make -C articles/paper -B figures      force every figure (CI does this, then `check`)
 #   make -C articles/paper -n paper        print what would run
 #
@@ -28,7 +28,8 @@ FIGS := figures
 PDF ?= articles/paper/paper.pdf
 
 .DEFAULT_GOAL := figures
-.PHONY: figures results fetch-logs provenance pdf paper check check-sums check-logs check-schema check-provenance sums help \
+.PHONY: figures results confirmatory-marginal fetch-logs provenance pdf paper check check-sums check-logs check-schema check-provenance \
+        check-marginal sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
         mc-objective-centering mc-compute-benchmark mc-requote mc-quant probes
 
@@ -85,6 +86,14 @@ RUN_LOGS := $(wildcard $(RUNS)/*/*/run.jsonl.gz)
 results:
 	$(UVPY) articles/paper/scripts/aggregate_results.py
 
+# ---------------------------------------------------------------------------
+# confirmatory_marginal.json <- the per_draw far-tail confirmatory (issue #137)
+# ---------------------------------------------------------------------------
+# The cells and fields the paper quotes, extracted from experiments/ou_marginal/confirmatory_marginal.json
+# (written by confirmatory_marginal.py there: hours per cell, never a make recipe). Pure stdlib.
+confirmatory-marginal:
+	$(UVPY) articles/paper/scripts/extract_confirmatory_marginal.py
+
 # The 95 run.jsonl.gz (~195 MB) are a Release asset (tag arxiv-v2), gitignored. Network.
 fetch-logs:
 	@if [ -z "$(RUN_LOGS)" ]; then bash $(SCRIPTS)/fetch_run_logs.sh; else echo "run logs present: $(words $(RUN_LOGS)) files"; fi
@@ -105,6 +114,7 @@ pdf:
 # Recursive so the log wildcard is re-evaluated after fetch-logs.
 paper: fetch-logs
 	$(MAKE) results
+	$(MAKE) confirmatory-marginal
 	$(MAKE) figures
 	$(MAKE) provenance
 	$(MAKE) pdf
@@ -135,13 +145,17 @@ $(FROZEN):
 # $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message
 # (the block above is defined first: make expands prerequisite lists when it reads the rule).
 # `git diff HEAD` so a regenerated-and-staged file still counts as changed.
-check: check-sums check-schema check-provenance $(FROZEN)
+check: check-sums check-schema check-marginal check-provenance $(FROZEN)
 	cd $(ROOT) && git diff HEAD --exit-code --stat -- articles/paper/figures articles/paper/data/results.json articles/paper/data/provenance.json
 	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
 
 # provenance.json must be what this tree yields (only per-input facts, so it changes only with an input).
 check-provenance:
 	$(UVPY) articles/paper/scripts/write_provenance.py --check
+
+# data/confirmatory_marginal.json must be what its experiments/ source yields.
+check-marginal:
+	$(UVPY) articles/paper/scripts/extract_confirmatory_marginal.py --check
 
 # data/SHA256SUMS = what `sums` writes: every tracked file under data/ except itself and
 # provenance.json. Recomputed and diffed (not `shasum --check`, which only verifies the
@@ -157,9 +171,18 @@ check-schema:
 	$(UVPY) articles/paper/scripts/check_results_schema.py
 
 # Regenerate both checksum files after a deliberate bundle change (12_collect_results.sh, mc-* targets).
+# SHA256SUMS.runlogs only when at least as many run logs are present as it lists: with none or a
+# subset (a fresh clone, or one re-collected cell) the find would shrink the manifest `check-logs`
+# verifies the Release asset against. To drop a cell's log on purpose, delete the manifest first.
+# A subset is not fixed by `fetch-logs` (a no-op once any log is present), and fetch_run_logs.sh
+# untars over the re-collected logs: set them aside, fetch, put them back, then sums.
 sums:
 	cd $(DATA) && $(TRACKED_DATA_SUMS) > SHA256SUMS
-	cd $(DATA) && find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs
+	@cd $(DATA) && have=$$(find runs -name run.jsonl.gz | wc -l | tr -d ' ') && listed=$$(cat SHA256SUMS.runlogs 2>/dev/null | wc -l | tr -d ' ') && \
+	if [ $$have -eq 0 ] || [ $$have -lt $$listed ]; then \
+	  echo "run logs: $$have present, $$listed listed: SHA256SUMS.runlogs left as is. None present: make fetch-logs, then sums." \
+	    "Some present: fetch_run_logs.sh overwrites them, so set re-collected logs aside, run it, put them back, then sums."; \
+	else find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs; fi
 
 help:
 	@sed -n '2,8p' $(lastword $(MAKEFILE_LIST))

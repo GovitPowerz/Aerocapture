@@ -3,8 +3,9 @@
 // Compile: make -C articles/paper pdf (runs typst from the repo ROOT so figure paths resolve,
 // and passes the git head the colophon prints).
 // Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
-// tbl-paired, tbl-quant-finalists) and the colophon read them at compile time through
-// results.typ; the prose still quotes transcribed numbers. Rebuild everything:
+// tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), the per-scenario headline quotes and the
+// colophon read them at compile time through results.typ; the rest of the prose still quotes
+// transcribed numbers. Rebuild everything:
 // make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
 // result. dense_515 carried as a full efficiency-reference row throughout.
@@ -53,8 +54,31 @@
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
 
-// Bundle accessors (results.json, confirmatory_eval.json, quant/finalists_results.json).
+// Bundle accessors (results.json, confirmatory_eval.json, quant/finalists_results.json,
+// confirmatory_marginal.json).
 #import "results.typ" as R
+// The per-scenario far-tail headline (data/confirmatory_marginal.json): the deployed fine-tune
+// seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG, the three-seed
+// means, the seeds' loss rates, and the margin to the better of the dense fine-tune and FNPAG.
+// ou_below(x) is the largest integer strictly below x, so both "N below/past" and "more than N"
+// hold. The prose quotes 10^6 scenarios per cell and the seeds' full constraint feasibility;
+// viol_pct is the mean of per-replicate shares rounded to 0.01% (confirmatory_eval.py), so the
+// gate resolves about 4 violating scenarios per 100 000, not one.
+#assert(R.marginal.n_replicates == 10 and R.marginal.n_per_replicate == 100000, message: "the per-scenario quotes state a 10 x 100 000 pool")
+#let ou_ft = R.marg("ou_marginal/ft_mamba_p962")
+#let ou_s2 = R.marg("ou_marginal/ft_mamba_p962_s2")
+#let ou_s3 = R.marg("ou_marginal/ft_mamba_p962_s3")
+#let ou_dense = R.marg("ou_marginal/ft_dense_p515")
+#let ou_champ = R.marg("mamba_p962_long")
+#let ou_fnpag = R.marg("fnpag")
+#let ou_seeds = (ou_ft, ou_s2, ou_s3)
+#assert(ou_seeds.all(c => c.viol_pct == 0), message: "a Mamba fine-tune seed violates a constraint: the prose states full feasibility")
+#let ou_ft3 = R.mean_sd(ou_seeds.map(c => c.cvar999))
+#let ou_ft3_capture = ou_seeds.map(c => c.capture_pct).sum() / ou_seeds.len()
+#let ou_rival999 = calc.min(ou_dense.cvar999, ou_fnpag.cvar999)
+#let ou_loss_rates = ou_seeds.map(c => c.lost / c.n)
+#let ou_below(x) = calc.ceil(x) - 1
+#let ou_margin(x) = ou_below(ou_rival999 - x)
 
 #v(0.15in)
 #align(center)[
@@ -83,10 +107,10 @@
   feedback law (FTC). Because the mission's correction propellant is sized off the worst-case
   $Delta v$, we lead every comparison with the tail of its distribution, not the mean. Under
   independent per-scenario realizations of the time-varying density noise, a 962-parameter
-  recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
+  recurrent (Mamba) policy fine-tuned in that regime captures $#R.fixed(ou_ft3_capture, d: 3)%$ of $10^6$ pre-registered
   confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
-  #box[$163.2 plus.minus 1.3$ m/s] (both three-fine-tune-seed means, the $plus.minus$ one seed
-  standard deviation; the deployed seed captures $99.9995%$) -- $73$ m/s below both the best
+  #box[$#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s] (both three-fine-tune-seed means, the $plus.minus$ one seed
+  standard deviation; the deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$) -- $#ou_margin(ou_ft3.mean)$ m/s below both the best
   classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms] per
   simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of this
   paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
@@ -1191,10 +1215,10 @@ regime-dependent: under per-scenario noise the scratch-retrained networks beat F
 one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
 fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
 But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
-always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s with $99.996%$
+always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = #R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s with $#R.fixed(ou_ft3_capture, d: 3)%$
 of scenarios captured (both three-seed means, the $plus.minus$ one seed standard deviation; the
-deployed seed captures $99.9995%$), while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG
-both blow past $236$. The recurrent advantage lives at the extreme tail, and only a million-scenario
+deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$), while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG
+both blow past $#ou_below(ou_rival999)$. The recurrent advantage lives at the extreme tail, and only a million-scenario
 pool can see it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern
 is the same: the network is exactly as good as the distribution it trains on, and widening the
 training environment recovers what the narrow one gave away.
@@ -1244,10 +1268,10 @@ Seventeen years ago we showed that a feed-forward network trained by a genetic a
 MSR aerocapture more efficiently than a Cerimele--Gamble feedback law, and we asked for a comparison
 against predictor--correctors. This paper delivers it, and the answer is favorable to neural guidance
 on the metric that matters. Under independent per-scenario density noise, a #box[$962$-parameter]
-recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
+recurrent (Mamba) policy fine-tuned in that regime captures $#R.fixed(ou_ft3_capture, d: 3)%$ of $10^6$ pre-registered
 confirmatory scenarios at full constraint feasibility and, on the far tail that sizes the propellant
-tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (both three-seed means, the $plus.minus$ one
-seed standard deviation; the deployed seed captures $99.9995%$) -- $73$ m/s below both the best
+tanks, holds $"CVaR"_(99.9) = #R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s (both three-seed means, the $plus.minus$ one
+seed standard deviation; the deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$) -- $#ou_margin(ou_ft3.mean)$ m/s below both the best
 classical scheme and the best dense network -- running $28 times$ faster than the numerical
 predictor--corrector.
 
@@ -1273,7 +1297,7 @@ seeding restores $100%$ capture and full constraint feasibility for every cell -
 whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
 fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); on the $10^6$-scenario far
-tail the fine-tuned recurrent policy holds $163.2$ (three-seed mean) while the dense fine-tune and
+tail the fine-tuned recurrent policy holds $#R.fixed(ou_ft3.mean)$ (three-seed mean) while the dense fine-tune and
 FNPAG both sit near $237$. The internal state earns its keep exactly where the shared-path study
 said it did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
 distribution, not on one noise path.
@@ -1855,6 +1879,19 @@ confirmatory protocol of Section 4.3 -- the same ten pre-registered pools of $10
 -- under per-scenario noise, for the two fine-tuned champions, the shared-path headline champion,
 and FNPAG.
 
+// One tbl-ou-confirmatory row from data/confirmatory_marginal.json (per_draw): capture with cap_d
+// decimals (the deployed seed needs 4 to show its 5 losses), CVaR95, CVaR99.9 +- replicate s.e.,
+// worst case; the lowest CVaR95 and CVaR99.9 of the four rows, as printed, are bold (a tie at the
+// printed precision bolds both). The pool shape is asserted with the ou_* block at the top.
+#let ou_rows = (ou_ft, ou_champ, ou_dense, ou_fnpag)
+#let ou_row(policy, c, cap_d: 2) = {
+  let hi(field) = {
+    let s = R.fixed(c.at(field))
+    if s == R.fixed(calc.min(..ou_rows.map(r => r.at(field)))) { math.bold(s) } else { s }
+  }
+  (policy, [$#R.fixed(c.capture_pct, d: cap_d)%$], [$#hi("cvar95")$],
+    [$#hi("cvar999") plus.minus #R.fixed(c.cvar999_se)$], [$#R.fixed(c.max, d: 0)$])
+}
 #figure(
   table(
     columns: (auto, auto, auto, auto, auto),
@@ -1862,32 +1899,32 @@ and FNPAG.
     table.hline(stroke: 0.7pt),
     table.header([Policy], [Capture], [$"CVaR"_95$], [$"CVaR"_(99.9)$ ($plus.minus$ s.e.)], [Max]),
     table.hline(stroke: 0.4pt),
-    [Mamba $962$ fine-tune], [$99.9995%$], [$138.7$], [$bold(163.0) plus.minus 0.3$], [$249$],
-    [Shared-path Mamba champion], [$97.93%$], [$188.2$], [$221.3 plus.minus 0.5$], [$270$],
-    [Dense $515$ fine-tune], [$100.00%$], [$bold(128.8)$], [$236.3 plus.minus 2.5$], [$405$],
-    [FNPAG], [$99.37%$], [$152.5$], [$236.7 plus.minus 2.3$], [$579$],
+    ..ou_row([Mamba $962$ fine-tune], ou_ft, cap_d: 4),
+    ..ou_row([Shared-path Mamba champion], ou_champ),
+    ..ou_row([Dense $515$ fine-tune], ou_dense),
+    ..ou_row([FNPAG], ou_fnpag),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Far-tail confirmatory under per-scenario noise: $10 times 100\,000$ scenarios per
   policy, the pre-registered pools of Section 4.3. $Delta v$ statistics in m/s over captured
-  scenarios; standard errors over the ten replicates. FNPAG's $0.63%$ non-captures are physical
+  scenarios; standard errors over the ten replicates. FNPAG's $#R.fixed(100 - ou_fnpag.capture_pct, d: 2)%$ non-captures are physical
   crashes: a $500$-seed sample re-runs as crashes with no timeout censoring.],
 ) <tbl-ou-confirmatory>
 
 The million-scenario depth reverses the shallow-tail verdict and restores the Section 6 thesis on
 the marginal distribution. The dense fine-tune, best at $"CVaR"_95$, pays for it at depth: its
-far tail reaches $236$ m/s with a worst case of $405$. The fine-tuned recurrent policy holds
-$"CVaR"_(99.9) = 163.0 plus.minus 0.3$ m/s -- more than $73$ m/s below both the dense fine-tune and FNPAG --
-loses $5$ of $10^6$ scenarios, and posts the smallest worst case of the study ($249$ m/s). As could
+far tail reaches $#R.fixed(ou_dense.cvar999, d: 0)$ m/s with a worst case of $#R.fixed(ou_dense.max, d: 0)$. The fine-tuned recurrent policy holds
+$"CVaR"_(99.9) = #R.fixed(ou_ft.cvar999) plus.minus #R.fixed(ou_ft.cvar999_se)$ m/s -- more than $#ou_margin(ou_ft.cvar999)$ m/s below both the dense fine-tune and FNPAG --
+loses $#ou_ft.lost$ of $10^6$ scenarios, and posts the smallest worst case of the study ($#R.fixed(ou_ft.max, d: 0)$ m/s). As could
 be expected from the shared-path results, the shared-path-trained champion is confirmed broken at this
-depth ($97.9%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
+depth ($#R.fixed(ou_champ.capture_pct)%$ capture); what could not be seen at $n = 1000$ is that the recurrent advantage
 survives the honest regime precisely where the paper always located it: the extreme tail that
 sizes the tanks.
 
 The far-tail claim is seed-robust. Two further fine-tunes from the same shared-path checkpoint
-under independent trainer seeds land at $"CVaR"_(99.9) = 164.6$ and $161.9$ m/s -- a three-seed
-mean of $163.2 plus.minus 1.3$ (one standard deviation), an order of magnitude below the $73$ m/s margin. The three seeds lose $5$, $30$ and $80$
-of the $10^6$ scenarios ($5 times 10^(-6)$ to $8 times 10^(-5)$; all genuine crashes, none a timeout), so the recipe's
+under independent trainer seeds land at $"CVaR"_(99.9) = #R.fixed(ou_s2.cvar999)$ and $#R.fixed(ou_s3.cvar999)$ m/s -- a three-seed
+mean of $#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ (one standard deviation), an order of magnitude below the $#ou_margin(ou_ft.cvar999)$ m/s margin. The three seeds lose $#ou_ft.lost$, $#ou_s2.lost$ and $#ou_s3.lost$
+of the $10^6$ scenarios (#R.sci(calc.min(..ou_loss_rates)) to #R.sci(calc.max(..ou_loss_rates))\; all genuine crashes, none a timeout), so the recipe's
 capture guarantee is seed-dependent at the $10^(-4)$ level and a deployed policy must be
 confirmatory-screened, exactly as the shared-path protocol always required. (A reproducibility
 note: a checkpoint resume restores the saved trainer RNG state, which silently overrides the seed
@@ -1902,10 +1939,11 @@ feasibility validation (@tbl-ou-retrain).
 #block(width: 100%, stroke: (top: 0.35pt), inset: (top: 6pt))[
   #set text(size: 8.5pt)
   #set par(justify: false)
-  *Provenance.* Every cell of @tbl-perf, @tbl-paired and @tbl-quant-finalists is read at compile
-  time from `data/results.json`, `data/confirmatory_eval.json` and
-  `data/quant/finalists_results.json` through `results.typ` (the Viol. column of @tbl-perf is
-  transcribed: the bundle carries no violation field). Paper inputs digest (SHA-256 over every
+  *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists and
+  @tbl-ou-confirmatory, and the per-scenario headline figures of the abstract, Section 9 and the
+  conclusion, are read at compile time from `data/results.json`, `data/confirmatory_eval.json`,
+  `data/quant/finalists_results.json` and `data/confirmatory_marginal.json` through `results.typ`
+  (the Viol. column of @tbl-perf is transcribed: the bundle carries no violation field). Paper inputs digest (SHA-256 over every
   tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release
   #raw(prov.release_tag). Simulator crate #prov.simulator_crate_version, Typst #prov.typst_version,
   matplotlib #prov.matplotlib_version. Noise regime: #prov.noise_regime. Compiled at git
