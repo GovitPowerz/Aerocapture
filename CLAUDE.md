@@ -180,7 +180,8 @@ pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script m
   proves the 18 figures are byte-identical to git; `paper-results` (workflow_dispatch only) fetches the 195 MB run logs, runs `make paper` end to end and requires `results.json` unchanged.
   Runs on every push to `main`, every PR to `main`, and manual dispatch.
 - **Docs**: module behaviour is documented in the per-package README next to the code (the pointer block above); this file carries lessons and conventions only. Design docs are dated files
-  under `docs/design/` (indexed in its README); decisions are ADRs under `docs/adr/`; the roadmap is `TODO.md`.
+  under `docs/design/` (indexed in its README); decisions are ADRs under `docs/adr/`; the roadmap is `TODO.md`. `DEVELOPMENT.md` is the human-facing agent policy; it quotes the
+  `.claude/settings.json` deny list verbatim (tracked since #111, `tests/test_development_md.py` fails on drift), so a deny-list edit updates both.
 - **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
 
 ## Tone
