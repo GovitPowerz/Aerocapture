@@ -20,6 +20,9 @@ import numpy.typing as npt  # noqa: E402
 import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
 from scipy import stats  # noqa: E402
 
+# The captured predicate lives with the deploy-side evaluation path; re-exported for the chart callers.
+from aerocapture.training.cell_eval import is_captured as is_captured  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Module-level theme
 # ---------------------------------------------------------------------------
@@ -100,12 +103,6 @@ _FR_DV_TOTAL = 41
 _FR_INTEGRATED_FLUX = 28
 _FR_BANK_CONSUMPTION = 45
 _FR_INCL_ERR = 46
-
-
-def is_captured(final_records: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:
-    """Canonical captured definition: exited atmosphere (ifinal==3) on a bound orbit (ecc<1)."""
-    result: npt.NDArray[np.bool_] = (final_records[:, _FR_IFINAL] == 3) & (final_records[:, _FR_ECC] < 1.0)
-    return result
 
 
 # ---------------------------------------------------------------------------

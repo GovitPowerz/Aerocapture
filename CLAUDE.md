@@ -104,8 +104,8 @@ Energy must use **absolute (inertial) velocity**, not relative velocity. The Rus
 `param_spaces.py` uses prefixed names to route params to TOML sections: `nav.` -> `[navigation]`, `lateral.` -> `[guidance.lateral]`, `exit.` -> `[guidance.ftc]`, `thermal.` ->
 `[guidance.thermal_limiter]`, unprefixed -> `[guidance.<scheme>]`. The path mapping is `param_spaces.route_param_path`; the full deploy rule (routing +
 `shaping.* => guidance.command_shaping.enabled = true` + `ParamSpec.is_integer` coercion + `ref_bank` skip) is `deploy_overrides.overrides_from_params`, which `evaluate.write_guidance_toml`,
-`compare_guidance`, `reference.nominal_flight_overrides`, the warm-start supervisor batch, `animate`, and (via `load_scaffolding_overrides` / `resolve_eval_toml`) `report.py`, `demo.py`, and the paper
-scripts all consume -- five hand-pasted copies of the enable-flag rule and two private prefix maps (one routing only `lateral.`) preceded it. `problem.py::_build_grid_overrides` (the `run_grid` hot
+`reference.nominal_flight_overrides`, the warm-start supervisor batch, `animate`, and (via `resolve_eval_toml` inside `cell_eval`, the one deploy-side evaluation path) `report.py`, `demo.py`,
+`compare_guidance` and the paper scripts all consume -- five hand-pasted copies of the enable-flag rule and two private prefix maps (one routing only `lateral.`) preceded it. `problem.py::_build_grid_overrides` (the `run_grid` hot
 path) routes with `route_param_path` + its own `is_integer` set and deliberately does not add the enable flag (a section created by a `max_bank_acceleration` override is enabled by default in Rust),
 keeping the grid overrides byte-identical. NN training bypasses `write_guidance_toml()` entirely -- navigation-level TOML overrides must be set in the NN training config directly.
 

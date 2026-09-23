@@ -24,6 +24,7 @@ import numpy.typing as npt
 import tomli_w
 import torch
 
+from aerocapture.training.cell_eval import CellResult, evaluate_cell
 from aerocapture.training.rl.config import RLConfig
 from aerocapture.training.rl.display import make_display
 from aerocapture.training.rl.env import AerocaptureVecEnv
@@ -57,11 +58,6 @@ def _resolve_output_dir(cfg: RLConfig) -> Path:
             f"ERROR: [data] neural_network = '{nn_path}' must live under 'training_output/' so checkpoints and report artifacts land alongside the deploy JSON."
         )
     return parent
-
-
-# Column indices in the 52-element final_record array (see runner.rs).
-_IDX_ECC = 9
-_IDX_IFINAL = 31
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +236,25 @@ def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool
     return out
 
 
+def _evaluate_model(toml_path: Path, model: Path, cfg: RLConfig, seed_offset: int) -> CellResult:
+    """Fly an exported policy JSON on `cfg.validation_n_sims` seeds of the reserved pool at `seed_offset`."""
+    from aerocapture.training.seeds import make_reserved_seeds
+
+    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
+    seeds = make_reserved_seeds(base_seed, seed_offset, cfg.validation_n_sims)
+    return evaluate_cell(None, toml_path, seeds, model=model)
+
+
+def _validation_record(toml_path: Path, model: Path, cfg: RLConfig) -> dict[str, Any]:
+    from aerocapture.training.cost import compute_cost
+    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET
+
+    res = _evaluate_model(toml_path, model, cfg, VALIDATION_SEED_OFFSET)
+    rms_cost = float(compute_cost(res.final_records, **read_cost_kwargs(toml_path)))
+    return {"val_rms_cost": rms_cost, "val_capture_rate": float(np.mean(res.captured))}
+
+
 def _validate_deterministic(
     policy: V2Policy,
     toml_path: Path,
@@ -249,26 +264,9 @@ def _validate_deterministic(
     obs_norm: ObsNormalizer | None = None,
 ) -> dict[str, Any]:
     """Export deterministic V2Policy + run validation batch; return RMS cost + capture rate."""
-    import aerocapture_rs  # type: ignore[import]
-
-    from aerocapture.training.cost import compute_cost
-    from aerocapture.training.report import read_cost_kwargs
-    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
-
     tmp_json = output_dir / "gen_current_model.json"
     export_v2_policy_to_json(policy, str(tmp_json), obs_normalizer=obs_norm)
-
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
-
-    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
-    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
-    fr = results.final_records
-
-    cost_kwargs = read_cost_kwargs(toml_path)
-    rms_cost = float(compute_cost(fr, **cost_kwargs))
-    capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
-    return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
+    return _validation_record(toml_path, tmp_json, cfg)
 
 
 def _validate_deterministic_v1(
@@ -285,44 +283,18 @@ def _validate_deterministic_v1(
     twin so the SAC path doesn't have to resurrect itself through Task 5's
     V2-only validation helper.
     """
-    import aerocapture_rs  # type: ignore[import]
-
-    from aerocapture.training.cost import compute_cost
-    from aerocapture.training.report import read_cost_kwargs
-    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
-
     tmp_json = output_dir / "gen_current_model.json"
     export_policy_to_json(policy, tmp_json, input_mask, obs_normalizer=obs_norm)
-
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, VALIDATION_SEED_OFFSET, cfg.validation_n_sims)
-
-    overrides_list = [{"data.neural_network": str(tmp_json), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
-    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
-    fr = results.final_records
-
-    cost_kwargs = read_cost_kwargs(toml_path)
-    rms_cost = float(compute_cost(fr, **cost_kwargs))
-    capture_rate = float(np.mean((fr[:, _IDX_IFINAL] == 3) & (fr[:, _IDX_ECC] < 1.0)))
-    return {"val_rms_cost": rms_cost, "val_capture_rate": capture_rate}
+    return _validation_record(toml_path, tmp_json, cfg)
 
 
 def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
-    import aerocapture_rs  # type: ignore[import]
-
     from aerocapture.training.report import print_eval_summary, read_cost_kwargs
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
-    n_sims = cfg.validation_n_sims
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-
-    overrides_list = [{"data.neural_network": str(best_model), "monte_carlo.seed": s, "simulation.n_sims": 1} for s in seeds]
-    print(f"\nRunning {n_sims}-sim final evaluation...", file=sys.stderr)
-    results = aerocapture_rs.run_batch(str(toml_path), overrides_list)
-
-    cost_kwargs = read_cost_kwargs(toml_path)
-    print_eval_summary(results.final_records, n_sims, cost_kwargs=cost_kwargs)
+    print(f"\nRunning {cfg.validation_n_sims}-sim final evaluation...", file=sys.stderr)
+    res = _evaluate_model(toml_path, best_model, cfg, FINAL_EVAL_SEED_OFFSET)
+    print_eval_summary(res.final_records, cfg.validation_n_sims, cost_kwargs=read_cost_kwargs(toml_path))
 
 
 # ---------------------------------------------------------------------------

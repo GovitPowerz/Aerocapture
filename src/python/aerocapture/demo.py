@@ -21,11 +21,10 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import aerocapture_rs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+from aerocapture.training.cell_eval import evaluate_cell
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_TOML = REPO_ROOT / "configs/training/sweep/mamba_p962.toml"
@@ -47,26 +46,13 @@ def run_demo(n_sims: int, output: Path, legacy: bool = False) -> None:
         if legacy
         else (DEMO_MODEL_DIR, "per_draw", "per-scenario density noise (per_draw, ADR-0006)")
     )
-    base: dict[str, object] = {
-        "data.neural_network": str(model_dir / "best_model.json"),
-        "simulation.n_sims": 1,
-        "monte_carlo.noise_seeding": mode,
-    }
-    base.update(load_scaffolding_overrides(model_dir))
     seeds = np.random.default_rng(DEMO_SEED).integers(0, 2**31, size=n_sims)
 
     print(f"Flying {n_sims} dispersed MSR aerocapture scenarios with the Mamba-962 guidance NN ({model_dir.name})...")
     print(f"Noise regime: {regime}")
-    results = aerocapture_rs.run_batch(
-        str(DEMO_TOML),
-        overrides_list=[{**base, "monte_carlo.seed": int(s)} for s in seeds],
-        include_trajectories=True,
-    )
-
-    idx = aerocapture_rs.final_record_indices()
-    fr = np.asarray(results.final_records)
-    captured = (fr[:, idx["ifinal"]] == 3) & (fr[:, idx["ecc"]] < 1.0)
-    dv = fr[captured, idx["dv_total_ms"]]
+    results = evaluate_cell(model_dir, DEMO_TOML, seeds, extra_overrides={"monte_carlo.noise_seeding": mode}, include_trajectories=True)
+    captured = results.captured
+    dv = results.dv
 
     n_cap = int(captured.sum())
     print(f"Captured {n_cap}/{n_sims} ({100.0 * n_cap / n_sims:.1f}%)")
@@ -85,8 +71,8 @@ def run_demo(n_sims: int, output: Path, legacy: bool = False) -> None:
     ax_cdf.set_title(f"DV cost, n={n_sims}, capture {100.0 * n_cap / n_sims:.1f}%")
     ax_cdf.grid(alpha=0.3)
 
-    for traj, ok in zip(results.trajectories, captured, strict=True):
-        t = np.asarray(traj)
+    assert results.trajectories is not None
+    for t, ok in zip(results.trajectories, captured, strict=True):
         if t.size == 0:
             continue
         color, alpha = ("tab:blue", 0.08) if ok else ("tab:red", 0.5)

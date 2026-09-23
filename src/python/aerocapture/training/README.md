@@ -230,8 +230,30 @@ use `--sim-timeout` against NaN hangs).
   `guidance.<scheme>.*`).
 - `deploy_overrides.py` — `overrides_from_params` (the full deploy rule: routing + `shaping.* =>
   guidance.command_shaping.enabled = true` + `ParamSpec.is_integer` coercion + `ref_bank` skip),
-  `load_scaffolding_overrides` / `resolve_eval_toml` (what `report.py`, `demo.py` and the paper
-  scripts use to fly a deployed cell), `LEGACY_NOISE_REGIME`.
+  `load_scaffolding_overrides` / `resolve_eval_toml` (consumed by `cell_eval`), `LEGACY_NOISE_REGIME`.
+- `cell_eval.py` — the ONE deploy-side evaluation path. `evaluate_cell(cell_dir, base_toml,
+  seeds | pool=(offset, n), *, model, extra_overrides, per_seed_overrides, include_trajectories,
+  sim_timeout_secs, n_threads)` flies a cell one sim per seed through `run_batch`: TOML via
+  `resolve_eval_toml` (optimized TOML wins, else base + `best_params.json` scaffolding), NN pinned
+  to `<cell_dir>/best_model.json` unless `model=` (a bundle's frozen weights, a temp ablated or
+  checkpoint model), `extra_overrides` (noise regime, stress levels, guidance type) win over the
+  cell, the seed is applied last; `cell_dir=None` flies the bare TOML. `fly_mc` is the same
+  resolution through `run_mc` (the config's own Monte Carlo: `compare_guidance`, `ablation`,
+  `animate`), `fly_nominal` the undispersed nominal (every `_MC_DISPERSION_DOMAINS` level off).
+  `CellResult` carries `final_records (N,52)`, `dispersions (N,26)`, `trajectories` (only when
+  requested), `seeds`, the resolved `toml_path` and the shared `overrides` (provenance), plus
+  `captured` (`is_captured`, the ONE captured predicate; `charts.is_captured` re-exports it) and
+  `dv` (captured-only). `reserved_pool(toml, offset, n)` keys a registered pool by the TOML's
+  `[monte_carlo] seed`. Callers: `report.py` (final MC + nominal overlay), `demo.py`, `rl/train.py`
+  (`_evaluate_model`), `rl/report_rl.py`, `compare_guidance`, `param_sweep --eval`, `quantize`,
+  `probe_common.score_model`, `mamba3_962_compare`, `warm_start_compare`, `ablation`, `animate`,
+  every paper script, `experiments/ou_marginal`, `experiments/fnpag_ab`. The seam is still called
+  directly where the override builder is genuinely different: `problem.py` (`run_grid`, the
+  training chokepoint), `train.py` (the warm-start eval callback on `problem._build_overrides`,
+  the piecewise corridor accumulation over a population, the piecewise best nominal via
+  `nominal_flight_overrides`), `reference.py` / `make_reference.py` (reference generation),
+  `sensitivity.py` (`run_with_draws`), `aerocapture.physics_crosscheck` (undispersed AMAT cells).
+  Migration was checked bit-for-bit per caller (#72).
 - `encoding.py` — All algorithms work on normalized `np.ndarray[float64]` in [0, 1].
   `decode_normalized(x, specs)`, `encode_to_normalized(params, specs)`,
   `decode_normalized_array(X, specs)`, `nn_param_specs_from_architecture(layer_sizes, activations,
@@ -330,9 +352,8 @@ use `--sim-timeout` against NaN hangs).
   `aerocapture_rs.flat_weights_to_json`, QAT rounding applied), `build_v2_architecture`,
   `write_guidance_toml` (base TOML + `deploy_overrides.overrides_from_params` -> `toml_utils.write_toml`),
   `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_violation_rates`,
-  `_parse_final_to_legacy_array` (for `compare_guidance`'s CSV transport). The Rust-CLI
-  subprocess oracle is test-only (`tests/fixtures/subprocess_oracle.py`, backing
-  `test_pyo3_matches_subprocess`).
+  `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
+  `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
 - `cost.py` — `build_cost_kwargs(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]`
   reader (train, gate, final selection, report, compare; `report.read_cost_kwargs(path)`
   delegates; unknown keys raise) + the per-sim objective `compute_cost`, built on `dv_cost(dv)`, a
@@ -351,7 +372,10 @@ use `--sim-timeout` against NaN hangs).
   `articles/paper/scripts/confirmatory_eval.py`). Pool disjointness is otherwise probabilistic
   (independent streams, ~n²/2³¹ collision odds per pair); rotating/adaptive draws exclude the
   reserved pools explicitly.
-- `compare_guidance.py` — head-to-head comparison on identical MC scenarios; `compare_guidance.SCHEMES` /
+- `compare_guidance.py` — head-to-head comparison on identical MC scenarios: each scheme's cell
+  (`<params_dir>/<scheme>/`) flown through `cell_eval.fly_mc` on its own training TOML with
+  `n_sims` dispersed sims from the shared `[monte_carlo] seed` (no temp TOML, no subprocess, no
+  CSV parse; the old CLI transport agreed to CSV precision, ~5e-8); `compare_guidance.SCHEMES` /
   `_NN_DEPLOY_SCHEMES` register every deployable cell (each NN scheme deploys through the Rust
   `neural_network` runtime, RL included as `neural_network_rl`); cost kwargs from
   `report.read_cost_kwargs` so heat-load weight/limit match the training objective.
@@ -459,10 +483,10 @@ use `--sim-timeout` against NaN hangs).
   `NetworkConfig`; dense family floor hidden=2 so sub-500 budgets resolve), `--train`
   subprocess-trains each point (skip-if-`best_model.json`-exists, `--force` to retrain,
   `--from-scratch` passes through, `--training-n-sims N`), `--eval` re-scores every deployed model
-  on ONE reserved pool (`SWEEP_EVAL_SEED_OFFSET`) via run_batch WITH the co-trained
-  `best_params.json` scaffolding overrides (`_entry_overrides` reuses
-  `deploy_overrides.load_scaffolding_overrides`; the sweep configs inherit `scaffolding = "live"`, so scoring
-  without them mis-ranks architectures), `--plot` renders the Pareto frontier SVG (`--metric
+  on ONE reserved pool (`SWEEP_EVAL_SEED_OFFSET`) WITH the co-trained `best_params.json`
+  scaffolding (`_score_entry` -> `cell_eval.evaluate_cell`; the sweep configs inherit
+  `scaffolding = "live"`, so scoring without them mis-ranks architectures), `--plot` renders the
+  Pareto frontier SVG (`--metric
   capture_rate` flips to a higher-better front). `--out-tag <tag>` isolates a sub-sweep's
   `manifest_<tag>.json` / `pareto_results_<tag>.json` (the sub-500 floor sweep uses
   `manifest_floor.json`, whose 515/3998 anchors point at
@@ -513,10 +537,12 @@ use `--sim-timeout` against NaN hangs).
   `create_display(..., algorithm=)` threads the optimizer name into the header.
 - `report.py` — the PDF report orchestrator: loads the JSONL logs (`load_run_data` dedups by
   `(generation, island_name)` so islands runs keep all 3 per-gen records), runs the final MC
-  re-evaluation on the final-eval pool via `run_batch` (`run_final_evaluation`; the evaluated NN
-  is pinned to `<scheme_dir>/best_model.json` when present, because the TOML's shared `[data]
-  neural_network` deploy path is rewritten by every `--output-dir` sibling run; the noise regime
-  it resolved is passed into the run and printed), generates the SVG charts (`charts.py`), writes
+  re-evaluation on the final-eval pool via `cell_eval.evaluate_cell` (`run_final_evaluation`; the
+  evaluated NN is pinned to `<scheme_dir>/best_model.json` when present, because the TOML's shared
+  `[data] neural_network` deploy path is rewritten by every `--output-dir` sibling run; the noise
+  regime it resolved is passed into the run and printed) and the undispersed nominal overlay via
+  `cell_eval.fly_nominal` (same TOML, scaffolding and model pin as the final MC; before #72 the
+  overlay flew the TOML's shared model path), generates the SVG charts (`charts.py`), writes
   metadata/summary JSON and hands off to `report_render.py` (`staged_assets` + `render_pdf`).
   Three parts: Training Convergence (cost curves, diversity, cost distribution, parameter
   evolution; in islands mode `chart_island_convergence_overlay` + `chart_migration_timeline` fed
@@ -658,8 +684,8 @@ validation_n_sims` sims each).
 
 - `aerocapture.demo` (`src/python/aerocapture/demo.py`) — the clone-to-figure demo: flies the
   deployed cell `models/demo/ft_mamba_962/` (a copy of `training_output/ou_marginal/ft_mamba_p962/`,
-  the per-scenario fine-tune) over 500 per-seed MC sims (`run_batch`, the paper's evaluation
-  methodology) under `per_draw` noise and writes `demo_output/demo.svg`. `--legacy` flies the
+  the per-scenario fine-tune) over 500 per-seed MC sims (`cell_eval.evaluate_cell`, the paper's
+  evaluation path) under `per_draw` noise and writes `demo_output/demo.svg`. `--legacy` flies the
   shared-path champion `models/demo/mamba_962_legacy/` (a copy of `training_output/mamba_p962_long/`)
   under `noise_seeding = "legacy"`; model and regime are printed and stamped on the figure. Demo
   seeds come from an arbitrary RNG stream (424242), disjoint from every reserved pool.

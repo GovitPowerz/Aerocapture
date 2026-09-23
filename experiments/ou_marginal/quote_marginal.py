@@ -19,7 +19,7 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
-from aerocapture.training.deploy_overrides import load_scaffolding_overrides
+from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.report import _read_constraint_limits
 
 REPO = Path(__file__).resolve().parents[2]
@@ -65,24 +65,21 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
     idx = aerocapture_rs.final_record_indices()
     _, _, heat_load_limit_kj = _read_constraint_limits(REPO / toml)  # [flight.constraints] is authoritative
     assert heat_load_limit_kj is not None
-    base: dict[str, object] = {"simulation.n_sims": 1}
-    if model_dir is not None:
-        d = REPO / model_dir
-        base["data.neural_network"] = str(d / "best_model.json")
-        base.update(load_scaffolding_overrides(d))
-        # The ou_marginal configs bake per_draw into the TOML; pin the regime
-        # explicitly so BOTH regimes are scored for every cell regardless of
-        # which TOML it trained under.
-    base["monte_carlo.noise_seeding"] = "legacy"
-    ovr = []
-    for i, s in enumerate(seeds):
-        o = {**base, "monte_carlo.seed": int(s)}
-        if regime == "marginal":
-            o["simulation.random_seed"] = float(1000 + 7 * i)
-        ovr.append(o)
-    fr = np.asarray(aerocapture_rs.run_batch(str(REPO / toml), overrides_list=ovr, sim_timeout_secs=30.0).final_records)
-    cap = (fr[:, idx["ifinal"]] == 3) & (fr[:, idx["ecc"]] < 1.0)
-    dv = fr[cap, idx["dv_total_ms"]]
+    # The ou_marginal configs bake per_draw into the TOML; pin the regime
+    # explicitly so BOTH regimes are scored for every cell regardless of
+    # which TOML it trained under. The marginal regime re-draws the OU noise
+    # path per seed (simulation.random_seed); legacy shares it (env_idx=0).
+    res = evaluate_cell(
+        REPO / model_dir if model_dir is not None else None,
+        REPO / toml,
+        seeds,
+        extra_overrides={"monte_carlo.noise_seeding": "legacy"},
+        per_seed_overrides=[{"simulation.random_seed": float(1000 + 7 * i)} for i in range(len(seeds))] if regime == "marginal" else None,
+        sim_timeout_secs=30.0,
+    )
+    fr = res.final_records
+    cap = res.captured
+    dv = res.dv
     hl = fr[:, idx["heat_load_mjm2"]]
     p50, p95, p99 = np.percentile(dv, [50, 95, 99])
     return {

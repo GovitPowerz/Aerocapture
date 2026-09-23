@@ -239,22 +239,18 @@ def _score_variant(
     sim_timeout_secs: float | None,
 ) -> dict[str, Any]:
     """One MC batch on an explicit seed list for a pinned model; tail-led metrics."""
-    import aerocapture_rs
-
     from aerocapture.training import charts
+    from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.experiments.probe_common import cvar95
     from aerocapture.training.report import compute_eval_summary
 
     # The quantized head's source cell was trained under the shared noise path; score it there (ADR-0006).
-    overrides = [
-        {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model_path), "monte_carlo.seed": int(s), **extra_overrides} for s in seeds
-    ]
-    batch = aerocapture_rs.run_batch(toml_path, overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout_secs)
-    final = np.array(batch.final_records, dtype=np.float64)
-    summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
-    captured = charts.is_captured(final)
-    dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+    res = evaluate_cell(
+        None, Path(toml_path), seeds, model=Path(model_path), extra_overrides={**LEGACY_NOISE_REGIME, **extra_overrides}, sim_timeout_secs=sim_timeout_secs
+    )
+    summary = compute_eval_summary(res.final_records, n_sims=len(seeds), cost_kwargs=cost_kwargs)
+    dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
     viol = _max_viol_pct(summary["constraints"])
     return {
         "capture_rate": float(summary["capture_rate"]),

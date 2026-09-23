@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.evaluate import write_nn_json
 from aerocapture.training.report import _read_constraint_limits
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
     from aerocapture.training.config import TrainingConfig
 
 try:
-    import aerocapture_rs as _aero_rs
+    import aerocapture_rs  # noqa: F401
 except ImportError as e:
     raise ImportError("warm_start_compare requires the aerocapture_rs PyO3 module") from e
 
@@ -79,14 +80,9 @@ def _run_one_pool_one_side(
     else:
         raise ValueError(f"unknown side {side!r}; expected 'supervisor' or 'nn'")
 
-    overrides_list = [{**overrides_template, "monte_carlo.seed": int(s), "simulation.n_sims": 1} for s in seeds]
-    results = _aero_rs.run_batch(
-        toml_path=str(toml_path),
-        overrides_list=overrides_list,
-        include_trajectories=True,
-        sim_timeout_secs=sim_timeout_secs,
-    )
-    return results.final_records, list(results.trajectories)
+    results = evaluate_cell(None, Path(toml_path), seeds, extra_overrides=overrides_template, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+    assert results.trajectories is not None
+    return results.final_records, results.trajectories
 
 
 def _render_pool_panels(

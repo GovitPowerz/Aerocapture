@@ -32,8 +32,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
+from aerocapture.training.cell_eval import CellResult, evaluate_cell
 from aerocapture.training.config import NetworkConfig
 from aerocapture.training.seeds import SWEEP_EVAL_SEED_OFFSET
 
@@ -258,27 +257,23 @@ def train(
 # ─────────────────────────── evaluation ───────────────────────────
 
 
-def _entry_overrides(entry: dict[str, Any], model: Path, seeds: list[int]) -> list[dict[str, Any]]:
-    """Per-seed run_batch overrides: deployed NN + co-trained scaffolding.
+def _score_entry(entry: dict[str, Any], model: Path, seeds: list[int], sim_timeout: float | None) -> CellResult:
+    """One sweep cell on the shared pool: deployed NN + co-trained scaffolding.
 
     Sweep configs inherit `scaffolding = "live"`, so each point's best_params.json
     carries co-trained nav/shaping values that MUST be applied at eval (the same
     convention report.py / compare_guidance.py follow) — without them every model
     is scored against TOML-default scaffolding it was never trained with.
-    run_batch == one sim per override; force n_sims=1 (configs inherit n_sims=1000).
+    Sweep cells were trained under the shared noise path; score them there (ADR-0006).
     """
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 
-    out_dir = Path(entry["output_dir"])
-    scaff = load_scaffolding_overrides(out_dir)
-    # Sweep cells were trained under the shared noise path; score them there (ADR-0006).
-    base: dict[str, Any] = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model), **scaff}
-    return [{**base, "monte_carlo.seed": int(s)} for s in seeds]
+    return evaluate_cell(
+        Path(entry["output_dir"]), Path(entry["config"]), seeds, model=model, extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=sim_timeout
+    )
 
 
 def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None, tag: str = "") -> list[dict[str, Any]]:
-    import aerocapture_rs
-
     from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
     from aerocapture.training.seeds import make_reserved_seeds
 
@@ -290,10 +285,8 @@ def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_ti
             print(f"  skip {entry['arch']} {entry['params']}p (untrained: no {model})")
             continue
         cost_kwargs = read_cost_kwargs(Path(entry["config"]))
-        overrides_list = _entry_overrides(entry, model, seeds)
-        batch = aerocapture_rs.run_batch(entry["config"], overrides_list, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
-        final = np.array(batch.final_records, dtype=np.float64)
-        summary = compute_eval_summary(final, n_sims=n_sims, cost_kwargs=cost_kwargs)
+        res = _score_entry(entry, model, seeds, sim_timeout)
+        summary = compute_eval_summary(res.final_records, n_sims=n_sims, cost_kwargs=cost_kwargs)
         row = {
             "arch": entry["arch"],
             "params": entry["params"],

@@ -87,21 +87,16 @@ def score_model(
     extra_overrides: dict[str, Any] | None = None,
 ) -> dict[str, float]:
     """One MC batch of len(seeds) sims for a deployed model; tail-led metric dict."""
-    import aerocapture_rs
-
     from aerocapture.training import charts
+    from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.report import _read_constraint_limits, compute_eval_summary
 
     # Probe arms were trained under the shared noise path; score them there (ADR-0006).
-    overrides = [
-        {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, "data.neural_network": str(model), "monte_carlo.seed": int(s), **(extra_overrides or {})} for s in seeds
-    ]
-    batch = aerocapture_rs.run_batch(str(config), overrides, n_threads=None, include_trajectories=False, sim_timeout_secs=sim_timeout)
-    final = np.array(batch.final_records, dtype=np.float64)
+    res = evaluate_cell(None, config, seeds, model=model, extra_overrides={**LEGACY_NOISE_REGIME, **(extra_overrides or {})}, sim_timeout_secs=sim_timeout)
+    final = res.final_records
     summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
-    captured = charts.is_captured(final)
-    dv = np.clip(final[captured, charts._FR_DV_TOTAL], charts.DV_FLOOR, charts.DV_CAP)
+    dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
     # Constraint feasibility on the same pool (the LSTM lesson: a cell can win the
     # DV tail while violating the heat-load limit; a probe arm must not be quoted
     # as "within sigma_run" without this check).

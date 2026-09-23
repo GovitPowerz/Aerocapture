@@ -54,39 +54,35 @@ def _parse_extra_overrides(items: list[str]) -> dict:
 
 
 def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None, extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
-    import aerocapture_rs
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
+    from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
-    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     src = scaffolding_from or label
     scheme_dir = REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
-    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
-    base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_mc_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-
-    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **scaffolding, **(extra or {})}
     # Pin the committed bundle's frozen weights when a bundle key is given --
     # training_output can drift from the bundle on a later resume (dense_p515
     # did: its local model far-tails at 140.3 vs the bundle's 128.1). Same
-    # rationale as collect_appendix.py.
+    # rationale as collect_appendix.py. Without one, evaluate_cell pins the cell's own model.
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
-    local_model = scheme_dir / "best_model.json"
-    model = bundle_model if bundle_model is not None and bundle_model.exists() else local_model
-    if model.exists():
-        base["data.neural_network"] = str(model.resolve())
-    overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
-    res = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=5.0)
-    recs = np.asarray(res.final_records)
+    res = evaluate_cell(
+        scheme_dir,
+        Path(toml),
+        pool=(FINAL_EVAL_SEED_OFFSET, n_sims),
+        model=bundle_model if bundle_model is not None and bundle_model.exists() else None,
+        extra_overrides={**LEGACY_NOISE_REGIME, **(extra or {})},
+        sim_timeout_secs=5.0,
+    )
+    recs = res.final_records
     col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    cap = (col["ifinal"] == 3) & (col["eccentricity"] < 1.0)
-    x = np.sort(col["dv_total_m_s"][cap])
+    cap = res.captured
+    x = np.sort(res.dv)
     # constraint feasibility on the same pool (the sizing tail must be flown INSIDE
     # the envelope -- a policy that buys its tail with heat-load violations is not
     # a clean competitor; see the LSTM disclosure in the paper's section 6.2)
-    hfl, gll, hll = _read_constraint_limits(eval_toml)
+    hfl, gll, hll = _read_constraint_limits(res.toml_path)
     v_hf = col["max_heat_flux_kw_m2"] > hfl
     v_g = col["max_load_factor_g"] > gll
     v_hl = col["integrated_flux_mj_m2"] * 1e3 > hll

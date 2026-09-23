@@ -28,8 +28,6 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
@@ -54,26 +52,19 @@ OUT = REPO / "articles/paper/data/robustness_retrain.json"
 
 
 def _eval_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
-    import aerocapture_rs
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, resolve_eval_toml
+    from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-    from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET, make_reserved_seeds
-    from aerocapture.training.toml_utils import load_toml_with_bases
+    from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
-    scheme_dir = REPO / "training_output" / run_dir
-    eval_toml, scaffolding = resolve_eval_toml(Path(toml), scheme_dir)
-    base_mc_seed = load_toml_with_bases(eval_toml).get("monte_carlo", {}).get("seed", 42)
-    seeds = make_reserved_seeds(base_mc_seed, STRESS_EVAL_SEED_OFFSET, n_sims)
-
-    base: dict = {"simulation.n_sims": 1, **LEGACY_NOISE_REGIME, **STRESS_OVERRIDES, **scaffolding}
-    local_model = scheme_dir / "best_model.json"
-    if local_model.exists():
-        base["data.neural_network"] = str(local_model.resolve())
-    overrides = [{**base, "monte_carlo.seed": s} for s in seeds]
-
-    results = aerocapture_rs.run_batch(toml_path=str(eval_toml.resolve()), overrides_list=overrides, sim_timeout_secs=5.0)
-    recs = np.asarray(results.final_records)
-    col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
+    res = evaluate_cell(
+        REPO / "training_output" / run_dir,
+        Path(toml),
+        pool=(STRESS_EVAL_SEED_OFFSET, n_sims),
+        extra_overrides={**LEGACY_NOISE_REGIME, **STRESS_OVERRIDES},
+        sim_timeout_secs=5.0,
+    )
+    col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     return {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
 
 

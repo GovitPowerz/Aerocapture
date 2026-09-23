@@ -442,7 +442,9 @@ Results saved to `output_dir/sensitivity_results.json` with mu_star/sigma (Morri
 
 The `aerocapture_rs` Python module is the one seam between the two languages. Its entries are
 tiered (see the module doc in `src/rust/aerocapture-py/src/lib.rs`): **evaluate** (`run_grid` for
-training, `run_batch` for every deploy-side number, `run_mc`, `run_with_draws`), **config**
+training, `run_batch` for every deploy-side number, reached through the one Python module
+`aerocapture.training.cell_eval` -- the demo, the reports, the head-to-head compare tool and every
+paper script fly a cell with `evaluate_cell`; `run_mc`, `run_with_draws`), **config**
 (`validate_config`, `load_config`), **contract** (`candidate_inputs`, `final_record_indices`,
 `layer_schema`, width constants), **nn** utilities, and the RL **env**.
 

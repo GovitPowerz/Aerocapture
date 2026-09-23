@@ -8,8 +8,9 @@ from typing import Any
 
 from aerocapture.training import charts
 from aerocapture.training import report as ga_report
+from aerocapture.training.cell_eval import evaluate_cell, reserved_pool
 from aerocapture.training.report_render import render_pdf, staged_assets
-from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
+from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 
@@ -50,28 +51,15 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         sensitivity_flags: dict[str, bool] = {"has_sensitivity": False, "has_morris": False, "has_sobol": False, "has_sobol_heatmap": False}
 
         try:
-            import aerocapture_rs  # type: ignore[import-not-found, import-untyped]
+            import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: F401
 
-            toml_data = load_toml_with_bases(toml_path)
-            base_seed = int(toml_data.get("monte_carlo", {}).get("seed", 42))
-            reserved_seeds = make_reserved_seeds(base_seed, FINAL_EVAL_SEED_OFFSET, n_sims)
-            overrides_list = [
-                {
-                    "data.neural_network": str(output_dir / "best_model.json"),
-                    "monte_carlo.seed": s,
-                    "simulation.n_sims": 1,
-                }
-                for s in reserved_seeds
-            ]
-            results = aerocapture_rs.run_batch(
-                str(toml_path.resolve()),
-                overrides_list,
-                include_trajectories=True,
-            )
+            reserved_seeds = reserved_pool(toml_path, FINAL_EVAL_SEED_OFFSET, n_sims)
+            results = evaluate_cell(None, toml_path, reserved_seeds, model=output_dir / "best_model.json", include_trajectories=True)
 
             final_records = results.final_records
             trajectories = results.trajectories
             dispersions = results.dispersions
+            assert trajectories is not None
 
             # Write Parquet
             try:

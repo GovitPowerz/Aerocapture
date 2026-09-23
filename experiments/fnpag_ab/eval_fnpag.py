@@ -11,6 +11,7 @@ from pathlib import Path
 
 import aerocapture_rs
 import numpy as np
+from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, overrides_from_params
 from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds
 
@@ -22,7 +23,6 @@ BASE_SEED = 42
 IDX = aerocapture_rs.final_record_indices()
 C_DV, C_DV1, C_DV2, C_DV3 = IDX["dv_total_ms"], IDX["dv1_ms"], IDX["dv2_ms"], IDX["dv3_ms"]
 C_APOERR, C_PERIERR = IDX["apoapsis_err_km"], IDX["periapsis_err_km"]
-C_IFINAL, C_ECC = IDX["ifinal"], IDX["ecc"]
 
 
 def pct(a: np.ndarray | list[float], label: str) -> dict[str, float]:
@@ -43,12 +43,10 @@ def main() -> None:
     routed = overrides_from_params(best, SCHEME)
 
     seeds = make_reserved_seeds(BASE_SEED, VALIDATION_SEED_OFFSET, n)
-    ovr = [{**routed, "monte_carlo.seed": int(s), "simulation.n_sims": 1, **LEGACY_NOISE_REGIME} for s in seeds]
+    res = evaluate_cell(None, Path(TOML), seeds, extra_overrides={**routed, **LEGACY_NOISE_REGIME}, sim_timeout_secs=10.0)
+    fr = res.final_records  # (n, 52)
 
-    res = aerocapture_rs.run_batch(TOML, ovr, sim_timeout_secs=10.0)
-    fr = np.asarray(res.final_records)  # (n, 52)
-
-    captured = (fr[:, C_IFINAL] == 3) & (fr[:, C_ECC] < 1.0)
+    captured = res.captured
     cap = fr[captured]
 
     out = {
