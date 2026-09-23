@@ -84,6 +84,7 @@ below) was retired into `TODO.md`; the March implementation plans that accompani
 | 2026-04-05 | [Advanced Sampling Methods & Sensitivity Analysis](2026-04-05-advanced-sampling-sensitivity-design.md) | — |
 | 2026-04-05 | [Predictive Roll Reversal (First-Order Inclination Projection)](2026-04-05-predictive-roll-reversal-design.md) | — |
 | 2026-04-07 | [Event Detection for DOPRI45 Adaptive Integrator](2026-04-07-event-detection-design.md) | — |
+| 2026-09-23 | [CPAG -- shelved negative result](2026-09-23-cpag-shelved.md) | Shelved (#135) |
 
 ## Reports & visualization
 
