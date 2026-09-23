@@ -13,7 +13,7 @@ A high-fidelity Mars aerocapture guidance simulator and an ML/control research p
 
 ## The headline result
 
-Under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm on a moving adaptive-seed Monte Carlo objective and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (both three-fine-tune-seed means; the deployed seed is the first row of the [Results](#results) table) on the correction delta-v tail that sizes the propellant. That is 73 m/s below both the best classical scheme (FNPAG, a numerical predictor-corrector) and the best dense network, at milliseconds of onboard compute; the numbers the paper first quoted, and why they changed, are under [Historical result and evaluation correction](#historical-result-and-evaluation-correction).
+Under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm on a moving adaptive-seed Monte Carlo objective and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (both three-fine-tune-seed means, the ± one seed standard deviation; the deployed seed is the first row of the [Results](#results) table) on the correction delta-v tail that sizes the propellant. That is 73 m/s below both the best classical scheme (FNPAG, a numerical predictor-corrector) and the best dense network, at milliseconds of onboard compute; the numbers the paper first quoted, and why they changed, are under [Historical result and evaluation correction](#historical-result-and-evaluation-correction).
 
 ![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
 
@@ -33,7 +33,7 @@ Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n
 
 | Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
 |---|---|---|---|---|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
+| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3 SD) | 249 | 3.14 |
 | Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
 | Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
 | Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |

@@ -85,14 +85,15 @@
   independent per-scenario realizations of the time-varying density noise, a 962-parameter
   recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
   confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
-  #box[$163.2 plus.minus 1.3$ m/s] over three fine-tune seeds -- $73$ m/s below both the best
-  classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms]
-  per simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of
-  this paper led with: the historical evaluation pipeline conditioned every scenario on a single
-  sample path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more
-  than the classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$
-  m/s at $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the
-  retraining, which restores $100%$ capture and full constraint feasibility for every cell. The
+  #box[$163.2 plus.minus 1.3$ m/s] (both three-fine-tune-seed means, the $plus.minus$ one seed
+  standard deviation; the deployed seed captures $99.9995%$) -- $73$ m/s below both the best
+  classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms] per
+  simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of this
+  paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
+  path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more than the
+  classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$ m/s at
+  $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the retraining,
+  which restores $100%$ capture and full constraint feasibility for every cell. The
   result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -1190,12 +1191,13 @@ regime-dependent: under per-scenario noise the scratch-retrained networks beat F
 one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
 fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
 But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
-always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds, with
-$99.996%$ of scenarios captured, while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG both blow past
-$236$. The recurrent advantage lives at the extreme tail, and only a million-scenario pool can see
-it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern is the same:
-the network is exactly as good as the distribution it trains on, and widening the training
-environment recovers what the narrow one gave away.
+always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s with $99.996%$
+of scenarios captured (both three-seed means, the $plus.minus$ one seed standard deviation; the
+deployed seed captures $99.9995%$), while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG
+both blow past $236$. The recurrent advantage lives at the extreme tail, and only a million-scenario
+pool can see it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern
+is the same: the network is exactly as good as the distribution it trains on, and widening the
+training environment recovers what the narrow one gave away.
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.14$ ms per simulation against
 $1.88$ ms for the dense network -- about $1.7 times$ for the selective-state-space core -- which is
@@ -1244,9 +1246,10 @@ against predictor--correctors. This paper delivers it, and the answer is favorab
 on the metric that matters. Under independent per-scenario density noise, a #box[$962$-parameter]
 recurrent (Mamba) policy fine-tuned in that regime captures $99.996%$ of $10^6$ pre-registered
 confirmatory scenarios at full constraint feasibility and, on the far tail that sizes the propellant
-tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s over three fine-tune seeds -- $73$ m/s below
-both the best classical scheme and the best dense network -- running $28 times$ faster than the
-numerical predictor--corrector.
+tanks, holds $"CVaR"_(99.9) = 163.2 plus.minus 1.3$ m/s (both three-seed means, the $plus.minus$ one
+seed standard deviation; the deployed seed captures $99.9995%$) -- $73$ m/s below both the best
+classical scheme and the best dense network -- running $28 times$ faster than the numerical
+predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
 wrong optimizer for a fixed objective and the right one for a moving one, and the moving
@@ -1270,10 +1273,10 @@ seeding restores $100%$ capture and full constraint feasibility for every cell -
 whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
 fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); on the $10^6$-scenario far
-tail the fine-tuned recurrent policy holds $163.2$ while the dense fine-tune and FNPAG both sit near
-$237$. The internal state earns its keep exactly where the shared-path study said it did -- on the
-extreme tail that sizes the tanks -- and that claim now stands on the marginal distribution, not on
-one noise path.
+tail the fine-tuned recurrent policy holds $163.2$ (three-seed mean) while the dense fine-tune and
+FNPAG both sit near $237$. The internal state earns its keep exactly where the shared-path study
+said it did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
+distribution, not on one noise path.
 
 The honest drawback that closed the 2009 paper -- that the training is too heavy to run on board --
 remains, but its sting is gone: the deployed policy is a fixed forward pass that costs a few
@@ -1883,7 +1886,7 @@ sizes the tanks.
 
 The far-tail claim is seed-robust. Two further fine-tunes from the same shared-path checkpoint
 under independent trainer seeds land at $"CVaR"_(99.9) = 164.6$ and $161.9$ m/s -- a three-seed
-mean of $163.2 plus.minus 1.3$, an order of magnitude below the $73$ m/s margin. The three seeds lose $5$, $30$ and $80$
+mean of $163.2 plus.minus 1.3$ (one standard deviation), an order of magnitude below the $73$ m/s margin. The three seeds lose $5$, $30$ and $80$
 of the $10^6$ scenarios ($5 times 10^(-6)$ to $8 times 10^(-5)$; all genuine crashes, none a timeout), so the recipe's
 capture guarantee is seed-dependent at the $10^(-4)$ level and a deployed policy must be
 confirmatory-screened, exactly as the shared-path protocol always required. (A reproducibility

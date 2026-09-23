@@ -1,10 +1,10 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-22 with #120); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-23 with #134); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
-  result (fine-tuned Mamba, CVaR99.9 163.2 +- 1.3 m/s over three seeds, 99.996% capture of 10^6,
+  result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
   73 m/s below FNPAG and the best dense network) and state the shared-path result (123.3 +- 0.1 at
   100% capture) as the historical headline that Appendix E corrects. Sections 5-7 and their tables
   still quote the shared-path regime and say so; per-scenario re-quotes of those sections are not
@@ -32,3 +32,13 @@ last on 2026-09-22 with #120); the arxiv-v3 build is the `arxiv-v3` tag.
   One cell moved: the QAT fine-tune CVaR99.9 is 122.85 pooled, which rounds to 122.9 (the
   transcription had rounded it down); the two prose quotes follow. Every other converted cell
   reproduces its literal.
+- 2026-09-23 (#134): every prose quote of the 99.996% capture rate (abstract, Section 9,
+  conclusion) is labelled as a three-fine-tune-seed mean, the label the CVaR99.9 beside it
+  already carried; Section 9 and the conclusion also give the deployed seed's 99.9995%, the
+  value in Appendix E's far-tail confirmatory table. The conclusion's second quote of the
+  CVaR99.9 (163.2) gains the same label; the table's 163.0 is the deployed seed. Per-seed
+  captures on the 10^6 confirmatory pool: 999995 / 999970 / 999920 (s1 deployed / s2 / s3).
+  Review follow-up (PR #136): the abstract also gives the deployed seed's 99.9995%, and every
+  three-seed +- (abstract, Section 9, conclusion, Appendix E, README, TODO) is labelled one seed
+  standard deviation; the far-tail table's +- stays the replicate standard error. No number
+  changes.
