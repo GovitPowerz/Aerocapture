@@ -23,7 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training import charts
-from aerocapture.training.cell_eval import evaluate_cell, fly_nominal, reserved_pool
+from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 from aerocapture.training.report_render import render_pdf, staged_assets
 
@@ -116,7 +116,6 @@ def run_final_evaluation(
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     eval_toml, scaffolding_overrides = resolve_eval_toml(toml_path, scheme_dir)
-    reserved_seeds = reserved_pool(eval_toml, FINAL_EVAL_SEED_OFFSET, n_sims)
 
     if scaffolding_overrides:
         print(f"  Using optimized NN scaffolding from {scheme_dir / 'best_params.json'}")
@@ -129,7 +128,7 @@ def run_final_evaluation(
         results = evaluate_cell(
             scheme_dir,
             toml_path,
-            reserved_seeds,
+            pool=(FINAL_EVAL_SEED_OFFSET, n_sims),
             extra_overrides={"monte_carlo.noise_seeding": regime},
             include_trajectories=True,
             sim_timeout_secs=sim_timeout_secs,

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from aerocapture.training import cell_eval
 from aerocapture.training.cell_eval import CellResult, evaluate_cell, fly_mc, fly_nominal, is_captured, reserved_pool
+from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_seeds
 
@@ -140,6 +141,34 @@ def test_missing_explicit_model_raises(fake_rs: FakeRs, nn_cell: tuple[Path, Pat
     with pytest.raises(FileNotFoundError, match="does not exist"):
         evaluate_cell(cell, base, [1], model=tmp_path / "nope.json")
     assert fake_rs.calls == []
+
+
+def test_undeployed_classical_cell_is_refused(fake_rs: FakeRs, tmp_path: Path) -> None:
+    """best_params.json without optimized_<scheme>.toml or best_model.json: only the scaffolding keys
+    would route and the gains would fly at TOML defaults -- refuse before flying."""
+    base = tmp_path / "base.toml"
+    base.write_text("")
+    cell = tmp_path / "ftc"
+    cell.mkdir()
+    (cell / "best_params.json").write_text(json.dumps({"k_gain": 1.0, "lateral.max_reversals": 3}))
+    with pytest.raises(FileNotFoundError, match="no optimized_<scheme>.toml"):
+        evaluate_cell(cell, base, [1])
+    with pytest.raises(FileNotFoundError, match="no optimized_<scheme>.toml"):
+        fly_mc(cell, base)
+    assert fake_rs.calls == []
+
+
+def test_explicit_model_uses_a_model_less_cell_for_scaffolding_only(fake_rs: FakeRs, tmp_path: Path) -> None:
+    base = tmp_path / "base.toml"
+    base.write_text("")
+    cell = tmp_path / "scaff"
+    cell.mkdir()
+    (cell / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
+    model = tmp_path / "bundle.json"
+    model.write_text("{}")
+    evaluate_cell(cell, base, [1], model=model)
+    [ov] = fake_rs.calls[0]["overrides_list"]
+    assert ov["navigation.density_filter_gain"] == 0.9 and ov["data.neural_network"] == str(model.resolve())
 
 
 def test_no_cell_dir_means_base_toml_and_nothing_else(fake_rs: FakeRs, tmp_path: Path) -> None:
@@ -311,7 +340,9 @@ def test_evaluate_cell_real_run_matches_a_direct_run_batch() -> None:
     assert res.final_records.shape == (3, N_COLS) and res.dispersions.shape == (3, 26)
     assert res.trajectories is not None and len(res.trajectories) == 3 and all(t.shape[1] == 17 for t in res.trajectories)
     assert res.captured.shape == (3,)
-    assert "data.neural_network" in res.overrides and "navigation.density_filter_gain" in res.overrides
+    # the dict every demo/report caller hand-built before cell_eval existed
+    expected = {"simulation.n_sims": 1, **load_scaffolding_overrides(DEMO_CELL), "data.neural_network": str((DEMO_CELL / "best_model.json").resolve())}
+    assert res.overrides == expected and "navigation.density_filter_gain" in expected
     direct = aero.run_batch(str(DEMO_TOML.resolve()), [{**res.overrides, "monte_carlo.seed": s} for s in seeds], sim_timeout_secs=30.0)
     assert np.array_equal(direct.final_records, res.final_records)
     assert np.array_equal(direct.dispersions, res.dispersions)

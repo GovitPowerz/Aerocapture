@@ -39,22 +39,21 @@ SCHEMES = [
 OUT = REPO / "articles/paper/data/compute_benchmark.json"
 
 
-def _fly(run_dir: str, toml: str, n_sims: int) -> None:
-    """One single-threaded flight of the cell on its final-eval pool (the timed unit)."""
+def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
+    import aerocapture_rs
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
-    evaluate_cell(REPO / "training_output" / run_dir, Path(toml), pool=(FINAL_EVAL_SEED_OFFSET, n_sims), extra_overrides=LEGACY_NOISE_REGIME, n_threads=1)
-
-
-def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     scheme_dir = REPO / "training_output" / run_dir
+    # Warmup (discard: caches, page-ins) through cell_eval, which resolves the cell once; the
+    # timed repeats replay that resolved batch on the bare seam so cell resolution stays untimed.
+    warm = evaluate_cell(scheme_dir, Path(toml), pool=(FINAL_EVAL_SEED_OFFSET, n_sims), extra_overrides=LEGACY_NOISE_REGIME, n_threads=1)
+    overrides = [{**warm.overrides, "monte_carlo.seed": s} for s in warm.seeds]
 
     def run() -> None:
-        _fly(run_dir, toml, n_sims)
+        aerocapture_rs.run_batch(str(warm.toml_path), overrides, n_threads=1)
 
-    run()  # warmup (discard: caches, page-ins)
     reps = []
     for _ in range(5):
         t0 = time.perf_counter()

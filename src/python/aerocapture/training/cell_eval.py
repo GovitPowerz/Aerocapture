@@ -77,6 +77,13 @@ def _resolve_cell(cell_dir: Path | None, base_toml: Path, model: Path | None) ->
     eval_toml = Path(base_toml)
     if cell_dir is not None:
         eval_toml, overrides = resolve_eval_toml(eval_toml, Path(cell_dir))
+        cell = Path(cell_dir)
+        if model is None and eval_toml == Path(base_toml) and (cell / "best_params.json").exists() and not (cell / "best_model.json").exists():
+            # A classical cell deploys as optimized_<scheme>.toml; without it only the prefixed
+            # scaffolding keys of best_params.json would route and the gains would fly at TOML defaults.
+            raise FileNotFoundError(
+                f"{cell} has best_params.json but no optimized_<scheme>.toml: re-deploy the cell (train.py writes it at the end of training)"
+            )
     if model is not None:
         if not Path(model).exists():
             raise FileNotFoundError(f"model {model} does not exist (refusing to fly the TOML's shared [data] neural_network instead)")

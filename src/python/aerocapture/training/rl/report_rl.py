@@ -8,7 +8,7 @@ from typing import Any
 
 from aerocapture.training import charts
 from aerocapture.training import report as ga_report
-from aerocapture.training.cell_eval import evaluate_cell, reserved_pool
+from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.report_render import render_pdf, staged_assets
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 from aerocapture.training.toml_utils import load_toml_with_bases
@@ -53,8 +53,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
         try:
             import aerocapture_rs  # type: ignore[import-not-found, import-untyped]  # noqa: F401
 
-            reserved_seeds = reserved_pool(toml_path, FINAL_EVAL_SEED_OFFSET, n_sims)
-            results = evaluate_cell(None, toml_path, reserved_seeds, model=output_dir / "best_model.json", include_trajectories=True)
+            results = evaluate_cell(None, toml_path, pool=(FINAL_EVAL_SEED_OFFSET, n_sims), model=output_dir / "best_model.json", include_trajectories=True)
 
             final_records = results.final_records
             trajectories = results.trajectories

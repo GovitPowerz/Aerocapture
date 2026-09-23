@@ -238,11 +238,7 @@ def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool
 
 def _evaluate_model(toml_path: Path, model: Path, cfg: RLConfig, seed_offset: int) -> CellResult:
     """Fly an exported policy JSON on `cfg.validation_n_sims` seeds of the reserved pool at `seed_offset`."""
-    from aerocapture.training.seeds import make_reserved_seeds
-
-    base_seed = int(cfg.raw_toml.get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_seed, seed_offset, cfg.validation_n_sims)
-    return evaluate_cell(None, toml_path, seeds, model=model)
+    return evaluate_cell(None, toml_path, pool=(seed_offset, cfg.validation_n_sims), model=model)
 
 
 def _validation_record(toml_path: Path, model: Path, cfg: RLConfig) -> dict[str, Any]:

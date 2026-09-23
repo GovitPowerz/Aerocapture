@@ -31,7 +31,9 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
 
     config = CONFIG_DIR / f"{arm}.toml"
     # shared-path cells, scored with their co-trained scaffolding
-    res = evaluate_cell(OUT_DIR / arm, config, seeds, extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=sim_timeout)
+    res = evaluate_cell(
+        OUT_DIR / arm, config, seeds, model=OUT_DIR / arm / "best_model.json", extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=sim_timeout
+    )
     summary = compute_eval_summary(res.final_records, n_sims=len(seeds), cost_kwargs=read_cost_kwargs(config))
     dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
     cap = summary["captured"]

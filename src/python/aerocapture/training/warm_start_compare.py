@@ -73,14 +73,14 @@ def _run_one_pool_one_side(
         overrides_template: dict[str, object] = overrides_from_params(supervisor_params, primary_scheme)
         overrides_template["guidance.type"] = primary_scheme
     elif side == "nn":
-        overrides_template = {
-            "guidance.type": "neural_network",
-            "data.neural_network": str(nn_json_path),
-        }
+        overrides_template = {"guidance.type": "neural_network"}
     else:
         raise ValueError(f"unknown side {side!r}; expected 'supervisor' or 'nn'")
 
-    results = evaluate_cell(None, Path(toml_path), seeds, extra_overrides=overrides_template, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+    model = nn_json_path if side == "nn" else None
+    results = evaluate_cell(
+        None, Path(toml_path), seeds, model=model, extra_overrides=overrides_template, include_trajectories=True, sim_timeout_secs=sim_timeout_secs
+    )
     assert results.trajectories is not None
     return results.final_records, results.trajectories
 

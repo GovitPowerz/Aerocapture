@@ -126,16 +126,9 @@ def run_scheme(
     # NN-deploying schemes all route through the Rust `neural_network` guidance runtime.
     guidance_type = "neural_network" if scheme in _NN_DEPLOY_SCHEMES else scheme
     cell_dir = params_dir / scheme if params_dir is not None else None
-    if cell_dir is not None and guidance_type != "neural_network" and (cell_dir / "best_params.json").exists():
-        # A classical scheme deploys its tuned params as optimized_<scheme>.toml
-        # (train.deploy_optimized_artifacts); a cell holding only best_params.json
-        # would be quoted at TOML defaults -- refuse rather than mis-rank it.
-        if not any(cell_dir.glob("optimized_*.toml")):
-            print(f"  ERROR: {cell_dir} has best_params.json but no optimized_<scheme>.toml; re-deploy the cell (train.py writes it at the end of training)")
-            return None
-    elif cell_dir is None or not cell_dir.exists():
+    if cell_dir is None or not cell_dir.exists():
         print("  Using TOML defaults (no deployed cell)")
-    try:
+    try:  # a classical cell with best_params.json but no optimized TOML is refused by cell_eval
         res = fly_mc(cell_dir, scheme_toml, n_sims=n_sims, extra_overrides={"guidance.type": guidance_type}, sim_timeout_secs=sim_timeout_secs)
     except Exception as exc:  # noqa: BLE001
         print(f"  ERROR: {exc}")
@@ -212,7 +205,9 @@ def main() -> None:
         help="Schemes to compare",
     )
     parser.add_argument("--params-dir", type=str, default="training_output", help="Directory with the deployed cells (one per scheme)")
-    parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout in seconds")
+    parser.add_argument(
+        "--sim-timeout", type=float, default=30.0, help="Per-sim wall-clock timeout in seconds (a non-terminating sim would hang the comparison)"
+    )
     args = parser.parse_args()
 
     base_toml = Path(args.base_toml) if args.base_toml else None

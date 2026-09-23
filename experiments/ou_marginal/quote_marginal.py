@@ -73,6 +73,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         REPO / model_dir if model_dir is not None else None,
         REPO / toml,
         seeds,
+        model=REPO / model_dir / "best_model.json" if model_dir is not None else None,
         extra_overrides={"monte_carlo.noise_seeding": "legacy"},
         per_seed_overrides=[{"simulation.random_seed": float(1000 + 7 * i)} for i in range(len(seeds))] if regime == "marginal" else None,
         sim_timeout_secs=30.0,

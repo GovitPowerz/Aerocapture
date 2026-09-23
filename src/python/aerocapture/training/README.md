@@ -236,8 +236,11 @@ use `--sim-timeout` against NaN hangs).
   sim_timeout_secs, n_threads)` flies a cell one sim per seed through `run_batch`: TOML via
   `resolve_eval_toml` (optimized TOML wins, else base + `best_params.json` scaffolding), NN pinned
   to `<cell_dir>/best_model.json` unless `model=` (a bundle's frozen weights, a temp ablated or
-  checkpoint model), `extra_overrides` (noise regime, stress levels, guidance type) win over the
-  cell, the seed is applied last; `cell_dir=None` flies the bare TOML. `fly_mc` is the same
+  checkpoint model; a `model=` that does not exist raises), `extra_overrides` (noise regime,
+  stress levels, guidance type) win over the cell, the seed is applied last; `cell_dir=None` flies
+  the bare TOML. A cell holding `best_params.json` but neither `optimized_<scheme>.toml` nor
+  `best_model.json` (an undeployed classical cell) is refused unless `model=` is given: only its
+  prefixed scaffolding keys would route and the gains would fly at TOML defaults. `fly_mc` is the same
   resolution through `run_mc` (the config's own Monte Carlo: `compare_guidance`, `ablation`,
   `animate`), `fly_nominal` the undispersed nominal (every `_MC_DISPERSION_DOMAINS` level off).
   `CellResult` carries `final_records (N,52)`, `dispersions (N,26)`, `trajectories` (only when
@@ -252,8 +255,10 @@ use `--sim-timeout` against NaN hangs).
   training chokepoint), `train.py` (the warm-start eval callback on `problem._build_overrides`,
   the piecewise corridor accumulation over a population, the piecewise best nominal via
   `nominal_flight_overrides`), `reference.py` / `make_reference.py` (reference generation),
-  `sensitivity.py` (`run_with_draws`), `aerocapture.physics_crosscheck` (undispersed AMAT cells).
-  Migration was checked bit-for-bit per caller (#72).
+  `sensitivity.py` (`run_with_draws`), `aerocapture.physics_crosscheck` (undispersed AMAT cells),
+  and `articles/paper/scripts/compute_benchmark.py`'s timed repeats (the warmup resolves the cell
+  through `evaluate_cell`; the repeats replay that batch on the bare seam so cell resolution stays
+  out of the timing). Migration was checked bit-for-bit per caller (#72).
 - `encoding.py` — All algorithms work on normalized `np.ndarray[float64]` in [0, 1].
   `decode_normalized(x, specs)`, `encode_to_normalized(params, specs)`,
   `decode_normalized_array(X, specs)`, `nn_param_specs_from_architecture(layer_sizes, activations,
@@ -375,7 +380,8 @@ use `--sim-timeout` against NaN hangs).
 - `compare_guidance.py` — head-to-head comparison on identical MC scenarios: each scheme's cell
   (`<params_dir>/<scheme>/`) flown through `cell_eval.fly_mc` on its own training TOML with
   `n_sims` dispersed sims from the shared `[monte_carlo] seed` (no temp TOML, no subprocess, no
-  CSV parse; the old CLI transport agreed to CSV precision, ~5e-8); `compare_guidance.SCHEMES` /
+  CSV parse; the old CLI transport agreed to CSV precision, ~5e-8; `--sim-timeout` defaults to 30 s
+  per sim so a non-terminating sim cannot hang the table); `compare_guidance.SCHEMES` /
   `_NN_DEPLOY_SCHEMES` register every deployable cell (each NN scheme deploys through the Rust
   `neural_network` runtime, RL included as `neural_network_rl`); cost kwargs from
   `report.read_cost_kwargs` so heat-load weight/limit match the training objective.

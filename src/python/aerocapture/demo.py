@@ -50,7 +50,9 @@ def run_demo(n_sims: int, output: Path, legacy: bool = False) -> None:
 
     print(f"Flying {n_sims} dispersed MSR aerocapture scenarios with the Mamba-962 guidance NN ({model_dir.name})...")
     print(f"Noise regime: {regime}")
-    results = evaluate_cell(model_dir, DEMO_TOML, seeds, extra_overrides={"monte_carlo.noise_seeding": mode}, include_trajectories=True)
+    results = evaluate_cell(
+        model_dir, DEMO_TOML, seeds, model=model_dir / "best_model.json", extra_overrides={"monte_carlo.noise_seeding": mode}, include_trajectories=True
+    )
     captured = results.captured
     dv = results.dv
 

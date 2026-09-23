@@ -35,7 +35,7 @@ OUT = REPO / "articles/paper/data/corridor.npz"
 CORRIDOR_SEED_OFFSET = 10_000_000  # raw monte_carlo.seed base for the bank draws (NOT a make_reserved_seeds stream; registered as a note in training/seeds.py)
 CORRIDOR_BANK_SEED = 20260706  # fixed -> reproducible bank draws
 
-FR_ECC, FR_APO, FR_IFINAL = 9, 15, 31  # final record (52,)
+FR_APO = 15  # final record (52,)
 TC_ENERGY, TC_PDYN = 8, 9  # trajectory (N, 17)
 
 E_LO, E_HI = -6.0, 5.0
