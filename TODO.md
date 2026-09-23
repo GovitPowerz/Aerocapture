@@ -53,13 +53,10 @@
 
 ---
 
-## CPAG -- Convex Predictor-Corrector Aerocapture Guidance -- SHELVED (2026-07, negative result)
+## CPAG guidance -- SHELVED (2026-09-23, negative result)
 
-Built and benchmarked on `feature/cpag-c1-rust-mvp` (tag `cpag-c2-negative`; C0 prototype, C1 Rust
-scheme, C2 GA campaign), then shelved (#135): tuned CPAG matches the classical incumbents at the median but loses the sizing
-tail by +84 m/s cvar95 paired, at ~40x FNPAG's compute (legacy noise regime). Verdict, mechanism
-and reopen conditions: `docs/design/2026-09-23-cpag-shelved.md`. Its feasibility gate shipped as
-#109 / ADR-0005.
+Shelved (#135); verdict, noise regime and reopen conditions:
+`docs/design/2026-09-23-cpag-shelved.md`.
 
 ---
 

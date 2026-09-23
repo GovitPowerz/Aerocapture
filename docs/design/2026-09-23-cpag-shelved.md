@@ -1,8 +1,7 @@
 # CPAG (Convex Predictor-Corrector Aerocapture Guidance) -- shelved negative result
 
 Date: 2026-09-23 (work done 2026-07-16..19)
-Branch: `feature/cpag-c1-rust-mvp`, tip `d19de90`, tagged `cpag-c2-negative` (unmerged, forked from
-`main` 2026-07-16)
+Branch: `feature/cpag-c1-rust-mvp`, tip `d19de90`, tagged `cpag-c2-negative` (unmerged, forked from `main` 2026-07-16)
 Status: shelved (#135). The code stays on the branch; this note is the record on `main`.
 
 ## What was built
@@ -13,8 +12,8 @@ constraints enforced in-loop, onboard atmosphere scaled by the nav density facto
 lesson), FNPAG-style replan throttle.
 
 - C0 (`docs/plans/2026-07-16-cpag-c0-findings.md` on the branch): Python SCP prototype
-  (`src/python/aerocapture/cpag/`), solver pick Clarabel (pure-Rust box-QP, 4-7 ms per solve,
-  tight p95).
+  (`src/python/aerocapture/cpag/`), solver pick Clarabel (pure-Rust box-QP, 3.5-7 ms p50 per
+  solve, p95 within ~10% of p50).
 - C1: `src/rust/src/gnc/guidance/cpag.rs`, `[guidance.cpag]` TOML + param specs, golden config
   `configs/test/test_cpag_golden.toml`. Untuned capture was 78%; crash-escalating warm replans
   took it to 100%.
@@ -28,21 +27,31 @@ lesson), FNPAG-style replan throttle.
 Shared 10 x 1000 confirmatory-style pools (seeds in [2^31, 2^32), selection-disjoint), all four
 tuned cells on identical seeds, `--sim-timeout 60` for CPAG:
 
-| cell | capture | p95 | cvar95 | cvar99 | max | viol% |
-|---|---|---|---|---|---|---|
-| mamba_p962 (NN) | 100.00% | 114.3 | 115.9 | 118.5 | 128.2 | 0.00 |
-| joint-FTC | 100.00% | 139.1 | 144.9 | 154.3 | 183.2 | 0.00 |
-| FNPAG | 99.96% | 136.6 | 143.9 | 159.2 | 315.9 | 0.00 |
-| CPAG | 99.81% | 196.4 | 228.8 | 294.8 | 889.1 | 0.12 |
+| cell | capture | p50 | p95 | cvar95 | cvar99 | max | viol% |
+|---|---|---|---|---|---|---|---|
+| mamba_p962 (NN) | 100.00% | 109.7 | 114.3 | 115.9 | 118.5 | 128.2 | 0.00 |
+| joint-FTC | 100.00% | 125.3 | 139.1 | 144.9 | 154.3 | 183.2 | 0.00 |
+| FNPAG | 99.96% | 122.8 | 136.6 | 143.9 | 159.2 | 315.9 | 0.00 |
+| CPAG | 99.81% | 142.4 | 196.4 | 228.8 | 294.8 | 889.1 | 0.12 |
 
-DV in m/s. Paired over the 10 replicates (t-SE): CPAG - joint-FTC **+83.7 +- 3.9 m/s cvar95**,
-CPAG - FNPAG **+84.8 +- 3.9**, Mamba - CPAG **-112.7 +- 3.8**. Median at parity with the
-classical incumbents (CPAG final eval p50 143.2). Compute ~3.5 s/sim, about 40x FNPAG's 87 ms.
+DV in m/s; p50 is the mean of the per-replicate medians, the other columns are pooled. Source:
+`articles/paper/data/cpag_confirmatory.json` on the branch. Paired over the 10 replicates (t-SE):
+CPAG - joint-FTC **+83.7 +- 3.9 m/s cvar95**, CPAG - FNPAG **+84.8 +- 3.9**, Mamba - CPAG
+**-112.7 +- 3.8**. Compute ~3.5 s/sim, about 40x FNPAG's 87 ms.
 
-Mechanism: the fat tail is the bill for the crash-escalation rescue. It converts would-be crashes
-into 300-900 m/s captures; 16 of the 19 failed seeds were physical failures on that path, 3 were
-replan-storm timeouts. In-loop enforcement bought nothing on this mission: the incumbents sit at
-0.00% violation on the same pools through GA tuning plus the thermal limiter.
+**CPAG also loses the median.** The C2 doc says CPAG "matches the classical incumbents at the
+median"; its own shared pools say otherwise: CPAG - joint-FTC +17.2 +- 0.3 m/s p50, CPAG - FNPAG
++19.6 +- 0.3, worse in all 10 replicates (per-replicate paired differences, computed from the
+JSON for this note). The C2 doc quotes no incumbent median, so the source of its parity claim
+is unknown; on matched seeds it does not hold.
+
+Mechanism (asserted by the C2 doc, not diagnosed): the fat tail looks like the bill for the
+crash-escalation rescue, which converts would-be crashes into 300-900 m/s captures and took C1
+capture from 78% to 100%. The 300-900 m/s captures and the 16 physical failures among the 19
+failed seeds all sit on that path (the other 3 were replan-storm timeouts); per-replan telemetry
+that would confirm it was never run. In-loop enforcement bought nothing on this mission: the
+incumbents sit at 0.00% violation on the same pools through GA tuning, plus the bolt-on thermal
+limiter for the FTC family.
 
 **Noise regime: legacy.** The branch predates the `[monte_carlo] noise_seeding` knob
 (`5eb13de`, 2026-08-27), so every cell flew the single frozen OU density path, which is what
@@ -52,10 +61,11 @@ replan-storm timeouts. In-loop enforcement bought nothing on this mission: the i
 
 ## Why shelved rather than landed
 
-- The C2 doc recommended keeping CPAG as the 8th scheme. Landing it now is a port, not a rebase:
-  the branch is 139 commits behind `main` as of 2026-09-23 (`deny_unknown_fields` #127, tiered
-  PyO3 seam #125, runner split #124, per-draw default #108, dead-gene removal #129), and a
-  quotable result would also need a per-draw requote at ~3.5 s/sim.
+- The C2 doc recommended keeping CPAG as the 8th scheme; its verdict also claimed median parity,
+  which the paired pools above do not support. Landing it now is a port, not a rebase: the branch
+  is 139 commits behind `main` as of 2026-09-23 (`deny_unknown_fields` #127, tiered PyO3 seam
+  #125, runner split #124, per-draw default #108, dead-gene removal #129), and a quotable result
+  would also need a per-draw requote at ~3.5 s/sim.
 - The part of the branch with lasting value, the feasibility gate, is already on `main`.
 - A scheme that loses the tail at 40x the compute adds maintenance surface (its own golden, the
   config gates, the clarabel dependency) for no deployable benefit.
