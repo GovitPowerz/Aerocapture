@@ -32,8 +32,10 @@ last on 2026-09-23 with #134); the arxiv-v3 build is the `arxiv-v3` tag.
   One cell moved: the QAT fine-tune CVaR99.9 is 122.85 pooled, which rounds to 122.9 (the
   transcription had rounded it down); the two prose quotes follow. Every other converted cell
   reproduces its literal.
-- 2026-09-23 (#134): every prose quote of the 99.996% capture rate (abstract, Section 7,
+- 2026-09-23 (#134): every prose quote of the 99.996% capture rate (abstract, Section 9,
   conclusion) is labelled as a three-fine-tune-seed mean, the label the CVaR99.9 beside it
-  already carried; Section 7 and the conclusion also give the deployed seed's 99.9995%, the
-  value in the performance table. Per-seed captures on the 10^6 confirmatory pool:
-  999995 / 999970 / 999920 (s1 deployed / s2 / s3). No number changes.
+  already carried; Section 9 and the conclusion also give the deployed seed's 99.9995%, the
+  value in Appendix E's far-tail confirmatory table. The conclusion's second quote of the
+  CVaR99.9 (163.2) gains the same label; the table's 163.0 is the deployed seed. Per-seed
+  captures on the 10^6 confirmatory pool: 999995 / 999970 / 999920 (s1 deployed / s2 / s3).
+  No number changes.

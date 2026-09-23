@@ -118,9 +118,10 @@ machine epsilon, PSO training for all five plus PPO-BPTT for GRU/LSTM, the NN-vs
 Mamba-3 architecture probes (paper Appendix B), and the quantization campaign (Appendix C).
 Outcome: the 962-parameter Mamba is the deployed sizing headline -- under per-scenario density
 noise (the default since ADR-0006) its fine-tune holds CVaR99.9 163.2 +- 1.3 m/s at 99.996% capture
-(both three-seed means; the deployed seed captures 99.9995%) on the 10 x 100,000 confirmatory pool, 73 m/s below the best classical scheme and
-the best dense network. The shared-path result it replaces (123.3 +- 0.1 at 100% capture) is the
-historical headline of the paper's main body; Appendix E holds the correction.
+(both three-seed means; the deployed seed captures 99.9995%) on the 10 x 100,000 confirmatory pool,
+73 m/s below the best classical scheme and the best dense network. The shared-path result it
+replaces (123.3 +- 0.1 at 100% capture) is the historical headline of the paper's main body;
+Appendix E holds the correction.
 
 Paper: `articles/paper/paper.pdf`, recompiled from the Typst source (the arxiv-v3 build is the
 `arxiv-v3` tag / GitHub Release; changes since it: `articles/paper/CHANGES.md`). Detailed phase history
