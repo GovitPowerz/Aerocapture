@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Aerocapture is a trajectory simulation and guidance-training tool for aerocapture maneuvers (primarily Mars Sample Return): a Rust simulator (physics, navigation, seven guidance
 schemes, the neural-network runtime, Monte Carlo dispersions) driven through one PyO3 seam by a Python package that trains any scheme's parameters with population search (pymoo GA /
 CMA-ES / DE / PSO / QPSO / islands), evaluates on reserved seed pools, and renders reports. The Rust simulator was validated against a legacy reference implementation to bit-level
-precision (FTC guided trajectories matched across all 725 timesteps; 22/24 photo columns exact, the remaining 2 were uninitialized-variable artifacts in the reference). The research
+precision (FTC guided trajectories matched across all 725 timesteps; 22/24 photo columns exact, the remaining 2 were uninitialized-variable artifacts in the reference);
+`docs/validation.md` adds the independent evidence (vacuum conservation, a cross-check against the open-source AMAT tool, a reproduced published Mars corridor). The research
 result is the paper (`articles/paper/paper.pdf`): stateful neural guidance sized on the far tail of the correction delta-v.
 
 The GNC chain per tick is Navigation (bias mode or 13-state EKF, with capture/exit phase management) -> Guidance (FTC, NN, Equilibrium Glide, Energy Controller, PredGuid, FNPAG,
@@ -32,6 +33,8 @@ lessons, conventions).
   reference trajectory and training order, warm-start, paper tooling and experiments.
 - `src/python/aerocapture/training/rl/README.md` — the shelved RL trainer (PPO / SAC, `BatchedSimulation`, reward structure, the paper's Section 5 baseline).
 - `experiments/paper/README.md` — the paper's campaign runners; `docs/design/README.md` — the dated design index.
+- `docs/validation.md` — physics validation: the AMAT cross-check (oracle `experiments/external_validation/amat_oracle.py`, frozen outputs, our side
+  `aerocapture.physics_crosscheck`), its tolerances and findings, the published corridor; background in `docs/research/2026-09-23-amat-capabilities.md`.
 
 ## Build & Development Commands
 
@@ -69,7 +72,8 @@ uv run python -m aerocapture.training.report training_output/equilibrium_glide/ 
 ```
 
 Gates before declaring a change done: `./lint_code.sh` (read ruff's and mypy's own output, the script has no `set -e`), `./check_all.sh`, `uv run pytest tests -q -m "not slow"`;
-the slow PyO3 suite (`tests/test_pyo3.py`, `tests/test_run_grid.py`) after any change that touches the seam or the version. Numbers must not move: the six guidance goldens
+the slow PyO3 suite (`tests/test_pyo3.py`, `tests/test_run_grid.py`) after any change that touches the seam or the version; the slow `tests/test_external_validation.py` after
+any physics, aerodynamics, atmosphere or integrator change (tolerance gate against frozen AMAT outputs, and it fails when `docs/validation.md` quotes stale tables). Numbers must not move: the six guidance goldens
 (`tests/reference_data/rust_golden/`), `tests/test_pyo3.py::test_pyo3_matches_subprocess`, `tests/test_run_grid.py`; name any additional bit-identity gate a change touches.
 
 ## Key Lessons & Pitfalls
@@ -182,7 +186,8 @@ pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script m
 - **Docs**: module behaviour is documented in the per-package README next to the code (the pointer block above); this file carries lessons and conventions only. Design docs are dated files
   under `docs/design/` (indexed in its README); decisions are ADRs under `docs/adr/`; the roadmap is `TODO.md`. `DEVELOPMENT.md` is the human-facing agent policy; it quotes the
   `.claude/settings.json` deny list verbatim (tracked since #111, `tests/test_development_md.py` fails on drift), so a deny-list edit updates both.
-- **Validation**: Validated against reference implementation — 22/24 photo columns bit-identical across 725 timesteps.
+- **Validation**: 22/24 photo columns bit-identical to the reference implementation across 725 timesteps, plus the independent evidence in `docs/validation.md`. "Validation"
+  also names the training seed pool: say physics validation for this sense (`CONTEXT.md`).
 
 ## Tone
 

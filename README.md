@@ -478,9 +478,9 @@ The training pipeline requires the PyO3 bindings: build them first (see Quick St
 
 ### Validation
 
-The Rust simulator has been validated against a reference implementation across all 725 timesteps of a guided FTC trajectory:
-- **22 of 24** photo output columns are bit-identical
-- The remaining 2 differ only at the first timestep due to uninitialized variable artifacts in the reference
+Three independent lines of evidence, detailed in [docs/validation.md](docs/validation.md): a bit-level match to a legacy reference implementation (22 of 24 photo columns over 725 timesteps of a guided FTC trajectory), two-body invariants conserved to ~1e-14 in vacuum, and a cross-check against the open-source AMAT tool on matched constant-bank cases and the lift-modulation corridor (peak heat flux, peak load and heat load within 1.2e-4 on the same heating law; the one larger gap, 2.2e-4 in exit energy and 0.14% in apoapsis at a 60 deg bank, traced to AMAT's own heading-equation regularization).
+A published Mars aerocapture corridor (Girija 2023, arXiv:2308.10384) is reproduced within 0.07 deg, the gap being the atmosphere table.
+Gate: `uv run pytest tests/test_external_validation.py -q` against AMAT outputs frozen in `experiments/external_validation/amat_frozen.json`.
 
 ### Testing
 

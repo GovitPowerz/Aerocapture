@@ -84,6 +84,8 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 [tool.ruff]
 line-length = 160
 target-version = "py314"
+# The AMAT oracle runs in its own Python 3.12 scratch venv (docs/validation.md).
+per-file-target-version = { "experiments/external_validation/amat_oracle.py" = "py312" }
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]
@@ -97,5 +99,5 @@ mypy_path = "src/python"
 exclude = ["tests/fixtures/"]
 
 [[tool.mypy.overrides]]
-module = ["pymoo.*", "aerocapture_rs"]
+module = ["pymoo.*", "aerocapture_rs", "AMAT.*"]
 ignore_missing_imports = true

@@ -3,6 +3,7 @@
 
 # === Python ===
 .venv/
+.venv-amat/
 __pycache__/
 *.pyc
 *.pyo
@@ -53,6 +54,8 @@ output/*
 !articles/paper/data/**/*.json
 # OU-marginal campaign result tables (back the papers Appendix E):
 !experiments/ou_marginal/*.json
+# Frozen AMAT outputs the physics cross-check gate compares against (docs/validation.md):
+!experiments/external_validation/amat_frozen.json
 # Appendix per-scheme stats (read by appendix.typ at compile time — without
 # these the paper does not build from a clean checkout).
 !articles/paper/figures/appendix/**/*.json

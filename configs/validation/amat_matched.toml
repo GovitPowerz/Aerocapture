@@ -1,0 +1,25 @@
+# External cross-check against AMAT (issue #112, docs/validation.md): the MSR mission flown
+# open-loop at a constant bank, with the model reduced to what AMAT also implements.
+# The bank is overridden per case (guidance.reference_bank_angle); the corridor search
+# overrides entry.flight_path_angle. experiments/external_validation/amat_oracle.py reads
+# this file for AMAT's inputs and tests/test_external_validation.py asserts the Rust-resolved
+# values still equal the ones frozen with AMAT's outputs.
+base = ["../missions/mars.toml"]
+
+[planet]
+polar_radius = 3393940.0  # spherical: AMAT measures altitude from one radius
+j3 = 0.0                  # AMAT has J2/J3, not J4; the issue keeps J2 only
+j4 = 0.0
+
+[guidance]
+type = "ftc"
+reference_trajectory = true  # constant-bank mode: bank held from t = 0, no lateral/exit/thermal logic
+reference_bank_angle = 0.0
+
+[simulation]
+n_sims = 1
+
+[onboard_atmosphere]
+mode = "identical"
+
+# No [monte_carlo] domain and no OU block: undispersed and noise-free, so the noise regime is inert.

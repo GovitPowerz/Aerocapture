@@ -8,6 +8,7 @@ PyO3 entry points and the training pipeline. Layout:
 - `configs/nominal/` — nominal simulation configs
 - `configs/training/` — training configs (one leaf per scheme / cell) + the shared bases
 - `configs/test/` — golden test configs (`tests/reference_data/rust_golden/`)
+- `configs/validation/`: physics-validation cases flown against AMAT and a published corridor ([docs/validation.md](../docs/validation.md))
 
 Rust owns the schema: `src/rust/src/config.rs` parses and validates
 ([src/rust/README.md](../src/rust/README.md)); Python resolves the same `base` chain in

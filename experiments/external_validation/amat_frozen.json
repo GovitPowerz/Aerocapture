@@ -1,0 +1,205 @@
+{
+  "generator": "experiments/external_validation/amat_oracle.py",
+  "generator_sha256": "b76435dfcbfaf5d0452c2eeb6d953d0f2ad6295c1ccbad61a15d47891dc3348c",
+  "amat": {
+    "version": "2.4.0",
+    "source_commit": "e6f4d5adb51abdc8b25fea01e718c8f416852863",
+    "python": "3.12.13",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1"
+  },
+  "g0_m_s2": 9.81,
+  "matched": {
+    "inputs": {
+      "config": "configs/validation/amat_matched.toml",
+      "planet": {
+        "mu": 42828290000000.0,
+        "equatorial_radius": 3393940.0,
+        "polar_radius": 3393940.0,
+        "omega": 7.088218e-05,
+        "j2": 0.001958616,
+        "j3": 0.0,
+        "j4": 0.0
+      },
+      "entry": {
+        "altitude": 130.0,
+        "longitude": 0.0,
+        "latitude": 0.0,
+        "velocity": 5687.15586,
+        "flight_path_angle": -10.81251,
+        "azimuth": 38.04069
+      },
+      "vehicle": {
+        "mass": 1089.0,
+        "reference_area": 14.7,
+        "cq": 8.242e-05
+      },
+      "aerodynamics": {
+        "aoa_deg": -27.5,
+        "ca": 1.269,
+        "cn": -0.205,
+        "cx": 1.2202752130163452,
+        "cz": 0.4041217693937226
+      },
+      "exit_altitude_km": 130.988,
+      "target_apoapsis_km": 500.13,
+      "atmosphere": {
+        "path": "data/atmosphere/mars.dat",
+        "sha256": "9ad5e0232d54156fd6614bc1c37db91bf20f11d4dd311d83cdeeee1552836883"
+      },
+      "wind": false
+    },
+    "amat_setup": {
+      "solver": "Vehicle.solveTrajectory2 (scipy solve_ivp RK45, gamma = -88 deg terminal event)",
+      "tol": 1e-10,
+      "dt_out_s": 0.1,
+      "t_max_s": 3000.0,
+      "density_interpolation": "linear",
+      "h_thres_m": 136000.0,
+      "nose_radius_m": 2.233766033265348,
+      "beta_kg_m2": 60.708954720093075,
+      "lift_to_drag": 0.33117264456662326
+    },
+    "cases": {
+      "lift_up": {
+        "bank_deg": 0.0,
+        "amat_delta_deg": -0.0,
+        "outcome": "exit",
+        "flight_time_s": 332.0668678915399,
+        "min_alt_km": 47.80507162428927,
+        "peak_heat_flux_kw_m2": 163.3474334439378,
+        "heat_load_mj_m2": 16.93645661311527,
+        "peak_g": 2.0177795266620806,
+        "amat_native": {
+          "peak_heat_flux_kw_m2": 163.94065416779097,
+          "heat_load_mj_m2": 17.035226600658017,
+          "peak_g_reported": 2.0184688100987604
+        },
+        "exit_energy_mj_kg": -2.3995852702178264,
+        "apoapsis_alt_km": 11031.47767382677
+      },
+      "mid_bank": {
+        "bank_deg": 60.0,
+        "amat_delta_deg": -60.0,
+        "outcome": "exit",
+        "flight_time_s": 472.5096033911724,
+        "min_alt_km": 44.60969810400251,
+        "peak_heat_flux_kw_m2": 174.1846307968789,
+        "heat_load_mj_m2": 19.879665860135972,
+        "peak_g": 2.597904804563029,
+        "amat_native": {
+          "peak_heat_flux_kw_m2": 174.96511848865563,
+          "heat_load_mj_m2": 20.063494871118465,
+          "peak_g_reported": null
+        },
+        "exit_energy_mj_kg": -5.395172575102208,
+        "apoapsis_alt_km": 1157.6911828891477
+      },
+      "lift_down": {
+        "bank_deg": 180.0,
+        "amat_delta_deg": -180.0,
+        "outcome": "crash",
+        "flight_time_s": 188.2790176989106,
+        "min_alt_km": 0.0304586883103475,
+        "peak_heat_flux_kw_m2": 228.79812397563921,
+        "heat_load_mj_m2": 15.320582445283682,
+        "peak_g": 11.616502091657601,
+        "amat_native": {
+          "peak_heat_flux_kw_m2": 230.8709927953316,
+          "heat_load_mj_m2": 15.48234780040269,
+          "peak_g_reported": 11.620470346057123
+        }
+      }
+    },
+    "diagnostics": {
+      "mid_bank_exact_heading": {
+        "bank_deg": 60.0,
+        "amat_delta_deg": -60.0,
+        "outcome": "exit",
+        "flight_time_s": 472.428577081455,
+        "min_alt_km": 44.6099122916963,
+        "peak_heat_flux_kw_m2": 174.18404102114263,
+        "heat_load_mj_m2": 19.87905063256639,
+        "peak_g": 2.5978692790007467,
+        "amat_native": {
+          "peak_heat_flux_kw_m2": 174.9645238212313,
+          "heat_load_mj_m2": 20.062861315443055,
+          "peak_g_reported": null
+        },
+        "exit_energy_mj_kg": -5.393994365513649,
+        "apoapsis_alt_km": 1159.3542156956419
+      }
+    },
+    "corridor": {
+      "target_apoapsis_km": 500.13,
+      "efpa_tol_deg": 0.0001,
+      "overshoot_efpa_deg": -9.466217041015625,
+      "undershoot_efpa_deg": -11.917816162109375,
+      "width_deg": 2.45159912109375
+    }
+  },
+  "published": {
+    "citation": "A. P. Girija, Aerocapture Design Reference Missions for Solar System Exploration: from Venus to Neptune, arXiv:2308.10384 (2023), Table 1, Mars smallsat row",
+    "published": {
+      "undershoot_efpa_deg": -9.86,
+      "overshoot_efpa_deg": -8.78,
+      "width_deg": 1.09
+    },
+    "beta1_kg_m2": 20.0,
+    "beta_ratio": 7.5,
+    "notebook": "docs/source/mdpi-aerospace-notebooks/smallsat-mission-concepts/section-3-4-mars-smallsat-nominal-aerocapture-trajectory.ipynb",
+    "inputs": {
+      "config": "configs/validation/mars_smallsat_drm.toml",
+      "planet": {
+        "mu": 42828290000000.0,
+        "equatorial_radius": 3393940.0,
+        "polar_radius": 3376780.0,
+        "omega": 7.088218e-05,
+        "j2": 0.001958616,
+        "j3": 3.145e-05,
+        "j4": -1.538e-05
+      },
+      "entry": {
+        "altitude": 120.0,
+        "longitude": 88.15,
+        "latitude": -0.65,
+        "velocity": 5358.1,
+        "flight_path_angle": -9.2,
+        "azimuth": 81.4542
+      },
+      "vehicle": {
+        "mass": 37.0,
+        "reference_area": 1.767,
+        "cq": 8.242e-05
+      },
+      "aerodynamics": {
+        "aoa_deg": 0.0,
+        "ca": 1.0469722693831354,
+        "cn": 0.0,
+        "cx": 1.0469722693831354,
+        "cz": 0.0
+      },
+      "exit_altitude_km": 120.0,
+      "target_apoapsis_km": 2000.0,
+      "atmosphere": {
+        "path": "data/atmosphere/mars.dat",
+        "sha256": "9ad5e0232d54156fd6614bc1c37db91bf20f11d4dd311d83cdeeee1552836883"
+      },
+      "wind": false
+    },
+    "amat_gram_mean_table": {
+      "atmosphere": {
+        "path": "atmdata/Mars/mars-gram-avg.dat",
+        "sha256": "448bc4cbf7c1124dd326bd45c1bc55b0317e803db55a599d90971df353f14ca4"
+      },
+      "undershoot_efpa_deg": -9.868216123049933,
+      "overshoot_efpa_deg": -8.781097070641408,
+      "width_deg": 1.087119052408525
+    },
+    "amat_our_mars": {
+      "undershoot_efpa_deg": -9.850741619775363,
+      "overshoot_efpa_deg": -8.718118990418589,
+      "width_deg": 1.1326226293567743
+    }
+  }
+}

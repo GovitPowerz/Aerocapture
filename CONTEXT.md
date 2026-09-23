@@ -33,6 +33,10 @@ _Avoid_: baseline (reserved for comparison anchors)
 **Corridor**:
 The flyable envelope between the crash boundary (full lift-down) and the escape boundary (full lift-up), indexed by energy.
 
+**Entry Corridor**:
+The interval of entry flight-path angles over which a vehicle's two extreme controls (full lift up and down, or drag skirt kept and jettisoned) bracket the target apoapsis; its width is the aerocapture literature's theoretical corridor width. Used by the AMAT cross-check.
+_Avoid_: bare "corridor" (that is the energy-indexed envelope)
+
 **Commanded Bank**:
 The bank angle guidance orders after shaping.
 
@@ -125,6 +129,10 @@ _Avoid_: bare "reference"
 **Reference Implementation**:
 The legacy code the Rust simulator was validated against at bit level.
 _Avoid_: bare "reference"
+
+**Physics Validation**:
+Evidence that the simulator's physics is right rather than merely faithful: the reference-implementation match, vacuum conservation, the AMAT cross-check and a reproduced published entry corridor (`docs/validation.md`).
+_Avoid_: bare "validation" where the seed pool or the validation gate could be meant
 
 **Cell**:
 One deployed training run in a campaign grid (e.g. a sweep cell), pinned by its config and output directory.
