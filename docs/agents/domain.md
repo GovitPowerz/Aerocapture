@@ -1,6 +1,6 @@
 # Domain Docs
 
-How the engineering skills should consume this repo's domain documentation when exploring the codebase.
+How the engineering skills should consume this repo's domain documentation when exploring the codebase. What stays human-owned (hypotheses, ADRs, acceptance criteria, merges) is stated for humans in [DEVELOPMENT.md](../../DEVELOPMENT.md).
 
 ## Before exploring, read these
 

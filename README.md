@@ -27,6 +27,8 @@ Under independent per-scenario density noise (the simulator's default regime, [A
 4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper -B figures check` regenerates every paper figure from the committed bundle (Python only, no Rust build; the provenance check also needs Typst 0.15.1 on `PATH`) and verifies it byte-identical to git.
 5. **Why not reinforcement learning** (2 min): Section 5 of the [paper](articles/paper/paper.pdf). PPO from scratch and warm-started, under the protocol of the population-trained cells it is compared against.
 
+The code is written largely with coding agents; [DEVELOPMENT.md](DEVELOPMENT.md) says which decisions stay the author's, what evidence a change needs, and how merges stay human-only.
+
 ## Results
 
 Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell). The table below is the per-scenario density-noise regime, the simulator's default ([ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md); paper Appendix E, raw data `experiments/ou_marginal/confirmatory_marginal.json`). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
