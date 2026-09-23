@@ -2,19 +2,67 @@
 
 [![CI](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml/badge.svg)](https://github.com/GovitPowerz/Aerocapture/actions/workflows/ci.yml)
 
-Trajectory simulation and guidance optimization for aerocapture maneuvers, primarily targeting Mars Sample Return (MSR): a spacecraft enters the atmosphere at hyperbolic velocity and uses bank angle modulation to capture into a target orbit. A **Rust simulator** (validated to bit-level precision against a legacy reference implementation) with **Python training and analysis tools**: six classical guidance schemes plus GA/PSO-trained neural guidance (dense, GRU, LSTM, Transformer, Mamba).
+A high-fidelity Mars aerocapture guidance simulator and an ML/control research platform. A Mars Sample Return spacecraft arrives at hyperbolic speed, makes one pass through the atmosphere and modulates its bank angle to shed exactly the energy that puts it into the target orbit; the question is which guidance law keeps the worst cases cheapest. A **Rust simulator** runs the closed-loop GNC chain with seven guidance schemes; a **Python package** trains any scheme's parameters, from classical gains to recurrent neural policies, by population search and evaluates them on pre-registered Monte Carlo pools. The research output is the [paper](articles/paper/paper.pdf).
+
+## What this demonstrates
+
+- **Numerical and systems implementation in two languages.** A closed-loop GNC simulator in Rust (J2-J4 gravity, tabulated atmosphere and winds, bias or 13-state EKF navigation, seven guidance schemes, Monte Carlo dispersions), bit-identical to a legacy reference on 22 of 24 output columns across a 725-step guided trajectory, driven from Python through one PyO3 seam ([ADR-0007](docs/adr/0007-the-pyo3-seam-has-five-tiers.md)).
+- **Cross-language ML deployment at machine epsilon.** Ten neural layer types (dense, GRU, LSTM, windowed, Transformer, Mamba and four probe cells) run natively in the Rust flight loop and are mirrored in PyTorch; the per-layer Rust/Python equivalence gates observe differences of order 1e-16, and training evaluates through one bit-identity chokepoint ([ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)).
+- **Controlled experiments, judged on the tail.** Disjoint reserved seed pools for training, validation, final evaluation and a frozen 10⁶-scenario confirmatory; paired comparisons and seed-repeat error bars; every result quoted as the CVaR99.9 of the correction delta-v (the statistic the propellant is sized on) next to capture rate, constraint violations and the worst case.
+- **A documented self-correction, reproducible from one command.** A conditioning defect in the project's own evaluation pipeline was found after the paper's first release, quantified on paired pools, repaired as the new default and every headline cell retrained under the repair (paper Appendix E). `make -C articles/paper paper` rebuilds every figure and number from the committed bundle, and CI proves the figures byte-identical on every PR.
+
+## The headline result
+
+Under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm on a moving adaptive-seed Monte Carlo objective and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) on the correction delta-v tail that sizes the propellant. That is 73 m/s below both the best classical scheme (FNPAG, a numerical predictor-corrector) and the best dense network, at milliseconds of onboard compute; the numbers the paper first quoted, and why they changed, are under [Historical result and evaluation correction](#historical-result-and-evaluation-correction).
 
 ![Correction-DV tail: classical guidance schemes vs trained neural guidance](articles/paper/figures/fig_classical_vs_nn.svg)
+
+## Review this project in 15 minutes
+
+1. **How it works** (5 min): [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Two languages and one seam, a training run in fifteen lines, a simulation tick in eight, where the paper's numbers come from.
+2. **The self-correction** (3 min): [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md), then Appendix E of the [paper](articles/paper/paper.pdf). A shared noise path the networks exploited 2-4x more than the classical laws: found, quantified, repaired, retrained under.
+3. **One representative change** (3 min): [PR #94](https://github.com/GovitPowerz/Aerocapture/pull/94). An invariant stated up front (each layer declares its tensors once; that list is the flat order and the JSON key set), one source of truth exported across the seam, byte-identity fixtures frozen before the refactor, the cross-language gates re-run.
+4. **Run it** (2 min to read, a build to run): the [Quick Start](#quick-start). The five-minute demo flies the deployed policy over 500 dispersed entries; `make -C articles/paper check` verifies the evaluation bundle and that every paper figure is byte-identical to git.
+5. **Why not reinforcement learning** (2 min): Section 5 of the [paper](articles/paper/paper.pdf). PPO from scratch and warm-started, under the protocol of the population-trained cells it is compared against.
+
+## Results
+
+Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell). The table below is the per-scenario density-noise regime, the simulator's default ([ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md); paper Appendix E, raw data `experiments/ou_marginal/confirmatory_marginal.json`). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
+
+| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|---|---|
+| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
+| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
+| Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
+| Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |
+| PPO baseline | NN — dense, 515 params, PPO from scratch (inputs, scaffolding and pools of the efficiency reference) | per-scenario | 10⁶ | 100.00 | 5.57 | 354.6 ± 0.7 | 471 | 1.88 |
+| PPO baseline | NN — dense, 515 params, PPO warm-started from the efficiency reference | per-scenario | 10⁶ | 100.00 | 0.02 | 235.6 ± 2.4 | 403 | 1.88 |
+
+Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
+
+- **A small stateful network wins where the mission is sized.** On the shallow tail the dense fine-tune wins (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
+- **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–102 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
+- **Policy gradients do not compete under the matched protocol** (paper Section 5, issue #101). PPO from scratch captures but pays 2–3x the correction ΔV of the population-trained cell of the same architecture and leans on the constraint limits (5.6% of scenarios violate the heat-flux limit for the dense cell; 53% violate a limit for the GRU cell, 48.6% heat flux and 32.8% g-load); PPO warm-started from a champion deploys the champion (its best validation checkpoint is the starting point) and then drifts off it. Raw data: `rl/*` keys in `articles/paper/data/results.json` (2M pool, n = 1000, paired) and `experiments/ou_marginal/confirmatory_marginal.json` (10⁶).
+- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
+
+### Historical result and evaluation correction
+
+The paper's main body (arxiv-v3) was evaluated under the historical shared-noise-path regime (`noise_seeding = "legacy"`, every scenario sharing one realization of the density noise), the defect Appendix E discloses. Its numbers are kept here because they are what the committed [paper](articles/paper/paper.pdf) quotes and what the bundle under `articles/paper/data/` reproduces:
+
+| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
+|---|---|---|---|---|---|---|---|---|
+| Historical headline | NN — Mamba, 962 params | shared path | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.14 |
+| Efficiency reference | NN — dense, 515 params | shared path | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
+| Best classical | FTC (joint reference) | shared path | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
+| Reference NPC | FNPAG | shared path | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
+
+Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the shared-path champion's CVaR99.9 from 123 to 414).
+
+Full protocol and results: paper Sections 6–7, per-scheme mission cards in Appendix D. The recent-architecture probes (CfC, xLSTM cells, Mamba-3 axes — none beat the plain cells at matched budget) are in Appendix B, with drivers under `python -m aerocapture.training.experiments.{cfc_probe,xlstm_probe,mamba3_probe}`.
 
 ## Paper
 
 This repository is the artifact for *Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission* - the compiled PDF is committed at [articles/paper/paper.pdf](articles/paper/paper.pdf). The Typst source, figures, and the per-run evaluation records behind every table live under [articles/paper/](articles/paper/). One command rebuilds it from the committed bundle: `make -C articles/paper paper` fetches the raw training logs (195 MB, a GitHub Release asset) if absent, regenerates `data/results.json` and every figure, writes `data/provenance.json`, and compiles the PDF; `make -C articles/paper check` verifies the bundle checksums and that the figures are byte-identical to git (CI runs it on every PR). See [articles/paper/Makefile](articles/paper/Makefile).
-
-## One headline, one correction
-
-The headline: under independent per-scenario density noise (the simulator's default regime, [ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md)), a 962-parameter recurrent (Mamba) guidance policy, trained by a genetic algorithm in a non-stationary adaptive-seed Monte Carlo environment and fine-tuned in that regime, captures 99.996% of 10⁶ pre-registered confirmatory scenarios with no constraint violation and holds CVaR99.9 = 163.2 ± 1.3 m/s (three fine-tune seeds) on the delta-v tail that sizes the mission's correction propellant, 73 m/s below both the best classical scheme (FNPAG, a numerical predictor–corrector) and the best dense network, at milliseconds of onboard compute.
-
-The correction (paper Appendix E): the historical evaluation pipeline conditioned every Monte Carlo scenario on a *single* sample path of the time-varying density noise, and the networks trained under that conditioning exploited it 2–4x more than the classical laws. The shared-path champion's CVaR99.9 of 123.3 m/s at 100% capture is that regime's number. While building this repo's five-minute demo we found the defect, quantified the gap on paired pools, shipped the fix, made per-scenario noise the default, retrained every headline cell under it (22 training runs, all stoppable/resumable on a laptop) and re-ran the million-scenario far-tail confirmatory. The correction ends by strengthening the thesis it tested. The historical result, the audit and the repair are kept under [Historical result and evaluation correction](#historical-result-and-evaluation-correction) and in the paper, because an evaluation you can't break is an evaluation you haven't tested.
 
 The paper's three contributions, in one line each (paper Section 1):
 
@@ -42,7 +90,7 @@ uv run python -m aerocapture.demo
 # Single simulation from a TOML config (CLI, no Python needed):
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
-# Tests (~650 Rust + ~1300 Python):
+# Tests (CI runs every test file on every push and PR):
 cargo test --release --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
@@ -51,7 +99,7 @@ uv run pytest tests/
 
 1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
-3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection.
+3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection, the five-tier PyO3 seam, config keys declared once.
 4. The module reference, next to the code it describes: [src/rust/README.md](src/rust/README.md) (simulator), [src/rust/aerocapture-py/README.md](src/rust/aerocapture-py/README.md) (the PyO3 seam), [src/rust/src/data/neural/README.md](src/rust/src/data/neural/README.md) (NN runtime + PyTorch mirror), [configs/README.md](configs/README.md) (TOML), [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) (training), [src/python/aerocapture/training/rl/README.md](src/python/aerocapture/training/rl/README.md) (RL).
 5. [docs/design/](docs/design/README.md) — the dated design behind each feature; [CLAUDE.md](CLAUDE.md) — the agent brief (commands, lessons, conventions).
 6. [The paper](articles/paper/paper.pdf) — the results and their evaluation methodology.
@@ -87,7 +135,11 @@ training_output/           GA training output (checkpoints, logs, reports, anima
 tests/                     Python test suite + golden reference data
 ```
 
-## TOML Configuration
+## User guide
+
+Everything below is for a reader who wants to train, evaluate or extend a scheme. Per-module detail lives next to the code, in the module READMEs listed in the [Reading guide](#reading-guide).
+
+### TOML Configuration
 
 Configs are the **only input format** — no command-line flags for mission parameters. The system uses a **base inheritance** mechanism: each config can reference parent files via a `base` key, resolved relative to the declaring file. The loader deep-merges bases left-to-right, then overlays the child's own keys.
 
@@ -115,7 +167,7 @@ results_suffix = ".train_eqglide"
 
 Adding a new planet requires only a new TOML preset file in `configs/planets/` — no Rust changes.
 
-## Physical Models
+### Physical Models
 
 | Model | Description |
 |---|---|
@@ -125,7 +177,7 @@ Adding a new planet requires only a new TOML preset file in `configs/planets/` �
 | **Aerodynamics** | Cx/Cz vs angle-of-attack tables, configurable vehicle (mass, reference area, max bank rate) |
 | **Integration** | Fixed-step Gill-variant RK4 (default, validated) or adaptive Dormand-Prince 4(5) with PI step-size control |
 
-## GNC Architecture
+### GNC Architecture
 
 The simulation implements a full closed-loop GNC chain:
 
@@ -135,7 +187,7 @@ The simulation implements a full closed-loop GNC chain:
 4. **Control** — Pilot dynamics model applies rate limits and first/second-order lag to bank angle commands
 5. **Integration** — Propagates equations of motion with all physical models above. Adaptive mode sub-steps within each GNC tick — guidance/navigation cadences are unchanged.
 
-## Guidance Schemes
+### Guidance Schemes
 
 Seven guidance schemes, all trainable by the population optimizers below:
 
@@ -151,44 +203,9 @@ Seven guidance schemes, all trainable by the population optimizers below:
 
 †Full chromosome width, including the shared lateral / exit-phase / navigation / thermal-limiter / command-shaping scaffolding co-tuned for the unsigned-magnitude schemes.
 
-### What worked best
-
-Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n = 10⁶ per cell). The table below is the per-scenario density-noise regime, the simulator's default ([ADR-0006](docs/adr/0006-per-draw-noise-is-the-default-regime.md); paper Appendix E, raw data `experiments/ou_marginal/confirmatory_marginal.json`). Correction ΔV in m/s; CVaR99.9 (± standard error over the 10 replicates) is the far-tail statistic the propellant margin is sized on, and it is quoted next to what it can hide: capture probability, constraint-violation rate, and the worst scenario observed:
-
-| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
-|---|---|---|---|---|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3) | 249 | 3.14 |
-| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.88 |
-| Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 87.1 |
-| Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.14 |
-| PPO baseline | NN — dense, 515 params, PPO from scratch (inputs, scaffolding and pools of the efficiency reference) | per-scenario | 10⁶ | 100.00 | 5.57 | 354.6 ± 0.7 | 471 | 1.88 |
-| PPO baseline | NN — dense, 515 params, PPO warm-started from the efficiency reference | per-scenario | 10⁶ | 100.00 | 0.02 | 235.6 ± 2.4 | 403 | 1.88 |
-
-Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
-
-- **A small stateful network wins where the mission is sized.** On the shallow tail the dense fine-tune wins (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
-- **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–102 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
-- **Policy gradients do not compete under the matched protocol** (paper Section 5, issue #101). PPO from scratch captures but pays 2–3x the correction ΔV of the population-trained cell of the same architecture and leans on the constraint limits (5.6% of scenarios violate the heat-flux limit for the dense cell; 53% violate a limit for the GRU cell, 48.6% heat flux and 32.8% g-load); PPO warm-started from a champion deploys the champion (its best validation checkpoint is the starting point) and then drifts off it. Raw data: `rl/*` keys in `articles/paper/data/results.json` (2M pool, n = 1000, paired) and `experiments/ou_marginal/confirmatory_marginal.json` (10⁶).
-- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
-
-#### Historical result and evaluation correction
-
-The paper's main body (arxiv-v3) was evaluated under the historical shared-noise-path regime (`noise_seeding = "legacy"`, every scenario sharing one realization of the density noise), the defect Appendix E discloses. Its numbers are kept here because they are what the committed [paper](articles/paper/paper.pdf) quotes and what the bundle under `articles/paper/data/` reproduces:
-
-| Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
-|---|---|---|---|---|---|---|---|---|
-| Historical headline | NN — Mamba, 962 params | shared path | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.14 |
-| Efficiency reference | NN — dense, 515 params | shared path | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.88 |
-| Best classical | FTC (joint reference) | shared path | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.90 |
-| Reference NPC | FNPAG | shared path | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 87.1 |
-
-Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the shared-path champion's CVaR99.9 from 123 to 414).
-
-Full protocol and results: paper Sections 6–7, per-scheme mission cards in Appendix D. The recent-architecture probes (CfC, xLSTM cells, Mamba-3 axes — none beat the plain cells at matched budget) are in Appendix B, with drivers under `python -m aerocapture.training.experiments.{cfc_probe,xlstm_probe,mamba3_probe}`.
-
 **Training order & reference:** Run `piecewise_constant` first for the corridor (`corridor_boundaries.npz`), then generate the mission reference `training_output/mars/ref_trajectory.dat` with the target-energy-matched constant-bank generator (`python -m aerocapture.training.make_reference --toml configs/training/msr_aller_pc_ref_train.toml`) — GA-optimal open-loop profiles under-reach the target energy and make poor tracking references. The ref-tracking training configs point `data.reference_trajectory` at the mission file explicitly (test/nominal configs keep the legacy `data/reference_trajectory/msr_aller.dat`), `train.py` hard-errors if a ref-tracking scheme's resolved config doesn't, and the Rust loader hard-errors on a missing/unreadable reference file (it used to load a silent empty table that the schemes interpolate as 0.0). The schemes re-read the file every generation, so never regenerate it mid-training. Optionally, `[reference] joint_bank = true` adds a `ref_bank` gene so each individual trains against its own constant-bank reference (leaf configs exist for ftc, energy_controller, and pred_guid; `./experiments/paper/07_joint_reference.sh` trains all three jointly into `training_output/paper/joint_reference/<scheme>` dirs).
 
-### NN-vs-FTC Parity Bundle (`nn_joint`)
+#### NN-vs-FTC Parity Bundle (`nn_joint`)
 
 A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in knobs under `[guidance.neural_network]` to close the structural gap with FTC's joint-optimization advantage:
 
@@ -198,7 +215,7 @@ A separate NN training mode (`./train_all.sh nn_joint`) flips three TOML opt-in 
 
 All three knobs default off; existing trained NNs and existing configs are bit-identical. Requires FTC training output (`./train_all.sh ftc` first). Spec: `docs/design/2026-05-07-nn-ftc-parity-bundle-design.md` (parity bundle); `docs/design/2026-05-22-warm-start-all-archs-design.md` (multi-supervisor BPTT for Dense/GRU/LSTM/Window/Transformer/Mamba).
 
-### Multi-Supervisor BPTT Warm-Start (`[warm_start]`)
+#### Multi-Supervisor BPTT Warm-Start (`[warm_start]`)
 
 For recurrent NN architectures (GRU/LSTM/Mamba/Transformer), the warm-start path collects supervised traces from multiple non-NN schemes simultaneously, picks the best teacher per Monte Carlo seed (lowest-DV captured trajectory), and runs chunked truncated-BPTT supervised pre-training against the per-seed winners. Configured via a `[warm_start]` TOML block — presence of the block enables warm-start (no separate `warm_start_from` needed):
 
@@ -221,7 +238,7 @@ Pipeline: each supervisor scheme runs over the same `n_warm_seeds` reserved seed
 
 After warm-start, `aerocapture.training.warm_start_compare.render_trajectory_comparison` runs the supervisor (primary scheme from `supervisor_schemes[0]`) and the warm-started NN on BOTH the training pool (`n_warm_seeds`) and the validation pool (`optimizer.validation_n_sims`), writes 20 SVG panels (5 quantities × 2 sides × 2 pools: corridor pdyn/inclination/bank, altitude vs time, heat flux vs time) under `<save_dir>/warm_start_report/compare_*.svg`, and the `warm_start_report.pdf` includes a side-by-side "Trajectory comparison" section so you can visually compare supervisor vs warm-started NN behaviour on identical dispersion draws -- before PSO even starts. Compute cost is ~2 × (`n_warm_seeds` + `validation_n_sims`) MC sims (~2-3 min for n_warm_seeds=5000, validation_n_sims=1000), best-effort: failure in any (pool, side) records the error in the manifest and the rest of the report still renders. The NN candidate input vector includes four "lateral-state telemetry" inputs (indices 21-24: inclination-error rate, previous bank command, time since last sign flip, integrated inclination error) that make the supervisor's signed-bank decision Markovian -- without them, post-reversal near-duplicate states collapse the supervised MSE target under bimodal sign disagreement (FTC measured ~20% sign-disagree on near-duplicates within radius 0.10).
 
-## Training and Optimization
+### Training and Optimization
 
 All guidance schemes train through the same population-based pipeline (pymoo): the optimizer tunes each scheme's parameters to minimize correction delta-V across Monte Carlo dispersions, with TOML-configurable soft constraint penalties for g-load, heat flux, and integrated heat load exceedances. Six gradient-free algorithms are selectable via `--algorithm` or `[optimizer]` — GA (SBX + polynomial mutation), CMA-ES, DE, PSO, QPSO (quantum-behaved, velocity-free), and a 3-island PSO/GA/DE model with periodic migration — plus a PPO/SAC reinforcement-learning track (below) that deploys through the same `best_model.json` format.
 
@@ -270,7 +287,7 @@ uv run python -m aerocapture.training.final_select \
     training_output/equilibrium_glide --toml configs/training/msr_aller_eqglide_train.toml
 ```
 
-### RL Training (PPO)
+#### RL Training (PPO)
 
 Parallel track to the population optimizers for the `neural_network` guidance scheme. PPO-trained policies export to the same `best_model.json` format and deploy via the Rust `neural_network` runtime -- `compare_guidance` treats RL as just another scheme (`neural_network_rl`). In this study the population methods won decisively. Under the matched protocol of paper Section 5 (same architecture, inputs, normalization, decoder and co-tuned scaffolding as the per-scenario champions, per-scenario noise, the reserved 1M validation / 2M final-eval pools; `experiments/paper/18_rl_baseline.sh`, configs `configs/training/paper/rl/`, bundle keys `rl/*` paired against `ou_marginal/*` in `articles/paper/data/results.json`), PPO from scratch reaches 237 m/s mean (316 CVaR95) for the 515-weight dense cell and 284 (435) for the 1014-weight GRU cell against 113 (127) and 125 (151) for the population-trained champions, and exceeds the heat-flux limit in 4.8% / 47% of scenarios (the RL loop has no feasibility gate); warm-started from a champion, its best validation checkpoint is the champion itself (+0.3 / +3.4 m/s paired mean) and the policy gradient then walks off the optimum (validation capture 2% by 13M steps for the dense cell). RL is a supported baseline, not the deployed path. Supports warm-starting from GA-trained weights (`--data-neural-network`), potential-based phase-aware reward shaping (`r = gamma*Phi(s') - Phi(s)`: corridor tracking + constraint proximity during capture, apoapsis targeting + eccentricity reduction during exit; optimum-preserving per Ng/Harada/Russell 1999) plus an alternative DV-inferred mode (`[rl.reward] potential = "dv"`) that builds `Phi` from the raw predicted correction delta-v (`predicted_dv_for_nn`, surfaced via the env aux channel) to approximate `-V*` -- used by the dense-PPO `neural_network_atan2_rl` scheme (`configs/training/msr_aller_nn_atan2_ppo_train.toml`), running return and observation normalization (obs normalization baked into exported weights for zero Rust changes), truncation-aware value bootstrap (PPO uses `V(terminal_obs)` on `max_time` timeouts instead of masking them as terminations; the timeout virtual-DV terminal cost is skipped on those episodes so the bootstrap isn't double-counted — same rule in SAC's Q-target), and SAC with replay buffer persisted across checkpoint resumes (minibatch sampling seeded from `seed_base` for reproducibility).
 
@@ -303,7 +320,7 @@ Architecture: step-able `BatchedSimulation` pyclass (Rayon-parallel per-tick adv
 
 CLI flags: `--algorithm {ppo|sac}`, `--total-steps`, `--n-envs`, `--rollout-steps`, `--validation-n-sims`, `--validation-interval-updates`, `--data-neural-network`, `--from-scratch`, `--learning-rate`, `--clip-range`, `--entropy-coef`, `--min-log-std`, `--update-epochs`, `--lr-anneal-start`, `--target-kl`, `--no-tui`, `--skip-report`, `--resume`, `--output-dir`. `--from-scratch` and `--data-neural-network` are mutually exclusive. Full spec at `docs/design/2026-04-15-rl-nn-guidance-design.md`.
 
-### Training seed strategies
+#### Training seed strategies
 
 The `[optimizer] seed_strategy` key (required) controls how Monte Carlo seeds are picked across generations. All three strategies use the same `training_n_sims` size knob.
 
@@ -327,7 +344,7 @@ curation_sample_size = 1000
 
 Override per-scheme by adding `seed_strategy = "..."` in a leaf training TOML. See [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) for full details.
 
-### Checkpoint retention
+#### Checkpoint retention
 
 Stateful NN architectures write 10-15 MB per `checkpoint_g{NNNNN}.npz`, so a long PSO run easily fills several GB. Only the latest checkpoint is needed for resume; older ones are useful only for rollback or animation playback.
 
@@ -352,9 +369,9 @@ uv run python -m aerocapture.training.cleanup_checkpoints \
     training_output/ --recursive --keep-last 10
 ```
 
-## Reports and Visualization
+### Reports and Visualization
 
-### PDF Reports (Typst)
+#### PDF Reports (Typst)
 
 Auto-generated at end of training, or standalone:
 
@@ -370,7 +387,7 @@ uv run python -m aerocapture.training.report --compare training_output/
 
 Reports include: cost convergence curves, population diversity, corridor plots with zone fills, altitude/heat flux/g-load/bank angle vs time spaghetti with constraint limit lines, DV distributions, entry/exit conditions, performance summary tables, dispersion correlation grids with three-way trajectory classification. Compiled via `typst` (install with `brew install typst`). Degrades gracefully if Typst is not installed -- charts are still generated as SVGs. A `final_eval.parquet` file (65 columns: 39 final-record + 26 dispersions, with embedded config metadata) is auto-written alongside the PDF when `pyarrow` is available.
 
-### Training Animation
+#### Training Animation
 
 Replay training checkpoints as a GIF showing how corridors and trajectories evolve over generations:
 
@@ -383,7 +400,7 @@ uv run python -m aerocapture.training.animate \
 
 Produces a 2x2 animation (corridor with envelope fills, inclination, bank angle, cost CDF) by re-running MC simulations at each checkpoint via PyO3.
 
-### Scheme Comparison
+#### Scheme Comparison
 
 Fair head-to-head comparison on identical MC scenarios. Each scheme uses its own training TOML config (so network architecture, navigation params, etc. are preserved):
 
@@ -393,7 +410,7 @@ uv run python -m aerocapture.training.compare_guidance \
     --schemes equilibrium_glide energy_controller pred_guid fnpag ftc neural_network piecewise_constant
 ```
 
-### Sensitivity Analysis
+#### Sensitivity Analysis
 
 Variance-based sensitivity analysis to rank which MC dispersion parameters most influence DV cost. Uses SALib (Morris elementary effects + Sobol indices) via the `run_with_draws()` PyO3 API. Gaussian dispersion dims are sampled as truncated normals (±4σ) — SALib's grid samplers hit the [0, 1] endpoints, and an unbounded normal would map them to ±inf draws. Off/absent dispersion domains are excluded from the sampled problem and injected as fixed constants (results still report all 26 dims, with zero effect for inactive ones), so any config works — not just all-domains-on.
 
@@ -417,7 +434,7 @@ uv run python -m aerocapture.training.sensitivity \
 
 Results saved to `output_dir/sensitivity_results.json` with mu_star/sigma (Morris) and S1/ST indices (Sobol).
 
-## PyO3 Python Bindings
+### PyO3 Python Bindings
 
 The `aerocapture_rs` Python module is the one seam between the two languages. Its entries are
 tiered (see the module doc in `src/rust/aerocapture-py/src/lib.rs`): **evaluate** (`run_grid` for
@@ -455,19 +472,19 @@ Build with: `uv run maturin develop --release --manifest-path src/rust/aerocaptu
 
 The training pipeline requires the PyO3 bindings: build them first (see Quick Start), or the batch evaluation path raises at the first generation.
 
-## Validation
+### Validation
 
 The Rust simulator has been validated against a reference implementation across all 725 timesteps of a guided FTC trajectory:
 - **22 of 24** photo output columns are bit-identical
 - The remaining 2 differ only at the first timestep due to uninitialized variable artifacts in the reference
 
-## Testing
+### Testing
 
 ```bash
 # Rust tests
 cargo test --release --manifest-path src/rust/Cargo.toml
 
-# Python tests (~1300 tests)
+# Python tests
 uv run pytest tests/
 
 # Linting + type checking
@@ -481,7 +498,7 @@ uv run pytest tests/
 
 **Python tests** cover: parsers, regression, GA pipeline, training visualization, training animation, NN weight initialization, curated-CDF seed framework (stratified picking, curation probe, checkpoint roundtrip), graceful interrupt, TOML base inheritance, PyO3 integration (bit-identical regression), corridor accumulator, unified cost function, sensitivity analysis (build_problem structure + Morris/Sobol pipeline shape/correctness), Parquet output (write/read roundtrip, schema, metadata, data integrity), RL training (GaussianPolicy / ValueNetwork, PyTorch→JSON export roundtrip, AerocaptureVecEnv wrapper, PBRS telescoping identity + terminal cost parity with GA, PPO GAE/update rule, SAC update rule, config parser with nested ppo overrides, RL-flavored PDF report charts, end-to-end PPO smoke test).
 
-## CI
+### CI
 
 GitHub Actions runs on every push to `main`, every PR to `main`, and manual dispatch:
 
@@ -489,7 +506,7 @@ GitHub Actions runs on every push to `main`, every PR to `main`, and manual disp
 - **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
 - **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and an import step before pytest proves the extension is present, so no `importorskip` can silently skip. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 
-## Build Commands
+### Build Commands
 
 ```bash
 ./build.sh              # Build Rust binary + PyO3 bindings (-c to clean artifacts)
@@ -503,7 +520,7 @@ Note: `pymoo` is ceiling-pinned `<0.6.2` — pymoo 0.6.2 routes IGD through the 
 
 ## Roadmap
 
-See [TODO.md](TODO.md) for the prioritized task list and backlog.
+Open work is tracked in GitHub Issues; the 2026-09-16 portfolio review's index, ranking and dependencies are issue [#115](https://github.com/GovitPowerz/Aerocapture/issues/115). [TODO.md](TODO.md) holds the research backlog: neural counterparts for navigation and control, ESR and skip-entry mission profiles, and a regime-matched objective schedule.
 
 ## Author
 
