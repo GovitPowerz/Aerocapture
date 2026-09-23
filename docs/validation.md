@@ -73,7 +73,8 @@ Each tolerance is the budget of the named difference in the Explanation column, 
 observed gap. They were fixed after a first comparison run, which surfaced the bank sign convention
 (a 29% apoapsis gap on `mid_bank` that vanished once mapped). Margins run from about 2x (flight time,
 the Sutton-Graves rows) to over 1000x; about half the rows sit more than 10x inside their
-tolerance. They are this document's drafting choices and open to review.
+tolerance. The author adopted them on 2026-09-23, together with the 60 deg mid case, the nose
+radius matched at entry speed and the entry corridor as the corridor comparable.
 
 | Quantity | Tolerance | Budget |
 |---|---|---|
