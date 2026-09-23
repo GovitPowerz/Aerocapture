@@ -43,7 +43,7 @@ _Avoid_: actual bank
 ### Guidance & Control
 
 **Guidance Scheme**:
-One of the selectable bank-angle guidance laws (FTC, NN, EqGlide, Energy Controller, PredGuid, FNPAG, Piecewise Constant; CPAG exists only on branch `feature/cpag-c1-rust-mvp`, not on main).
+One of the selectable bank-angle guidance laws (FTC, NN, EqGlide, Energy Controller, PredGuid, FNPAG, Piecewise Constant; CPAG exists only on branch `feature/cpag-c1-rust-mvp`, not on main; shelved, see `docs/design/2026-09-23-cpag-shelved.md`).
 _Avoid_: guidance algorithm ("algorithm" is reserved for the optimizer)
 
 **Optimizer Algorithm**:

@@ -1,9 +1,5 @@
 # TODO
 
-- [ ] implement CPAG (Convex Predictor-Corrector Aerocapture Guidance) as the 8th guidance scheme
-
----
-
 ## Backlog
 
 - [ ] Add neural counterparts for navigation and control: train neural counterparts for the
@@ -57,54 +53,10 @@
 
 ---
 
-## CPAG -- Convex Predictor-Corrector Aerocapture Guidance (classical track)
+## CPAG guidance -- SHELVED (2026-09-23, negative result)
 
-**End goal:** implement CPAG (Rataczak, McMahon & Boyd, JGCD 2025, doi:10.2514/1.G008685;
-`@rataczak2025cpag` in the paper's related work) as the 8th guidance scheme -- a convexified
-constrained replan (bank profile with heat-flux / g-load / heat-load path constraints enforced
-in-loop) -- and make it the classical architecture developed further, replacing FNPAG in that
-role. Rationale: constraint handling is the structural gap in the classical stack (the thermal
-limiter is a bolt-on ramp outside guidance; the paper's LSTM feasibility asterisk shows soft
-penalties do not enforce feasibility), and the confirmatory campaign demoted FNPAG (deep tail
-fattens 165 -> 198.7 at 1e6; bang-bang + bisection has no headroom for in-loop constraints).
-Known trade, carried deliberately: less high-fidelity 6-DoF / flight-computer validation in the
-public literature than FNPAG -- partly structural (iterative solver, variable iteration count ->
-WCET certification risk). This repo's MC harness can generate exactly the missing validation
-evidence.
-
-**Paper lessons that transfer on day one:**
-- Scale the predictor's atmosphere by the nav-estimated density factor (the fix that took FNPAG
-  from losing to FTC to beating it; density is the dominant apoapsis-error driver, corr -0.72).
-- GA-co-tune CPAG's knobs (weights, trust region, targets) + nav scaffolding like every other
-  scheme -- an untuned CPAG repeats the untuned-baseline fallacy the paper criticizes.
-- Benchmark feasibility-first and tail-led: confirmatory-style pools, CVaR99.9, against
-  joint-FTC AND the deployed Mamba -- not against FNPAG on means. Expect fatten-with-depth
-  until measured otherwise.
-- Deployability row from the start: per-replan wall time + iteration-count distribution
-  (FNPAG's ~0.27 ms/replan is the bar; the paper's triangle gets a CPAG vertex).
-
-### Stage C0 -- formulation + solver spike
-- [ ] Python prototype of the paper's convexified formulation on our dynamics; verify SCP
-      convergence across the corridor (undispersed sweep + a dispersed batch)
-- [ ] Pick the embedded solver: Clarabel (pure Rust, SOCP) vs OSQP binding vs problem-shaped
-      custom QP; measure per-solve wall time and iteration spread at the real problem size
-
-### Stage C1 -- Rust scheme MVP
-- [ ] `cpag.rs`: SCP replan on a `replan_period` cadence (FNPAG throttle pattern: hold between
-      replans, re-clamp the held command at current-altitude bank limits), onboard atmosphere
-      scaled by the nav density factor
-- [ ] Path constraints wired to `[flight.constraints]`; `[guidance.cpag]` TOML params +
-      `param_spaces.py` specs + routing-table entry + `compare_guidance` registration
-- [ ] Unit tests (constraint activation, replan throttle, convergence fallback) + golden config
-
-### Stage C2 -- training + benchmark
-- [ ] GA-tune under the deployed regime (adaptive/max curation, cubed transform); requires the
-      feasibility-aware validation gate (ADR-0005, shipped) for honest promotion
-- [ ] Head-to-head vs joint-FTC / FNPAG / deployed Mamba on confirmatory-style pools; update the
-      deployability triangle (tail, compute, robustness)
-- [ ] Optional follow-up: CPAG as a constraint-aware warm-start supervisor for `magnitude_only`
-      NN training
-- [ ] Full verification + smart-commit
+Shelved (#135); verdict, noise regime and reopen conditions:
+`docs/design/2026-09-23-cpag-shelved.md`.
 
 ---
 

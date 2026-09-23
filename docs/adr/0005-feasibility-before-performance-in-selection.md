@@ -16,7 +16,8 @@ pre-loop initial-champion validation and the end-of-training final selection
 infeasible winner deployed silently. The CPAG C2 campaign showed the failure mode live: the
 ungated pre-loop path anchored a 5.75%-heat-load-violating gen-0 argmin as champion, and once
 gated the optimizer produced 21+ better-RMS infeasible candidates against 3 feasible promotions
-(`docs/plans/2026-07-19-cpag-c2-results.md` on `feature/cpag-c1-rust-mvp`).
+(`docs/plans/2026-07-19-cpag-c2-results.md` on `feature/cpag-c1-rust-mvp`; summary on main:
+`docs/design/2026-09-23-cpag-shelved.md`).
 
 ## Decision
 
