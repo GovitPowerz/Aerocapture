@@ -673,13 +673,19 @@ validation_n_sims` sims each).
   SHA-256 over every tracked paper input plus Release tag, crate/typst/matplotlib versions,
   campaign TOML hashes; `--check` fails when stale); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD
   commit time, `--input git_head=<short sha>[-dirty]` for the colophon; `PDF=/tmp/x.pdf` leaves
-  the committed PDF alone). `articles/paper/results.typ` is the compile-time seam: accessors over
-  `results.json` / `confirmatory_eval.json` / `quant/finalists_results.json` that fill every cell of
-  the performance, paired-comparison and quantization-finalists tables (the Viol. column excepted:
-  the bundle carries no violation field), and the colophon reads `provenance.json`; prose numbers
-  are still transcribed. `paper` chains them; `check` =
+  the committed PDF alone); `confirmatory-marginal` writes `data/confirmatory_marginal.json`, the
+  cells and fields the paper quotes from the per_draw far-tail confirmatory
+  `experiments/ou_marginal/confirmatory_marginal.json` (`extract_confirmatory_marginal.py`, issue
+  #137). `articles/paper/results.typ` is the compile-time seam: accessors over `results.json` /
+  `confirmatory_eval.json` / `quant/finalists_results.json` (legacy regime, `legacy_regime()`) and
+  `confirmatory_marginal.json` (per_draw, asserted at load) that fill every cell of the performance,
+  paired-comparison, quantization-finalists and per-scenario far-tail tables (the Viol. column
+  excepted: the bundle carries no violation field) and the per-scenario headline quotes of the
+  abstract, Section 9 and the conclusion, and the colophon reads `provenance.json`; other prose
+  numbers are still transcribed. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
-  regenerates it + `SHA256SUMS.runlogs`) + `check_results_schema.py` + `write_provenance.py
+  regenerates it + `SHA256SUMS.runlogs`) + `check_results_schema.py` +
+  `extract_confirmatory_marginal.py --check` + `write_provenance.py
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets
   re-fly cells (never default, never CI). Figures are byte-reproducible across macOS and Linux:

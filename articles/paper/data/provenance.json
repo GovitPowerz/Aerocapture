@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "2d35d1a20d40829162259ce122c39f1e425df82f9dbe0af40df679170d081f84",
+  "paper_inputs_sha256": "730fa7a1fc6a5a1490b061b84a947166bcce45871b74ab910858b446b9c73403",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -13,7 +13,7 @@
   ],
   "release_tag": "arxiv-v2",
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v2/paper_run_logs.tar",
-  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101); per run in results.json (ADR-0003, ADR-0006)",
+  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006)",
   "simulator_crate_version": "1.0.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",

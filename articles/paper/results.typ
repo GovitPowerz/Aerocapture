@@ -4,13 +4,17 @@
 //   paired(key)   -> a results.json paired comparison
 //   conf(label)   -> a confirmatory_eval.json cell (10 x 100 000 frozen pool)
 //   finalist(l)   -> a quant/finalists_results.json row (re-quote pool, n = 1000)
-// Every run and confirmatory cell used by the headline tables was flown under the legacy
-// (shared-path) noise regime; legacy_regime() asserts it so a re-quoted run cannot enter a
-// table whose caption states that regime (ADR-0003 / ADR-0006).
+//   marg(label)   -> a confirmatory_marginal.json cell (10 x 100 000, per-scenario noise)
+// Every run and confirmatory cell of results.json / confirmatory_eval.json used by the headline
+// tables was flown under the legacy (shared-path) noise regime; legacy_regime() asserts it so a
+// re-quoted run cannot enter a table whose caption states that regime. confirmatory_marginal.json
+// is per_draw throughout, asserted at load (ADR-0003 / ADR-0006, issue #137).
 
 #let results = json("data/results.json")
 #let confirmatory = json("data/confirmatory_eval.json")
 #let finalists = json("data/quant/finalists_results.json").finalists
+#let marginal = json("data/confirmatory_marginal.json")
+#assert(marginal.noise_seeding == "per_draw", message: "confirmatory_marginal.json is not the per_draw regime")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)
@@ -23,6 +27,23 @@
   let row = finalists.find(f => f.label == label)
   assert(row != none, message: "finalists_results.json has no row " + label)
   row
+}
+
+// A per-scenario confirmatory cell, pooled over the 10^6: capture % from n_captured / n (the
+// source's capture_pct is rounded to 2 decimals, 100.0 for 5 losses), the scenarios lost, the
+// pooled CVaR95 / CVaR99.9 / worst case and the CVaR99.9 standard error over the ten replicates.
+#let marg(label) = {
+  let cell = marginal.cells.find(c => c.label == label)
+  assert(cell != none, message: "confirmatory_marginal.json has no cell " + label)
+  let p = cell.pooled
+  (capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
+    cvar999_se: cell.replicate_stats.cvar999.se, max: p.max)
+}
+// Mean and sample sd (n - 1) of one marg() field over the three fine-tune seeds of the deployed Mamba.
+#let mamba_seeds(field) = {
+  let xs = ("ou_marginal/ft_mamba_p962", "ou_marginal/ft_mamba_p962_s2", "ou_marginal/ft_mamba_p962_s3").map(l => marg(l).at(field))
+  let mean = xs.sum() / xs.len()
+  (mean: mean, sd: calc.sqrt(xs.map(x => calc.pow(x - mean, 2)).sum() / (xs.len() - 1)))
 }
 
 // The legacy noise regime, asserted for a results.json run (the regime is part of the number).

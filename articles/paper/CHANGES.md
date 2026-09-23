@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-23 with #134); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-23 with #137); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -42,3 +42,18 @@ last on 2026-09-23 with #134); the arxiv-v3 build is the `arxiv-v3` tag.
   three-seed +- (abstract, Section 9, conclusion, Appendix E, README, TODO) is labelled one seed
   standard deviation; the far-tail table's +- stays the replicate standard error. No number
   changes.
+- 2026-09-23 (#137): the per-scenario headline reads the bundle. `data/confirmatory_marginal.json`
+  holds the cells and fields the paper quotes from `experiments/ou_marginal/confirmatory_marginal.json`
+  (per_draw, 10 x 100,000): it is written by `scripts/extract_confirmatory_marginal.py`
+  (`make confirmatory-marginal`, also a step of `make paper`), checked against its source by
+  `make check`, and covered by `data/SHA256SUMS` and the provenance digest. `results.typ` gains
+  `marg()` (pooled capture from n_captured / n, scenarios lost, CVaR95, CVaR99.9 with its
+  replicate s.e., worst case; the per_draw regime is asserted at load) and `mamba_seeds()` (mean
+  and sd over the three fine-tune seeds). Now accessor calls: every cell of the Appendix E far-tail
+  table and its caption's FNPAG non-capture share, the table's prose and the seed-robustness
+  paragraph, and the per-scenario quotes of the abstract, Section 9 and the conclusion (99.996%,
+  99.9995%, 163.2 +- 1.3, 163.0 +- 0.3, the 73 m/s margin, "past 236"). The colophon names the new
+  file and its regime. No value moved: every page except the colophon renders pixel-identical to
+  the #134 build. Still transcribed: "near 237" (abstract, conclusion), the loss rates
+  "5 x 10^-6 to 8 x 10^-5", and the n = 1000 per-scenario quotes, whose source
+  `experiments/ou_marginal/quote_results.json` is still outside the bundle.
