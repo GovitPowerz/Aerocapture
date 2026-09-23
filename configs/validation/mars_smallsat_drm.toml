@@ -1,0 +1,55 @@
+# Published-result reproduction (issue #112, docs/validation.md): the Mars smallsat
+# drag-modulation design reference mission of Girija 2023 (arXiv:2308.10384, Table 1),
+# whose corridor [-9.86, -8.78] deg comes from AMAT's notebook
+# docs/source/mdpi-aerospace-notebooks/smallsat-mission-concepts/section-3-4-*.ipynb.
+# Each corridor bound is a ballistic (L/D = 0) flight: the overshoot bound flies the
+# drag-skirt configuration (beta1 = 20 kg/m2, this file), the undershoot bound the jettisoned
+# one (beta2 = 7.5 * beta1, reference_area overridden by the runner; only beta enters when
+# L/D = 0). entry.flight_path_angle is searched per bound. Our full Mars model (oblate,
+# J2-J4, MarsGram 3.8 table) flies it.
+base = ["../missions/mars.toml"]
+
+[entry]
+altitude = 120.0
+longitude = 88.15
+latitude = -0.65
+velocity = 5358.1
+flight_path_angle = -9.2
+azimuth = 81.4542  # AMAT heading 8.5458 deg is measured from east toward north
+initial_bank_angle = 0.0
+initial_aoa = 0.0
+
+[vehicle]
+mass = 37.0
+reference_area = 1.767
+
+[aerodynamics]
+equilibrium_aoa = 0.0
+points = [
+    { aoa = 0.0, ca = 1.0469722693831354, cn = 0.0 },  # CD = mass / (beta1 * area)
+    { aoa = 0.0, ca = 1.0469722693831354, cn = 0.0 },
+]
+
+[incidence]
+altitudes = [-10.0, 50.0, 80.0, 150.0]
+angles = [0.0, 0.0, 0.0, 0.0]
+
+[flight.final_conditions]
+altitude = 120.0  # atmosphere exit = AMAT's h_skip
+
+[flight.target_orbit]
+apoapsis = 2000.0
+periapsis = 200.0
+
+[guidance]
+type = "ftc"
+reference_trajectory = true
+reference_bank_angle = 0.0
+
+[simulation]
+n_sims = 1
+
+[onboard_atmosphere]
+mode = "identical"
+
+# No [monte_carlo] domain and no OU block: undispersed and noise-free, so the noise regime is inert.
