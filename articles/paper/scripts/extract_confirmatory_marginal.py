@@ -24,7 +24,7 @@ CELLS = (
     "mamba_p962_long",
     "fnpag",
 )
-POOLED = ("n", "n_captured", "cvar95", "cvar999", "max")
+POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
 
 
 def build() -> dict:

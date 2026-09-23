@@ -31,19 +31,18 @@
 
 // A per-scenario confirmatory cell, pooled over the full pool (asserted): n, capture % from
 // n_captured / n (the source's capture_pct is rounded to 2 decimals, 100.0 for 5 losses), the
-// scenarios lost, the pooled CVaR95 / CVaR99.9 / worst case and the CVaR99.9 standard error over
-// the replicates.
+// scenarios lost, the pooled CVaR95 / CVaR99.9 / worst case / constraint-violation %, and the
+// CVaR99.9 standard error over the replicates.
 #let marg(label) = {
   let cell = marginal.cells.find(c => c.label == label)
   assert(cell != none, message: "confirmatory_marginal.json has no cell " + label)
   let p = cell.pooled
   assert(p.n == marginal.n_replicates * marginal.n_per_replicate, message: label + " does not cover the full confirmatory pool")
   (n: p.n, capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
-    cvar999_se: cell.replicate_stats.cvar999.se, max: p.max)
+    cvar999_se: cell.replicate_stats.cvar999.se, max: p.max, viol_pct: p.viol_pct)
 }
-// Mean and sample sd (n - 1) of one marg() field over the three fine-tune seeds of the deployed Mamba.
-#let mamba_seeds(field) = {
-  let xs = ("ou_marginal/ft_mamba_p962", "ou_marginal/ft_mamba_p962_s2", "ou_marginal/ft_mamba_p962_s3").map(l => marg(l).at(field))
+// Mean and sample sd (n - 1) of a list of numbers.
+#let mean_sd(xs) = {
   let mean = xs.sum() / xs.len()
   (mean: mean, sd: calc.sqrt(xs.map(x => calc.pow(x - mean, 2)).sum() / (xs.len() - 1)))
 }

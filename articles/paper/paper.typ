@@ -59,19 +59,24 @@
 #import "results.typ" as R
 // The per-scenario far-tail headline (data/confirmatory_marginal.json): the deployed fine-tune
 // seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG, the three-seed
-// means, the seeds' loss rates, and the margin to the better of the dense fine-tune and FNPAG,
-// floored so that both "N m/s below" and "more than N m/s below" hold.
+// means, the seeds' loss rates, and the margin to the better of the dense fine-tune and FNPAG.
+// ou_below(x) is the largest integer strictly below x, so both "N below/past" and "more than N"
+// hold. The prose quotes 10^6 scenarios per cell and the seeds' full constraint feasibility.
+#assert(R.marginal.n_replicates == 10 and R.marginal.n_per_replicate == 100000, message: "the per-scenario quotes state a 10 x 100 000 pool")
 #let ou_ft = R.marg("ou_marginal/ft_mamba_p962")
 #let ou_s2 = R.marg("ou_marginal/ft_mamba_p962_s2")
 #let ou_s3 = R.marg("ou_marginal/ft_mamba_p962_s3")
 #let ou_dense = R.marg("ou_marginal/ft_dense_p515")
 #let ou_champ = R.marg("mamba_p962_long")
 #let ou_fnpag = R.marg("fnpag")
-#let ou_ft3 = R.mamba_seeds("cvar999")
-#let ou_ft3_capture = R.mamba_seeds("capture_pct").mean
+#let ou_seeds = (ou_ft, ou_s2, ou_s3)
+#assert(ou_seeds.all(c => c.viol_pct == 0), message: "a Mamba fine-tune seed violates a constraint: the prose states full feasibility")
+#let ou_ft3 = R.mean_sd(ou_seeds.map(c => c.cvar999))
+#let ou_ft3_capture = R.mean_sd(ou_seeds.map(c => c.capture_pct)).mean
 #let ou_rival999 = calc.min(ou_dense.cvar999, ou_fnpag.cvar999)
-#let ou_loss_rates = (ou_ft, ou_s2, ou_s3).map(c => c.lost / c.n)
-#let ou_margin(x) = calc.floor(ou_rival999 - x)
+#let ou_loss_rates = ou_seeds.map(c => c.lost / c.n)
+#let ou_below(x) = calc.ceil(x) - 1
+#let ou_margin(x) = ou_below(ou_rival999 - x)
 
 #v(0.15in)
 #align(center)[
@@ -1211,7 +1216,7 @@ But the $10^6$-scenario far-tail re-run separates the architectures again, at th
 always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = #R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s with $#R.fixed(ou_ft3_capture, d: 3)%$
 of scenarios captured (both three-seed means, the $plus.minus$ one seed standard deviation; the
 deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$), while the dense fine-tune -- the $"CVaR"_95$ winner -- and FNPAG
-both blow past $#calc.floor(ou_rival999)$. The recurrent advantage lives at the extreme tail, and only a million-scenario
+both blow past $#ou_below(ou_rival999)$. The recurrent advantage lives at the extreme tail, and only a million-scenario
 pool can see it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern
 is the same: the network is exactly as good as the distribution it trains on, and widening the
 training environment recovers what the narrow one gave away.
@@ -1874,14 +1879,13 @@ and FNPAG.
 
 // One tbl-ou-confirmatory row from data/confirmatory_marginal.json (per_draw): capture with cap_d
 // decimals (the deployed seed needs 4 to show its 5 losses), CVaR95, CVaR99.9 +- replicate s.e.,
-// worst case; the lowest CVaR95 and CVaR99.9 of the four rows are bold. The caption and the prose
-// quote the pool shape, so it is asserted here.
-#assert(R.marginal.n_replicates == 10 and R.marginal.n_per_replicate == 100000, message: "tbl-ou-confirmatory quotes a 10 x 100 000 pool")
+// worst case; the lowest CVaR95 and CVaR99.9 of the four rows, as printed, are bold (a tie at the
+// printed precision bolds both). The pool shape is asserted with the ou_* block at the top.
 #let ou_rows = (ou_ft, ou_champ, ou_dense, ou_fnpag)
 #let ou_row(policy, c, cap_d: 2) = {
   let hi(field) = {
     let s = R.fixed(c.at(field))
-    if c.at(field) == calc.min(..ou_rows.map(r => r.at(field))) { math.bold(s) } else { s }
+    if s == R.fixed(calc.min(..ou_rows.map(r => r.at(field)))) { math.bold(s) } else { s }
   }
   (policy, [$#R.fixed(c.capture_pct, d: cap_d)%$], [$#hi("cvar95")$],
     [$#hi("cvar999") plus.minus #R.fixed(c.cvar999_se)$], [$#R.fixed(c.max, d: 0)$])

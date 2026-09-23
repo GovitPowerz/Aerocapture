@@ -174,11 +174,14 @@ check-schema:
 # SHA256SUMS.runlogs only when at least as many run logs are present as it lists: with none or a
 # subset (a fresh clone, or one re-collected cell) the find would shrink the manifest `check-logs`
 # verifies the Release asset against. To drop a cell's log on purpose, delete the manifest first.
+# A subset is not fixed by `fetch-logs` (a no-op once any log is present), and fetch_run_logs.sh
+# untars over the re-collected logs: set them aside, fetch, put them back, then sums.
 sums:
 	cd $(DATA) && $(TRACKED_DATA_SUMS) > SHA256SUMS
 	@cd $(DATA) && have=$$(find runs -name run.jsonl.gz | wc -l | tr -d ' ') && listed=$$(cat SHA256SUMS.runlogs 2>/dev/null | wc -l | tr -d ' ') && \
 	if [ $$have -eq 0 ] || [ $$have -lt $$listed ]; then \
-	  echo "run logs: $$have present, $$listed listed: SHA256SUMS.runlogs left as is (make fetch-logs, then sums)"; \
+	  echo "run logs: $$have present, $$listed listed: SHA256SUMS.runlogs left as is. None present: make fetch-logs, then sums." \
+	    "Some present: fetch_run_logs.sh overwrites them, so set re-collected logs aside, run it, put them back, then sums."; \
 	else find runs -name run.jsonl.gz | LC_ALL=C sort | xargs $(SHASUM) > SHA256SUMS.runlogs; fi
 
 help:

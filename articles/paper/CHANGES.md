@@ -48,9 +48,10 @@ last on 2026-09-23 with #137); the arxiv-v3 build is the `arxiv-v3` tag.
   (`make confirmatory-marginal`, also a step of `make paper`), checked against its source by
   `make check`, and covered by `data/SHA256SUMS` and the provenance digest. `results.typ` gains
   `marg()` (pooled capture from n_captured / n, scenarios lost, CVaR95, CVaR99.9 with its
-  replicate s.e., worst case; the per_draw regime is asserted at load) and `mamba_seeds()` (mean
-  and sd over the three fine-tune seeds); every cell must cover the full pool, and the table
-  asserts the 10 x 100,000 shape its caption and prose quote. Now accessor calls: every cell of the
+  replicate s.e., worst case, violation %; the per_draw regime is asserted at load) and `mean_sd()`
+  (mean and sd, over the three fine-tune seeds); every cell must cover the full pool, and
+  `paper.typ` asserts the 10 x 100,000 shape and the three seeds' zero violation share that its
+  prose quotes. Now accessor calls: every cell of the
   Appendix E far-tail table (its bold marks the lowest CVaR95 / CVaR99.9, derived rather than
   flagged) and its caption's FNPAG non-capture share, the table's prose and the seed-robustness
   paragraph with its loss rates, and the per-scenario quotes of the abstract, Section 9 and the
