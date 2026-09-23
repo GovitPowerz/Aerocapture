@@ -160,6 +160,20 @@ def test_confirmatory_marginal_check_passes_then_rejects_a_drifted_source(tmp_pa
     with pytest.raises(SystemExit, match="is not what"):
         ecm.main()
 
+    # The recovery the message prescribes: regenerate, then --check passes again.
+    before = out.read_text()
+    monkeypatch.setattr(sys, "argv", ["extract_confirmatory_marginal.py"])
+    ecm.main()
+    assert out.read_text() != before
+    monkeypatch.setattr(sys, "argv", ["extract_confirmatory_marginal.py", "--check"])
+    ecm.main()
+
+    # A partially re-collected source names the missing cell instead of a KeyError.
+    d["cells"] = [c for c in d["cells"] if c["label"] != "fnpag"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag"):
+        ecm.main()
+
 
 def test_aggregate_fails_without_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bundle without run.jsonl.gz is an exit, not a degraded results.json."""

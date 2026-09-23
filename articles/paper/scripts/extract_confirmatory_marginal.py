@@ -32,6 +32,9 @@ def build() -> dict:
     if src["noise_seeding"] != "per_draw":
         sys.exit(f"{SRC.relative_to(REPO)} is not a per_draw confirmatory")
     by_label = {c["label"]: c for c in src["cells"]}
+    missing = [label for label in CELLS if label not in by_label]
+    if missing:
+        sys.exit(f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: run experiments/ou_marginal/confirmatory_marginal.py")
     return {
         "source": str(SRC.relative_to(REPO)),
         "noise_seeding": src["noise_seeding"],

@@ -68,6 +68,7 @@
 #let ci(iv, d: 1) = signed(iv.at(0), d: d) + ", " + signed(iv.at(1), d: d)
 // One significant digit times a power of ten, as an equation (x > 0).
 #let sci(x) = {
+  assert(x > 0, message: "sci() needs x > 0, got " + repr(x) + " (a zero rate needs prose, not a power of ten)")
   let e = calc.floor(calc.log(x, base: 10))
   let m = int(calc.round(x / calc.pow(10.0, e)))
   if m == 10 { m = 1; e += 1 }

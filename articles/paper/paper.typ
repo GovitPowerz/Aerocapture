@@ -61,7 +61,9 @@
 // seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG, the three-seed
 // means, the seeds' loss rates, and the margin to the better of the dense fine-tune and FNPAG.
 // ou_below(x) is the largest integer strictly below x, so both "N below/past" and "more than N"
-// hold. The prose quotes 10^6 scenarios per cell and the seeds' full constraint feasibility.
+// hold. The prose quotes 10^6 scenarios per cell and the seeds' full constraint feasibility;
+// viol_pct is the mean of per-replicate shares rounded to 0.01% (confirmatory_eval.py), so the
+// gate resolves about 4 violating scenarios per 100 000, not one.
 #assert(R.marginal.n_replicates == 10 and R.marginal.n_per_replicate == 100000, message: "the per-scenario quotes state a 10 x 100 000 pool")
 #let ou_ft = R.marg("ou_marginal/ft_mamba_p962")
 #let ou_s2 = R.marg("ou_marginal/ft_mamba_p962_s2")
@@ -72,7 +74,7 @@
 #let ou_seeds = (ou_ft, ou_s2, ou_s3)
 #assert(ou_seeds.all(c => c.viol_pct == 0), message: "a Mamba fine-tune seed violates a constraint: the prose states full feasibility")
 #let ou_ft3 = R.mean_sd(ou_seeds.map(c => c.cvar999))
-#let ou_ft3_capture = R.mean_sd(ou_seeds.map(c => c.capture_pct)).mean
+#let ou_ft3_capture = ou_seeds.map(c => c.capture_pct).sum() / ou_seeds.len()
 #let ou_rival999 = calc.min(ou_dense.cvar999, ou_fnpag.cvar999)
 #let ou_loss_rates = ou_seeds.map(c => c.lost / c.n)
 #let ou_below(x) = calc.ceil(x) - 1
