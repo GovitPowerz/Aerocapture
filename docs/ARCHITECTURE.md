@@ -82,7 +82,11 @@ Checkpoints (`checkpoint_g*.{json,npz}`) make every step resumable; `--n-gen` on
    correction DV (`orbit::maneuver::compute_deltav`), the others a virtual DV so every outcome
    stays comparable in cost.
 
-The RL env (`aerocapture-py/src/env.rs`, `BatchedSimulation`) drives the same `step_one_tick`.
+`step_one_tick` is `sense_tick` (step 1, plus the OU density-noise step) then `act_tick` (steps 2-6).
+The RL env (`aerocapture-py/src/env.rs`, `BatchedSimulation`) drives the same two halves with the
+policy between them: its observation is the navigation `sense_tick` just cached, and its action
+replaces the NN forward pass in step 2, so an RL policy sees and flies exactly what a deployed NN
+does (`src/rust/tests/rl_env_parity.rs`).
 
 ## Where the time goes
 

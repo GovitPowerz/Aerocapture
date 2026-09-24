@@ -1,8 +1,12 @@
 //! Per-tick advance function, extracted from `runner::run_single`.
 //!
-//! `step_one_tick` advances `SimState` by exactly one outer GNC tick.
-//! `runner::run_single` loops over it; `BatchedSimulation::step` (Task 1.3+) will
-//! call it with `forced_bank = Some(policy_action)`.
+//! One outer GNC tick is two halves: `sense_tick` (density-noise step + navigation at
+//! the tick start `t_k`, cached in `state.last_nav`) and `act_tick` (guidance on that
+//! cached navigation, pilot, integration to `t_k + dt`, termination). `step_one_tick`
+//! runs both and is what `runner::run_single` loops over. `BatchedSimulation` splits
+//! them around the policy: `step(a_k)` runs `act_tick(Some(a_k))` then the NEXT
+//! tick's `sense_tick`, so the observation it returns is nav(t_{k+1}), the same
+//! navigation the deployed NN reads at tick k+1.
 
 use crate::config::{IntegrationMode, PlanetConfig, SimInput};
 use crate::data::SimData;
@@ -28,8 +32,7 @@ use crate::simulation::runner::{
 /// them between ticks via `std::mem::take(&mut state.event_records)`.
 #[allow(dead_code)]
 pub struct TickOutcome {
-    /// Commanded bank angle used this tick (rad). Echoed from caller for BatchedSimulation;
-    /// computed from guidance dispatch for the existing runner path.
+    /// Pilot-realized bank angle at the end of this tick (rad).
     pub bank_commanded: f64,
     /// True if simulation should terminate after this tick (atmosphere exit, crash, pending
     /// crash, NaN/Inf, or max_time reached).
@@ -38,7 +41,7 @@ pub struct TickOutcome {
     pub ifinal: Option<i32>,
 }
 
-/// Advance `state` by exactly one outer GNC tick.
+/// Advance `state` by exactly one outer GNC tick: `sense_tick` then `act_tick`.
 ///
 /// Verbatim extraction of `run_single`'s loop body. The loop invariant is:
 /// on entry, `state.term == TermReason::None`; on exit, either `state.term`
@@ -50,9 +53,7 @@ pub struct TickOutcome {
 /// the terminal event's time in adaptive mode), so peak times, bounce time,
 /// the final record and the final photo row all label the state they describe.
 ///
-/// `forced_bank`: when `Some(radians)`, overrides guidance output with this bank
-/// command. Used by `BatchedSimulation` to inject RL policy actions. The existing
-/// `run_single` call site always passes `None`.
+/// `forced_bank`: see `act_tick`. The `run_single` call site always passes `None`.
 #[allow(clippy::too_many_arguments)]
 pub fn step_one_tick(
     state: &mut SimState,
@@ -63,9 +64,27 @@ pub fn step_one_tick(
     event_defs: &[EventDef],
     event_ctx: &EventContext,
 ) -> TickOutcome {
-    let dt = state.dt;
+    sense_tick(state, config, data, planet);
+    act_tick(
+        state,
+        config,
+        data,
+        planet,
+        forced_bank,
+        event_defs,
+        event_ctx,
+    )
+}
 
-    let flags = state.sequencer.update(state.sim_time, &data.periods);
+/// First half of a tick, at the tick start `t_k`: step the Gauss-Markov density
+/// perturbation, run navigation, and cache the result (with the thermal
+/// fractions and the phase-transition reference-velocity latch applied) in
+/// `state.last_nav`. Nothing here depends on the bank command of tick `k`, so
+/// `BatchedSimulation` runs it right after the previous tick's `act_tick` and
+/// builds the policy observation from it. Must run exactly once per tick: each
+/// call advances the density-noise RNG and (EKF mode) the filter.
+pub fn sense_tick(state: &mut SimState, config: &SimInput, data: &SimData, planet: &PlanetConfig) {
+    let dt = state.dt;
 
     // Step Gauss-Markov density perturbation
     if let Some(gm) = state.gm_config {
@@ -84,7 +103,7 @@ pub fn step_one_tick(
         );
     }
 
-    // === Navigation + Guidance + Pilot ===
+    // === Navigation ===
     if !config.reference_trajectory {
         let mut nav_out = navigate_from_state(state, data, planet);
 
@@ -123,8 +142,53 @@ pub fn step_one_tick(
             };
         }
 
-        // Cache for RL observation building (build_nn_input reads this via last_nav_output())
+        // Guidance (`act_tick`) and the RL observation (`last_nav_output()`) both read this.
         state.last_nav = nav_out;
+        state.last_nav_time = state.sim_time;
+    } else {
+        // Reference trajectory mode: compute pdyn from truth state for photo output
+        let (alt_truth, _) =
+            geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
+        let rho_truth = atmosphere::density(
+            &data.atmosphere,
+            alt_truth,
+            state.run_state.density_bias,
+            state.run_state.density_perturbation,
+        );
+        state.dynamic_pressure_for_photo = 0.5 * rho_truth * state.state[3] * state.state[3];
+        state.density_estimate_for_photo = rho_truth;
+    }
+}
+
+/// Second half of a tick: guidance on the navigation `sense_tick` cached, the
+/// bank command, pilot, photo, integration to `t_k + dt`, and termination.
+///
+/// `forced_bank`: when `Some(radians)`, the RL policy action; it replaces the NN
+/// forward pass inside guidance (`guidance_step`'s `policy_bank`), so it is shaped,
+/// recorded in the NN telemetry and flown exactly as a deployed NN output would be.
+#[allow(clippy::too_many_arguments)]
+pub fn act_tick(
+    state: &mut SimState,
+    config: &SimInput,
+    data: &SimData,
+    planet: &PlanetConfig,
+    forced_bank: Option<f64>,
+    event_defs: &[EventDef],
+    event_ctx: &EventContext,
+) -> TickOutcome {
+    let dt = state.dt;
+
+    let flags = state.sequencer.update(state.sim_time, &data.periods);
+
+    // === Guidance + Pilot ===
+    if !config.reference_trajectory {
+        debug_assert!(
+            state.last_nav_time == state.sim_time,
+            "act_tick at t={} without a sense_tick at that time (last sensed t={})",
+            state.sim_time,
+            state.last_nav_time
+        );
+        let nav_out = state.last_nav;
 
         let guidance_out = dispatch::guidance_step(
             &nav_out,
@@ -136,6 +200,7 @@ pub fn step_one_tick(
             planet,
             config.reference_trajectory,
             config.guidance_type,
+            forced_bank,
         );
 
         // Compute current inclination error once -- needed by both supervised collect
@@ -190,13 +255,9 @@ pub fn step_one_tick(
             ));
         }
 
-        // Effective command: the RL env's forced action when present, else the
-        // dispatcher's output. Resolved BEFORE the telemetry update below so
-        // the NN-input state (indices 21-24, 27-28) tracks the bank the
-        // vehicle actually flies -- tracking the discarded internal command
-        // under `forced_bank` gave RL policies a train/deploy observation
-        // mismatch on their own previous action.
-        let bank_angle_commanded = forced_bank.unwrap_or(guidance_out.bank_angle_commanded);
+        // Post-shaper command. A `forced_bank` entered guidance as the NN output,
+        // so the telemetry below records what a deployed NN's command would be.
+        let bank_angle_commanded = guidance_out.bank_angle_commanded;
 
         // ── Update NN-input telemetry for the NEXT tick ──
         // These fields back input indices 21-24. Updated unconditionally so the
@@ -250,18 +311,6 @@ pub fn step_one_tick(
                 state.state[3],
             );
         }
-    } else {
-        // Reference trajectory mode: compute pdyn from truth state for photo output
-        let (alt_truth, _) =
-            geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
-        let rho_truth = atmosphere::density(
-            &data.atmosphere,
-            alt_truth,
-            state.run_state.density_bias,
-            state.run_state.density_perturbation,
-        );
-        state.dynamic_pressure_for_photo = 0.5 * rho_truth * state.state[3] * state.state[3];
-        state.density_estimate_for_photo = rho_truth;
     }
 
     // === Photo snapshot ===

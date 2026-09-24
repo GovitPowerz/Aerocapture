@@ -1,9 +1,9 @@
 //! Per-env `SimState` construction.
 //!
 //! `build_sim_state` builds a fresh `SimState` (entry state, GNC subsystem init,
-//! per-env RNG seeding, bias-mode `last_nav` priming) without running the
-//! simulation loop. Used by the CLI path (`runner::run_single`) and by
-//! `BatchedSimulation` to initialize and reset individual RL environments.
+//! per-env RNG seeding) without running the simulation loop; navigation first
+//! runs in tick 0's `tick::sense_tick`. Used by the CLI path (`runner::run_single`)
+//! and by `BatchedSimulation` to initialize and reset individual RL environments.
 
 use super::sim_types::SimStateOptions;
 use crate::config::SimInput;
@@ -15,7 +15,6 @@ use crate::gnc::navigation::estimator::{self, NavigationFilter};
 use crate::integration::dopri45::Dopri45State;
 use crate::integration::sequencer::SequencerState;
 use crate::simulation::init;
-use crate::simulation::runner::navigate_from_state;
 use crate::simulation::sim_types::{BOUNCE_ALT_UNSET, SimState, TermReason};
 use std::time::Instant;
 
@@ -132,7 +131,7 @@ pub fn build_sim_state(
     };
     let sequencer = SequencerState::new();
 
-    let mut s = SimState {
+    SimState {
         state: [
             r0,
             entry_longitude,
@@ -180,6 +179,7 @@ pub fn build_sim_state(
         gm_rng,
         gm_normal,
         last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
+        last_nav_time: f64::NAN,
         dt,
         max_time,
         exit_altitude,
@@ -189,22 +189,7 @@ pub fn build_sim_state(
         wall_timeout: opts.wall_timeout,
         wall_start: Instant::now(),
         is_single: opts.is_single,
-    };
-
-    // Prime last_nav so the RL env's reset() returns a valid initial observation
-    // instead of a zeroed-out NavigationOutput. Bias mode is stateless (the call is
-    // a pure function of the truth state + biases), so priming costs nothing. EKF
-    // mode advances the filter via `ekf.predict(nav_dt, ...)` on every call; since
-    // tick.rs also navigates on the first tick, priming there would predict the filter
-    // twice before any physics advance. Skip priming for EKF; the first tick will
-    // populate `last_nav` before the policy's second action. The initial RL action
-    // (step 0) is based on a default NavigationOutput under EKF mode.
-    // CLI path: benign — at nominal entry (>100 km) density_gain is force-reset,
-    // bounce_flag/phase are unchanged, and last_nav is overwritten on the first tick.
-    if matches!(data.nav_mode, crate::data::NavMode::Bias) {
-        s.last_nav = navigate_from_state(&mut s, data, planet);
     }
-    s
 }
 
 #[cfg(test)]

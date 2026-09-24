@@ -112,6 +112,7 @@ impl Flight {
             &self.input.planet,
             self.input.reference_trajectory,
             self.input.guidance_type,
+            None,
         )
         .bank_angle_commanded
     }

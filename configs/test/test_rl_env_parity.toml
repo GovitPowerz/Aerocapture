@@ -1,0 +1,10 @@
+# RL env parity gate (src/rust/tests/rl_env_parity.rs): the neural golden config plus the
+# deploy-path stages the env must reproduce -- command shaping and OU density noise.
+base = ["test_neural_golden.toml"]
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 12.0
+
+[monte_carlo.density_perturbation]
+level = "low"

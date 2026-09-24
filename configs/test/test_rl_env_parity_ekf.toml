@@ -1,0 +1,17 @@
+# RL env parity gate, EKF navigation (the filter advances on every navigation call, so an
+# extra or missing call anywhere in the env's tick split breaks bit-identity).
+base = ["test_rl_env_parity.toml"]
+
+[navigation]
+mode = "ekf"
+
+[navigation.imu]
+accel_bias_sigma = 1e-4
+accel_noise_sigma = 5e-4
+gyro_bias_sigma = 5e-6
+gyro_noise_sigma = 1e-5
+
+[navigation.star_tracker]
+position_sigma = 50.0
+update_period = 10.0
+blackout_qdyn_threshold = 100.0

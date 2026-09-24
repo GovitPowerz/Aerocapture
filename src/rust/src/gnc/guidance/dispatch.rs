@@ -145,6 +145,11 @@ pub struct GuidanceOutput {
 }
 
 /// Run one guidance step (dispatches to the active scheme).
+///
+/// `policy_bank`: the RL env's policy action (rad, signed). When `Some`, it
+/// replaces the NN forward pass of the `NeuralNetwork` scheme, so the action runs
+/// through the same activation gating, command shaping and telemetry as a
+/// deployed NN output. Deploy paths pass `None`.
 #[allow(clippy::too_many_arguments)]
 pub fn guidance_step(
     nav: &NavigationOutput,
@@ -156,6 +161,7 @@ pub fn guidance_step(
     planet: &PlanetConfig,
     is_reference: bool,
     guidance_type: GuidanceType,
+    policy_bank: Option<f64>,
 ) -> GuidanceOutput {
     let mut out = GuidanceOutput::default();
 
@@ -231,23 +237,27 @@ pub fn guidance_step(
                 ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, altitude, energy)
             }
             GuidanceType::NeuralNetwork => {
-                let nn = data.neural_net.as_ref().expect("NN params not loaded");
-                if data.guidance.neural_network.reset_state_every_tick {
-                    // Memoryless-eval control (paper R4/R5 state ablation):
-                    // fresh zeroed state every guidance tick.
-                    state.nn_state = Some(NnState::for_model(nn));
-                }
-                // Snapshot the telemetry context (Copy) BEFORE the mut borrow of
-                // nn_state so rustc doesn't trip on shared+mut borrows of `state`.
-                let ctx = neural::NnInputContext::from_guidance_state(
-                    state,
-                    sim_time,
-                    data.target_orbit.inclination,
-                );
-                let nn_state = state.nn_state.as_mut().expect(
-                    "neural_network scheme requires nn_state initialized by GuidanceState::new",
-                );
-                let signed = neural::nn_bank_angle(nav, nn, nn_state, data, planet, &ctx);
+                let signed = if let Some(policy_bank) = policy_bank {
+                    policy_bank
+                } else {
+                    let nn = data.neural_net.as_ref().expect("NN params not loaded");
+                    if data.guidance.neural_network.reset_state_every_tick {
+                        // Memoryless-eval control (paper R4/R5 state ablation):
+                        // fresh zeroed state every guidance tick.
+                        state.nn_state = Some(NnState::for_model(nn));
+                    }
+                    // Snapshot the telemetry context (Copy) BEFORE the mut borrow of
+                    // nn_state so rustc doesn't trip on shared+mut borrows of `state`.
+                    let ctx = neural::NnInputContext::from_guidance_state(
+                        state,
+                        sim_time,
+                        data.target_orbit.inclination,
+                    );
+                    let nn_state = state.nn_state.as_mut().expect(
+                        "neural_network scheme requires nn_state initialized by GuidanceState::new",
+                    );
+                    neural::nn_bank_angle(nav, nn, nn_state, data, planet, &ctx)
+                };
                 // MagnitudeOnly: drop the sign and feed magnitude into the unsigned
                 // pipeline (thermal limiter + lateral guidance handle sign + safety).
                 if data.guidance.neural_network.mode == NeuralNetMode::MagnitudeOnly {
@@ -554,6 +564,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(
@@ -594,6 +605,7 @@ mod tests {
             &planet,
             true, // is_reference
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(
@@ -623,6 +635,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::Ftc,
+            None,
         );
 
         let pi = std::f64::consts::PI;
@@ -659,6 +672,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(
@@ -700,6 +714,7 @@ mod tests {
             &planet,
             true, // reference mode: sets bank_angle_commanded = target before shaping
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(
@@ -731,6 +746,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
 
         let max_bank_rate = data.capsule.max_bank_rate;
@@ -774,6 +790,7 @@ mod tests {
             &planet,
             true, // reference mode
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(out.bank_angle_commanded.is_finite());
@@ -807,6 +824,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
 
         let guidance_period = 1.0_f64; // TimePeriods::default()
@@ -849,6 +867,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
 
         let max_bank_rate = 15.0_f64.to_radians();
@@ -881,6 +900,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
         let rate_after_tick1 = out1.bank_rate;
 
@@ -898,6 +918,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
         let rate_after_tick2 = out2.bank_rate;
 
@@ -931,6 +952,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
 
         // Shortest path from +170 to -170 is +20 deg (through +180), so rate should be positive
@@ -962,6 +984,7 @@ mod tests {
             &planet,
             true,
             GuidanceType::Ftc,
+            None,
         );
 
         // raw_rate = 2 deg/s; max_rate_delta = 5 deg/s*s * 1s = 5 deg/s > 2 => no accel saturation
@@ -1021,8 +1044,7 @@ mod tests {
                     &data,
                     &planet,
                     false,
-                    GuidanceType::Ftc,
-                );
+                    GuidanceType::Ftc, None);
 
                 prop_assert!(out.bank_angle_commanded.is_finite(), "bank_angle_commanded not finite: {}", out.bank_angle_commanded);
                 prop_assert!(out.aoa_commanded.is_finite(), "aoa_commanded not finite: {}", out.aoa_commanded);
@@ -1062,8 +1084,7 @@ mod tests {
                 };
 
                 let out = guidance_step(
-                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
-                );
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc, None);
 
                 prop_assert!(
                     out.bank_rate.abs() <= max_bank_rate + 1e-10,
@@ -1101,8 +1122,7 @@ mod tests {
                 };
 
                 let out = guidance_step(
-                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
-                );
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc, None);
 
                 // |shaped_rate| <= |max_rate_change| (since starting at 0, capped by accel*dt)
                 // also capped by max_bank_rate but we only need the accel bound here
@@ -1140,8 +1160,7 @@ mod tests {
                 };
 
                 let out = guidance_step(
-                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc,
-                );
+                    &nav, realized, 0.0, target, &mut state, &data, &planet, true, GuidanceType::Ftc, None);
 
                 prop_assert!(out.bank_angle_commanded.is_finite(), "bank_angle_commanded is not finite");
                 prop_assert!(out.bank_rate.is_finite(), "bank_rate is not finite");
@@ -1179,6 +1198,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::Ftc,
+            None,
         );
 
         assert!(
@@ -1255,6 +1275,7 @@ mod tests {
                 &planet,
                 false,
                 GuidanceType::NeuralNetwork,
+                None,
             );
             out.bank_angle_commanded.abs()
         };
@@ -1345,6 +1366,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::NeuralNetwork,
+            None,
         );
 
         // |bank_angle_commanded| should match acos(tanh(bias)). Lateral may have
@@ -1391,6 +1413,7 @@ mod tests {
             &planet,
             false,
             GuidanceType::PiecewiseConstant,
+            None,
         );
 
         assert!(out.bank_angle_commanded.is_finite());
@@ -1466,6 +1489,7 @@ mod tests {
                     &planet,
                     false,
                     GuidanceType::NeuralNetwork,
+                    None,
                 )
                 .bank_angle_commanded
             };

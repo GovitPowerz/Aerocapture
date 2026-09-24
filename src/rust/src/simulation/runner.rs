@@ -56,9 +56,8 @@ pub use super::run_init::build_sim_state;
 
 /// Run one navigation pass on a `SimState`, returning the `NavigationOutput`.
 ///
-/// Shared between `build_sim_state` (primes `last_nav` so the RL env has a
-/// valid initial observation) and `tick::step_one_tick` (invoked every outer
-/// GNC tick). Dispatches on the state's `nav_filter` variant.
+/// Called once per outer GNC tick by `tick::sense_tick`. Dispatches on the
+/// state's `nav_filter` variant.
 pub(crate) fn navigate_from_state(
     state: &mut SimState,
     data: &SimData,
@@ -380,7 +379,7 @@ fn run_single(
     let planet = &config.planet;
 
     // Construct the base SimState via the shared constructor (identical seed
-    // derivation, GNC init, and bias-mode last_nav priming as the RL env path);
+    // derivation and GNC init as the RL env path);
     // `sim_idx as u64` reproduces the historical per-sim seeds exactly:
     // EKF `random_seed + sim_idx*10_000`, GM-RNG `... + 0xDE45`.
     let opts = SimStateOptions {

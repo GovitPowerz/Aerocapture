@@ -3,6 +3,11 @@
 //! Holds N independent SimStates sharing one Arc<SimData>. step() advances
 //! each env one outer guidance tick via Rayon, auto-resets on done, and
 //! returns the stacked (obs, reward, done, info) payload.
+//!
+//! Observation timing matches deploy: every env is held at a tick's sense point
+//! (`tick::sense_tick` done, `last_nav` = nav(t_k)). step(a_k) runs
+//! `tick::act_tick(Some(a_k))` then the next tick's `sense_tick`, so the returned
+//! obs is nav(t_{k+1}), the input the deployed NN reads when choosing a_{k+1}.
 
 use aerocapture::gnc::guidance::neural::{NnInputContext, NnModelView, build_nn_input};
 use std::path::Path;
@@ -13,8 +18,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
 
-use aerocapture::config::SimInput;
+use aerocapture::config::{GuidanceType, SimInput};
 use aerocapture::data::SimData;
+use aerocapture::data::guidance_params::NeuralNetMode;
 use aerocapture::integration::events::{EventContext, EventDef};
 use aerocapture::orbit::{elements, maneuver};
 use aerocapture::simulation::final_record::{
@@ -24,6 +30,7 @@ use aerocapture::simulation::final_record::{
 use aerocapture::simulation::runner::{
     SimState, SimStateOptions, TermReason, build_final_record, build_sim_state, ifinal_for,
 };
+use aerocapture::simulation::tick;
 
 use crate::config;
 use crate::extract_overrides;
@@ -82,6 +89,17 @@ impl BatchedSimulation {
         let (sim_input, sim_data) = config::load_and_override(Path::new(toml_path), &overrides)
             .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
+        // The action replaces the NN forward pass inside guidance: under any other
+        // scheme it would be silently ignored, and under magnitude_only it would
+        // lose its sign and go unused in the exit phase.
+        if sim_input.guidance_type != GuidanceType::NeuralNetwork
+            || sim_data.guidance.neural_network.mode != NeuralNetMode::FullNeural
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "RL env requires guidance.type = \"neural_network\" in full_neural mode",
+            ));
+        }
+
         let nn = sim_data.neural_net.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err(
                 "RL env requires a neural_network model ([data] neural_network)",
@@ -109,16 +127,7 @@ impl BatchedSimulation {
 
         for i in 0..n_envs {
             let seed = seed_base + i as u64;
-            let draw = sim_data.draw_from_seed(seed);
-            let run_state = aerocapture::simulation::init::init_run_from_draw(&sim_data, &draw);
-            let state = build_sim_state(
-                &sim_input,
-                &sim_data,
-                run_state,
-                seed,
-                SimStateOptions::default(),
-            );
-            envs.push(state);
+            envs.push(fresh_env(&sim_input, &sim_data, seed));
             episode_ids.push(seed);
             episode_counter.push(i as u64);
         }
@@ -162,16 +171,7 @@ impl BatchedSimulation {
         };
 
         for (i, &seed) in seeds_vec.iter().enumerate() {
-            let draw = self.sim_data.draw_from_seed(seed);
-            let run_state =
-                aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
-            self.envs[i] = build_sim_state(
-                &self.sim_input,
-                &self.sim_data,
-                run_state,
-                seed,
-                SimStateOptions::default(),
-            );
+            self.envs[i] = fresh_env(&self.sim_input, &self.sim_data, seed);
             self.episode_ids[i] = seed;
             self.step_counts[i] = 0;
             if !explicit_seeds {
@@ -215,7 +215,7 @@ impl BatchedSimulation {
                 .zip(actions_vec.par_iter())
                 .map(|(state, &action)| {
                     let bank = action.clamp(-std::f64::consts::PI, std::f64::consts::PI);
-                    aerocapture::simulation::tick::step_one_tick(
+                    tick::act_tick(
                         state,
                         sim_input,
                         sim_data,
@@ -224,6 +224,14 @@ impl BatchedSimulation {
                         event_defs,
                         event_ctx,
                     );
+                    // Sense the post-integration state: nav(t_{k+1}) is the next
+                    // observation. Terminal states are sensed too, so terminal_obs
+                    // and the terminal aux (the PBRS Phi(s_T)) describe the state
+                    // the episode ended in; a non-finite (NaN-crash) state keeps
+                    // the previous tick's navigation instead of poisoning both.
+                    if state.physics_state().iter().all(|x| x.is_finite()) {
+                        tick::sense_tick(state, sim_input, sim_data, &sim_input.planet);
+                    }
                     // Capture aux (energy, pdyn, dv1, dv2, dv3, heat fractions) from
                     // nav output before potential reset. The 3 DV components are the
                     // raw m/s correction-budget signals the DV-reward potential
@@ -280,16 +288,7 @@ impl BatchedSimulation {
             if *done {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
-                let draw = self.sim_data.draw_from_seed(seed);
-                let run_state =
-                    aerocapture::simulation::init::init_run_from_draw(&self.sim_data, &draw);
-                self.envs[i] = build_sim_state(
-                    &self.sim_input,
-                    &self.sim_data,
-                    run_state,
-                    seed,
-                    SimStateOptions::default(),
-                );
+                self.envs[i] = fresh_env(&self.sim_input, &self.sim_data, seed);
                 self.episode_ids[i] = seed;
                 self.step_counts[i] = 0;
             } else {
@@ -381,6 +380,22 @@ impl BatchedSimulation {
         }
         arr
     }
+}
+
+/// A new episode for `seed`, sensed at its first tick: `last_nav` = nav(t_0),
+/// the navigation the deployed NN reads on tick 0.
+fn fresh_env(sim_input: &SimInput, sim_data: &SimData, seed: u64) -> SimState {
+    let draw = sim_data.draw_from_seed(seed);
+    let run_state = aerocapture::simulation::init::init_run_from_draw(sim_data, &draw);
+    let mut state = build_sim_state(
+        sim_input,
+        sim_data,
+        run_state,
+        seed,
+        SimStateOptions::default(),
+    );
+    tick::sense_tick(&mut state, sim_input, sim_data, &sim_input.planet);
+    state
 }
 
 /// Build the observation vector for a single env state.

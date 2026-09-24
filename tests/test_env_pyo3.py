@@ -137,3 +137,43 @@ def test_aux_carries_dv_components() -> None:
         seen_nonzero |= np.abs(aux[:, 2:5]).max(axis=0) > 0.0
     assert seen_nonzero.any(), "predicted-DV aux columns never became nonzero"
     env.close()
+
+
+def test_reset_obs_is_the_deployed_nn_input_on_tick_0() -> None:
+    """reset() senses tick 0: its obs is the input the deployed NN reads on its first tick."""
+    seed = 3_000_000
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=1)
+    obs, _ = env.reset(np.array([seed], dtype=np.int64))
+    x = np.asarray(aerocapture_rs.collect_nn_inputs(TOML, [seed])[0]["X"])
+    np.testing.assert_array_equal(obs[0], x[0, : env.obs_dim].astype(np.float32))
+    env.close()
+
+
+def test_step_obs_is_the_next_tick_navigation() -> None:
+    """step(a_k) returns nav(t_{k+1}), not the nav a_k was applied at: altitude and energy move on the first step."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=3_000_000)
+    obs0, aux0 = env.reset()
+    obs1, _, _, _, aux1 = env.step(np.zeros(2, dtype=np.float32))
+    assert (obs1[:, 8] != obs0[:, 8]).all()  # candidate 8 = altitude
+    assert (aux1[:, 0] != aux0[:, 0]).all()  # energy_estimated
+    env.close()
+
+
+def test_terminal_observation_and_aux_describe_a_finite_end_state() -> None:
+    """The terminal state (crash, exit, timeout) is sensed too: its obs and aux must stay finite."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)
+    env.reset()
+    n_done = 0
+    while n_done < 4:
+        _, _, done, info, aux = env.step(np.zeros(4, dtype=np.float32))
+        for i in np.flatnonzero(done):
+            n_done += 1
+            assert np.isfinite(info[i]["terminal_observation"]).all()
+            assert np.isfinite(aux[i]).all()
+    env.close()
+
+
+@pytest.mark.parametrize("override", [{"guidance.type": "ftc"}, {"guidance.neural_network.mode": "magnitude_only"}])
+def test_rejects_configs_where_the_action_is_not_the_nn_output(override: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match="full_neural"):
+        aerocapture_rs.BatchedSimulation(TOML, n_envs=1, overrides=override)

@@ -36,8 +36,8 @@ TOML's `[data] neural_network` (`_resolve_output_dir`), which must be
 ## Environment
 
 `BatchedSimulation` (`src/rust/aerocapture-py/src/env.rs`) is the step-able pyclass: N
-`SimState`s sharing one `Arc<SimData>`, Rayon-parallel ticks through `tick::step_one_tick`,
-auto-reset on episode end, GIL released via `py.detach()`, sub-tick events via
+`SimState`s sharing one `Arc<SimData>`, Rayon-parallel ticks through `tick::act_tick` +
+`tick::sense_tick`, auto-reset on episode end, GIL released via `py.detach()`, sub-tick events via
 `promote_pending_crash_if_applicable` so truncation vs termination is surfaced as
 `info["truncated"]`. `step()` returns `(obs, reward, done, info, aux)`; `aux` is `(N, 7)`:
 `[energy_estimated, dynamic_pressure_estimated, predicted_dv1, predicted_dv2, predicted_dv3,
@@ -45,9 +45,21 @@ heat_flux_fraction, heat_load_fraction]` per env. The two thermal fractions are 
 the limit (the reward never inverts the model-dependent NN input normalization); the 3 raw-m/s
 `predicted_dv_for_nn` components are computed per env via `predicted_dv_for_state`, mirroring
 `build_obs_for_env`'s orbit construction so they equal candidate inputs 32-34 pre-normalization.
-`env.py::AerocaptureVecEnv` wraps the pyclass. The NN telemetry inputs (21-24) are updated from
-the EFFECTIVE command, the env's `forced_bank`, so observations track the policy's own previous
-action (`tests/test_rl_rollout_state_reset.py`).
+`env.py::AerocaptureVecEnv` wraps the pyclass.
+
+The env is the deployed NN's decision process, bit for bit (gate: `src/rust/tests/rl_env_parity.rs`,
+bias and EKF navigation, shaping and OU noise on). Two rules make it so. (1) Timing: `reset()`
+senses tick 0 and `step(a_k)` runs `act_tick(a_k)` then the next tick's `sense_tick`, so the obs
+it returns is nav(t_{k+1}), the input the deployed NN reads when it picks a_{k+1}; terminal states
+are sensed too (unless non-finite), so `terminal_observation` and the terminal aux describe the
+state the episode ended in. (2) Injection: the action replaces the NN forward pass inside
+`guidance_step` (its `policy_bank`), so it goes through the same activation gating and command
+shaping as a deployed NN output, and the NN telemetry inputs (21-24, 27-30) record the shaped
+command a deployed NN would have sent. The env therefore requires `guidance.type =
+"neural_network"` in `full_neural` mode. Before this (up to the Section 5 campaign), `step()`
+returned the navigation the action had been applied at (a one-tick lag) and the action bypassed the
+shaper, with the telemetry recording the raw action. The headline dense_p515 champion flown through
+that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_lag/`).
 
 ## Modules
 
@@ -153,6 +165,12 @@ against its config. Result (2M pool, n = 1000, per_draw): PPO scratch 237 mean /
 (dense, 4.8% heat-flux violations) and 284 / 435 (GRU, 47% heat-flux + 31% g-load) vs champions
 113 / 127 and 125 / 151; PPO warm-started deploys the champion (best validation checkpoint within
 the first 10-20 updates) and then walks off it.
+
+These four cells were trained in the pre-parity env (the lag and shaper bypass above), so they
+optimized a different decision process than the one their validation gate and the quoted numbers
+fly. The dense warm start begins as a ~181 m/s policy in that env against 113 m/s deployed
+(`experiments/obs_lag/`), which is enough on its own to explain the walk-off. The re-quote on the
+parity env is open (`TODO.md`).
 
 ## Gates
 
