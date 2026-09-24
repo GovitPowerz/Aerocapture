@@ -32,6 +32,10 @@ criterion = "0.8.2"
 name = "quant_forward"
 harness = false
 
+[[bench]]
+name = "tick"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true

@@ -195,6 +195,16 @@ impl SimState {
         self.state
     }
 
+    /// Return the pilot-realized bank angle (rad) the next guidance call receives.
+    pub fn bank_angle(&self) -> f64 {
+        self.bank_angle
+    }
+
+    /// Return the reference bank angle (rad) every guidance call receives.
+    pub fn reference_bank_angle(&self) -> f64 {
+        self.reference_bank_angle
+    }
+
     /// True if any flight constraint was violated during this trajectory.
     /// Constraint limits are in SI units as stored in `SimData::constraints`.
     pub fn any_constraint_violated(&self, data: &SimData) -> bool {
