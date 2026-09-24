@@ -682,7 +682,11 @@ def plot_profile(block: dict[str, Any]) -> None:
     ax.grid(axis="y", visible=False)
     ax.set_xlabel("wall seconds per generation")
     ax.set_xlim(0, max(r["per_generation_s"]["total"] for r in rows) * 1.18)
-    ax.legend(loc="lower left", bbox_to_anchor=(0, 1.02), ncol=3, fontsize=8)
+    # matplotlib fills legend columns first; feed it column-major so it reads row by row
+    handles, names = ax.get_legend_handles_labels()
+    ncol = 3
+    order = [i for c in range(ncol) for i in range(c, len(names), ncol)]
+    ax.legend([handles[i] for i in order], [names[i] for i in order], loc="lower left", bbox_to_anchor=(0, 1.02), ncol=ncol, fontsize=8)
     _save(fig, "fig_generation_profile.svg")
 
 

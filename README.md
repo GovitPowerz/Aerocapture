@@ -101,7 +101,7 @@ uv run pytest tests/
 
 ## Reading guide
 
-1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
+1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from. [docs/performance.md](docs/performance.md) measures what it costs: thread scaling, a training generation's profile, an accelerator-port feasibility note.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
 3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection, the five-tier PyO3 seam, config keys declared once.
 4. The module reference, next to the code it describes: [src/rust/README.md](src/rust/README.md) (simulator), [src/rust/aerocapture-py/README.md](src/rust/aerocapture-py/README.md) (the PyO3 seam), [src/rust/src/data/neural/README.md](src/rust/src/data/neural/README.md) (NN runtime + PyTorch mirror), [configs/README.md](configs/README.md) (TOML), [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) (training), [src/python/aerocapture/training/rl/README.md](src/python/aerocapture/training/rl/README.md) (RL).
@@ -130,10 +130,11 @@ articles/
   paper/                   Paper (Typst source + committed PDF, figures, evaluation data)
 docs/
   ARCHITECTURE.md          The two-language split, a training run and a simulation tick in a page
+  performance.md           Throughput, thread scaling, per-generation profile, accelerator feasibility
   adr/                     Architecture decision records
   design/                  Dated design docs (indexed in docs/design/README.md)
   agents/                  Agent operating docs (issue tracker, triage labels, domain docs)
-experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/) and the trainer seam gate (trainer_seam_gate/)
+experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/), the trainer seam gate (trainer_seam_gate/), the throughput study (throughput/)
 models/demo/               The committed demo cells (headline fine-tune + legacy champion)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data

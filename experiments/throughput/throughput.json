@@ -1,0 +1,699 @@
+{
+  "scaling": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "seam": "run_grid, n_pop=1",
+    "pool": "final-eval",
+    "n": 1000,
+    "repeats": 3,
+    "thread_counts": [
+      1,
+      2,
+      4,
+      8,
+      10,
+      14
+    ],
+    "cells": [
+      {
+        "label": "FTC",
+        "toml": "configs/training/msr_aller_ftc_train.toml",
+        "bundle": "classical_baselines/ftc",
+        "mean_flight_s": 477.6,
+        "ms_per_sim_1_thread": 0.8964,
+        "points": [
+          {
+            "threads": 1,
+            "wall_s": [
+              0.9012,
+              0.886,
+              0.8964
+            ],
+            "sims_per_s": 1115.5,
+            "speedup": 1.0,
+            "efficiency": 1.0
+          },
+          {
+            "threads": 2,
+            "wall_s": [
+              0.4591,
+              0.45,
+              0.4516
+            ],
+            "sims_per_s": 2214.2,
+            "speedup": 1.98,
+            "efficiency": 0.992
+          },
+          {
+            "threads": 4,
+            "wall_s": [
+              0.2365,
+              0.234,
+              0.2317
+            ],
+            "sims_per_s": 4274.0,
+            "speedup": 3.83,
+            "efficiency": 0.958
+          },
+          {
+            "threads": 8,
+            "wall_s": [
+              0.1213,
+              0.1267,
+              0.1218
+            ],
+            "sims_per_s": 8210.1,
+            "speedup": 7.36,
+            "efficiency": 0.92
+          },
+          {
+            "threads": 10,
+            "wall_s": [
+              0.1082,
+              0.1072,
+              0.1053
+            ],
+            "sims_per_s": 9331.6,
+            "speedup": 8.37,
+            "efficiency": 0.837
+          },
+          {
+            "threads": 14,
+            "wall_s": [
+              0.1005,
+              0.0986,
+              0.1085
+            ],
+            "sims_per_s": 9951.8,
+            "speedup": 8.92,
+            "efficiency": 0.637
+          }
+        ]
+      },
+      {
+        "label": "FNPAG",
+        "toml": "configs/training/msr_aller_fnpag_train.toml",
+        "bundle": "classical_baselines/fnpag",
+        "mean_flight_s": 644.0,
+        "ms_per_sim_1_thread": 89.8404,
+        "points": [
+          {
+            "threads": 1,
+            "wall_s": [
+              90.6424,
+              88.3908,
+              89.8404
+            ],
+            "sims_per_s": 11.1,
+            "speedup": 1.0,
+            "efficiency": 1.0
+          },
+          {
+            "threads": 2,
+            "wall_s": [
+              43.8247,
+              43.8323,
+              44.2047
+            ],
+            "sims_per_s": 22.8,
+            "speedup": 2.05,
+            "efficiency": 1.025
+          },
+          {
+            "threads": 4,
+            "wall_s": [
+              22.3647,
+              22.476,
+              22.6323
+            ],
+            "sims_per_s": 44.5,
+            "speedup": 4.0,
+            "efficiency": 0.999
+          },
+          {
+            "threads": 8,
+            "wall_s": [
+              11.7935,
+              11.8984,
+              11.6643
+            ],
+            "sims_per_s": 84.8,
+            "speedup": 7.62,
+            "efficiency": 0.952
+          },
+          {
+            "threads": 10,
+            "wall_s": [
+              9.6262,
+              9.8692,
+              10.8839
+            ],
+            "sims_per_s": 101.3,
+            "speedup": 9.1,
+            "efficiency": 0.91
+          },
+          {
+            "threads": 14,
+            "wall_s": [
+              8.1967,
+              8.1754,
+              9.5322
+            ],
+            "sims_per_s": 122.0,
+            "speedup": 10.96,
+            "efficiency": 0.783
+          }
+        ]
+      },
+      {
+        "label": "NN dense-515",
+        "toml": "configs/training/msr_aller_nn_atan2_best_paper.toml",
+        "bundle": "headline/dense_p515",
+        "mean_flight_s": 779.9,
+        "ms_per_sim_1_thread": 1.9751,
+        "points": [
+          {
+            "threads": 1,
+            "wall_s": [
+              1.9787,
+              1.9751,
+              1.9732
+            ],
+            "sims_per_s": 506.3,
+            "speedup": 1.0,
+            "efficiency": 1.0
+          },
+          {
+            "threads": 2,
+            "wall_s": [
+              1.0238,
+              1.0547,
+              1.0106
+            ],
+            "sims_per_s": 976.7,
+            "speedup": 1.93,
+            "efficiency": 0.965
+          },
+          {
+            "threads": 4,
+            "wall_s": [
+              0.5343,
+              0.5472,
+              0.5359
+            ],
+            "sims_per_s": 1866.2,
+            "speedup": 3.69,
+            "efficiency": 0.921
+          },
+          {
+            "threads": 8,
+            "wall_s": [
+              0.2809,
+              0.3154,
+              0.2882
+            ],
+            "sims_per_s": 3469.8,
+            "speedup": 6.85,
+            "efficiency": 0.857
+          },
+          {
+            "threads": 10,
+            "wall_s": [
+              0.2986,
+              0.2664,
+              0.2489
+            ],
+            "sims_per_s": 3753.2,
+            "speedup": 7.41,
+            "efficiency": 0.741
+          },
+          {
+            "threads": 14,
+            "wall_s": [
+              0.2626,
+              0.2489,
+              0.2088
+            ],
+            "sims_per_s": 4017.9,
+            "speedup": 7.94,
+            "efficiency": 0.567
+          }
+        ]
+      },
+      {
+        "label": "NN Mamba-962",
+        "toml": "configs/training/sweep/mamba_p962.toml",
+        "bundle": "headline/mamba_p962",
+        "mean_flight_s": 767.3,
+        "ms_per_sim_1_thread": 3.1716,
+        "points": [
+          {
+            "threads": 1,
+            "wall_s": [
+              3.2704,
+              3.1716,
+              3.158
+            ],
+            "sims_per_s": 315.3,
+            "speedup": 1.0,
+            "efficiency": 1.0
+          },
+          {
+            "threads": 2,
+            "wall_s": [
+              1.7453,
+              1.7242,
+              1.7297
+            ],
+            "sims_per_s": 578.1,
+            "speedup": 1.83,
+            "efficiency": 0.917
+          },
+          {
+            "threads": 4,
+            "wall_s": [
+              0.9474,
+              0.9248,
+              0.9417
+            ],
+            "sims_per_s": 1061.9,
+            "speedup": 3.37,
+            "efficiency": 0.842
+          },
+          {
+            "threads": 8,
+            "wall_s": [
+              0.5254,
+              0.5158,
+              0.5205
+            ],
+            "sims_per_s": 1921.2,
+            "speedup": 6.09,
+            "efficiency": 0.762
+          },
+          {
+            "threads": 10,
+            "wall_s": [
+              0.4617,
+              0.4108,
+              0.4056
+            ],
+            "sims_per_s": 2434.5,
+            "speedup": 7.72,
+            "efficiency": 0.772
+          },
+          {
+            "threads": 14,
+            "wall_s": [
+              0.4033,
+              0.3803,
+              0.3957
+            ],
+            "sims_per_s": 2527.0,
+            "speedup": 8.01,
+            "efficiency": 0.572
+          }
+        ]
+      }
+    ]
+  },
+  "seams": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "threads": 1,
+    "n": 200,
+    "repeats": 3,
+    "note": "run_grid and run_batch fly the same final-eval seeds; the CLI flies n draws of the config's own Monte Carlo (same dispersion model, different scenarios)",
+    "cells": [
+      {
+        "label": "FTC",
+        "run_grid_ms_per_sim": 0.8912,
+        "run_batch_ms_per_sim": 0.9606,
+        "cli_ms_per_sim": 0.9556,
+        "cli_sim_phase_ms_per_sim": 0.91,
+        "cli_one_sim_process_s": 0.0081,
+        "wall_s": {
+          "run_grid": [
+            0.1782,
+            0.1822,
+            0.1781
+          ],
+          "run_batch": [
+            0.1914,
+            0.1928,
+            0.1921
+          ],
+          "cli": [
+            0.1911,
+            0.1918,
+            0.1904
+          ],
+          "cli_sim_phase": [
+            0.182,
+            0.183,
+            0.182
+          ],
+          "cli_one_sim": [
+            0.008,
+            0.0081,
+            0.0087
+          ]
+        }
+      },
+      {
+        "label": "FNPAG",
+        "run_grid_ms_per_sim": 85.7302,
+        "run_batch_ms_per_sim": 87.4386,
+        "cli_ms_per_sim": 86.197,
+        "cli_sim_phase_ms_per_sim": 86.155,
+        "cli_one_sim_process_s": 0.0643,
+        "wall_s": {
+          "run_grid": [
+            17.8117,
+            16.9787,
+            17.146
+          ],
+          "run_batch": [
+            17.4877,
+            17.5201,
+            17.419
+          ],
+          "cli": [
+            17.2394,
+            17.2395,
+            16.7278
+          ],
+          "cli_sim_phase": [
+            17.231,
+            17.231,
+            16.719
+          ],
+          "cli_one_sim": [
+            0.0643,
+            0.0649,
+            0.0642
+          ]
+        }
+      },
+      {
+        "label": "NN dense-515",
+        "run_grid_ms_per_sim": 1.9138,
+        "run_batch_ms_per_sim": 2.0807,
+        "cli_ms_per_sim": 1.9937,
+        "cli_sim_phase_ms_per_sim": 1.95,
+        "cli_one_sim_process_s": 0.0096,
+        "wall_s": {
+          "run_grid": [
+            0.3782,
+            0.3837,
+            0.3828
+          ],
+          "run_batch": [
+            0.4161,
+            0.4094,
+            0.429
+          ],
+          "cli": [
+            0.3987,
+            0.4,
+            0.3891
+          ],
+          "cli_sim_phase": [
+            0.39,
+            0.391,
+            0.38
+          ],
+          "cli_one_sim": [
+            0.0099,
+            0.0089,
+            0.0096
+          ]
+        }
+      },
+      {
+        "label": "NN Mamba-962",
+        "run_grid_ms_per_sim": 3.1376,
+        "run_batch_ms_per_sim": 3.4026,
+        "cli_ms_per_sim": 3.1644,
+        "cli_sim_phase_ms_per_sim": 3.12,
+        "cli_one_sim_process_s": 0.0103,
+        "wall_s": {
+          "run_grid": [
+            0.628,
+            0.6275,
+            0.6235
+          ],
+          "run_batch": [
+            0.659,
+            0.6805,
+            0.6924
+          ],
+          "cli": [
+            0.6347,
+            0.6298,
+            0.6329
+          ],
+          "cli_sim_phase": [
+            0.626,
+            0.62,
+            0.624
+          ],
+          "cli_one_sim": [
+            0.0103,
+            0.0097,
+            0.0105
+          ]
+        }
+      }
+    ]
+  },
+  "grid": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "seam": "run_grid via AerocaptureProblem (in-memory weights), global Rayon pool",
+    "population": "mamba_p962_long last checkpoint",
+    "n_pop": 512,
+    "n_seeds": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "repeats": 3,
+    "run_grid_wall_s": {
+      "1": [
+        0.1945,
+        0.1957,
+        0.1982
+      ],
+      "2": [
+        0.3937,
+        0.3716,
+        0.3902
+      ],
+      "4": [
+        0.8044,
+        0.7525,
+        0.8897
+      ],
+      "8": [
+        1.4814,
+        1.3886,
+        1.6576
+      ]
+    },
+    "fit_intercept_s": 0.0298,
+    "fit_slope_s_per_seed": 0.1835,
+    "fit_max_abs_residual_s": 0.0406,
+    "setup_ms_per_individual_wall": 0.0581,
+    "sim_ms_per_cell_wall": 0.3584,
+    "setup_share_at_paper_n_sims": 0.075
+  },
+  "memory": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "cell": "NN Mamba-962",
+    "note": "individuals load the deployed model from JSON (data.neural_network override); the training path injects the same model in-memory",
+    "points": [
+      {
+        "n_pop": 64,
+        "n_seeds": 2,
+        "baseline_rss_mib": 30.0,
+        "peak_rss_added_mib": 7.0,
+        "output_array_mib": 0.05
+      },
+      {
+        "n_pop": 512,
+        "n_seeds": 2,
+        "baseline_rss_mib": 30.3,
+        "peak_rss_added_mib": 15.4,
+        "output_array_mib": 0.41
+      },
+      {
+        "n_pop": 2048,
+        "n_seeds": 2,
+        "baseline_rss_mib": 30.0,
+        "peak_rss_added_mib": 44.4,
+        "output_array_mib": 1.62
+      },
+      {
+        "n_pop": 1,
+        "n_seeds": 1000,
+        "baseline_rss_mib": 30.3,
+        "peak_rss_added_mib": 1.9,
+        "output_array_mib": 0.4
+      }
+    ],
+    "mib_per_individual": 0.0189
+  },
+  "profile": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "config": "configs/training/sweep/mamba_p962.toml",
+    "algorithm": "ga (the headline optimizer), seed_strategy adaptive, validation + curation on",
+    "resumed_from": "mamba_p962_long last checkpoint",
+    "display": "plain (no Rich TUI)",
+    "allocations": [
+      {
+        "n_pop": 512,
+        "n_sims": 2,
+        "generations": 20,
+        "per_generation_s": {
+          "total": 1.2337,
+          "rust_population": 0.3704,
+          "rust_reevaluation": 0.2027,
+          "rust_validation": 0.2594,
+          "rust_curation": 0.1883,
+          "python_decode_overrides": 0.0022,
+          "python_cost": 0.0318,
+          "pymoo_operators": 0.1441,
+          "log_display": 0.0237,
+          "checkpoint": 0.0013,
+          "other": 0.0098
+        },
+        "logged_gen_elapsed_s_median": 0.886
+      },
+      {
+        "n_pop": 512,
+        "n_sims": 10,
+        "generations": 20,
+        "per_generation_s": {
+          "total": 3.3493,
+          "rust_population": 1.5936,
+          "rust_reevaluation": 0.9763,
+          "rust_validation": 0.2816,
+          "rust_curation": 0.2118,
+          "python_decode_overrides": 0.0023,
+          "python_cost": 0.0972,
+          "pymoo_operators": 0.1493,
+          "log_display": 0.0241,
+          "checkpoint": 0.0012,
+          "other": 0.0118
+        },
+        "logged_gen_elapsed_s_median": 2.343
+      }
+    ],
+    "hotspots": {
+      "loop_s_under_cprofile": 25.249,
+      "python_tottime_s": 2.084,
+      "builtin_tottime_s_excl_run_grid": 2.88,
+      "top": [
+        {
+          "function": "<built-in method scipy.spatial._distance_pybind.cdist_euclidean>",
+          "where": "builtin, via cdist at pymoo/util/misc.py:155",
+          "calls": 157,
+          "tottime_s": 2.0465,
+          "cumtime_s": 2.0465
+        },
+        {
+          "function": "<built-in method scipy.spatial._distance_pybind.pdist_euclidean>",
+          "where": "builtin, via population_diversity at src/python/aerocapture/training/metrics.py:33",
+          "calls": 20,
+          "tottime_s": 0.4723,
+          "cumtime_s": 0.4723
+        },
+        {
+          "function": "compute_cost",
+          "where": "src/python/aerocapture/training/cost.py:98",
+          "calls": 72744,
+          "tottime_s": 0.3663,
+          "cumtime_s": 0.9869
+        },
+        {
+          "function": "cross_sbx",
+          "where": "pymoo/operators/crossover/sbx.py:14",
+          "calls": 59,
+          "tottime_s": 0.273,
+          "cumtime_s": 0.5164
+        },
+        {
+          "function": "_softplus",
+          "where": "src/python/aerocapture/training/cost.py:62",
+          "calls": 290976,
+          "tottime_s": 0.2626,
+          "cumtime_s": 0.2626
+        }
+      ]
+    }
+  }
+}
