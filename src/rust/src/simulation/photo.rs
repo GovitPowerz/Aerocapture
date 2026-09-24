@@ -204,13 +204,16 @@ pub(crate) fn push_photo_snapshot(state: &mut SimState, planet: &PlanetConfig, d
 }
 
 /// Append one photo row per event record, then sort every row by time (column 0).
+/// A terminal event's state is already the final snapshot row (`sim_time` was rewound
+/// to the event), so that record is skipped to keep the row times strictly increasing.
 pub(crate) fn append_event_photo_rows(
     state: &mut SimState,
     event_records: &[EventRecord],
     planet: &PlanetConfig,
     data: &SimData,
 ) {
-    for record in event_records {
+    let t_final = state.sim_time;
+    for record in event_records.iter().filter(|r| r.time != t_final) {
         state.photo_lines.push(build_event_photo_values(
             &record.state,
             record.time,

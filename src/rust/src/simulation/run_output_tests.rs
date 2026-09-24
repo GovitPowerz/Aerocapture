@@ -171,7 +171,11 @@ fn time_labels_follow_the_terminal_state() {
     assert_eq!(*times.last().unwrap(), sim_time);
     // One photo row per integration step plus the final row: the final state is n_steps * dt in.
     let n_steps = (times.len() - 1) as f64;
-    assert_eq!(sim_time, times[0] + n_steps * data.periods.integration);
+    let expected = times[0] + n_steps * data.periods.integration;
+    assert!(
+        (sim_time - expected).abs() < 1e-9,
+        "sim_time {sim_time} != {expected}"
+    );
     for idx in [FR_TIME_MAX_FLUX_S, FR_BOUNCE_TIME_S] {
         let t = r.final_record[idx];
         assert!(
@@ -179,4 +183,20 @@ fn time_labels_follow_the_terminal_state() {
             "peak/bounce time {t} is not a state time"
         );
     }
+}
+
+/// Adaptive mode: a terminal event rewinds `sim_time` to the event, so the final
+/// snapshot already holds the event state and the event's own row must not repeat it.
+#[test]
+fn adaptive_trajectory_times_are_strict_and_end_at_sim_time() {
+    use crate::simulation::final_record::FR_SIM_TIME_S;
+    let (config, data) = load_config("configs/test/test_ref_adaptive.toml");
+    let results = run_for_api(&config, &data, true, None).expect("run");
+    let r = &results[0];
+    let times: Vec<f64> = r.trajectory.iter().map(|row| row[7]).collect();
+    assert!(
+        times.windows(2).all(|w| w[1] > w[0]),
+        "trajectory times must be strictly increasing (the exit event row used to repeat the final row)"
+    );
+    assert_eq!(*times.last().unwrap(), r.final_record[FR_SIM_TIME_S]);
 }

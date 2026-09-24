@@ -136,7 +136,7 @@ conclusive; quote seed-repeat error bars before attributing improvements.
 ### Golden File Regeneration
 
 Physics changes (density estimation, gravity, aerodynamics) and virtual-DV formula changes invalidate guidance regression golden files in `tests/reference_data/rust_golden/`. Regenerate by running the
-updated binary on each test config and replacing the CSV files. The 6 golden files cover: eqglide, energy_ctrl, pred_guid, fnpag, ftc, neural. Virtual-DV changes affect only the `dv_total_m_s` column
+updated binary on each test config and replacing the CSV files. The 6 guidance golden files cover: eqglide, energy_ctrl, pred_guid, fnpag, ftc, neural; the three legacy validation goldens (ref, guided, high_bank: final + photo) move with them. Virtual-DV changes affect only the `dv_total_m_s` column
 on non-capture rows (ifinal != 3) -- captures are bit-identical. Time-label changes (#141: `sim_time` advances with the state) move `sim_time_s`, the three
 `time_max_*_s`, `bounce_time_s`, the last photo row's `time_s` and, through the `t / max_time` term, non-capture `dv_total_m_s`; every other column stays bit-identical.
 

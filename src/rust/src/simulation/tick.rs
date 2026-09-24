@@ -386,7 +386,8 @@ pub fn step_one_tick(
         }
 
         // === Checks that run for both integration modes ===
-        if state.sim_time >= state.max_time {
+        // An exit or crash found on this tick outranks reaching `max_time` on it.
+        if state.term == TermReason::None && state.sim_time >= state.max_time {
             state.term = TermReason::Timeout;
         }
 
