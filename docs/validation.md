@@ -72,8 +72,8 @@ our bisection.
 
 Each tolerance is the budget of the named difference in the Explanation column, not a fit to the
 observed gap. They were fixed after a first comparison run, which surfaced the bank sign convention
-(a 29% apoapsis gap on `mid_bank` that vanished once mapped). Margins run from about 2x (flight time,
-the Sutton-Graves rows) to over 1000x; about half the rows sit more than 10x inside their
+(a 29% apoapsis gap on `mid_bank` that vanished once mapped). Margins run from just over 1x (the `lift_up`
+flight time, 0.93 s of a 1 s budget) and about 2x (the Sutton-Graves rows) to over 1000x; about half the rows sit more than 10x inside their
 tolerance. The author adopted them on 2026-09-23, together with the 60 deg mid case, the nose
 radius matched at entry speed and the entry corridor as the corridor comparable.
 
@@ -101,7 +101,7 @@ radius matched at entry speed and the entry corridor as the corridor comparable.
 | lift_up | Peak heat flux, our law (kW/m2) | 163.341 | 163.347 | -0.00687557 (-4.2e-05) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | lift_up | Peak aerodynamic load (g) | 2.01775 | 2.01778 | -2.47e-05 (-1.2e-05) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | lift_up | Heat load, our law (MJ/m2) | 16.9368 | 16.9365 | 3.42e-04 (+2.0e-05) | 0.001 rel | yes | our integral stops at the terminating tick, AMAT's trapezoid at its last sample |
-| lift_up | Atmospheric flight time (s) | 332 | 332.067 | -0.0668679 | 1 | yes | fixed-step termination is quantized to 1 s and the record carries the tick's start time (#141) |
+| lift_up | Atmospheric flight time (s) | 333 | 332.067 | 0.933132 | 1 | yes | fixed-step termination is quantized to 1 s: the record carries the first tick past the boundary |
 | lift_up | Peak heat flux, AMAT's Sutton-Graves (kW/m2) | 163.341 | 163.941 | -0.600096 (-3.7e-03) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 | lift_up | Heat load, AMAT's Sutton-Graves (MJ/m2) | 16.9368 | 17.0352 | -0.0984282 (-5.8e-03) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 | mid_bank | Exit inertial energy (MJ/kg) | -5.394 | -5.39517 | 0.00117614 (-2.2e-04) | 0.001 rel | yes | AMAT's cos(gamma) + 0.01 heading regularization (diagnosed below); at full lift also our 1 s RK4 step (5e-6) |
@@ -110,13 +110,13 @@ radius matched at entry speed and the entry corridor as the corridor comparable.
 | mid_bank | Peak heat flux, our law (kW/m2) | 174.163 | 174.185 | -0.0213059 (-1.2e-04) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | mid_bank | Peak aerodynamic load (g) | 2.59786 | 2.5979 | -4.45e-05 (-1.7e-05) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | mid_bank | Heat load, our law (MJ/m2) | 19.8792 | 19.8797 | -4.86e-04 (-2.4e-05) | 0.001 rel | yes | our integral stops at the terminating tick, AMAT's trapezoid at its last sample |
-| mid_bank | Atmospheric flight time (s) | 472 | 472.51 | -0.509603 | 1 | yes | fixed-step termination is quantized to 1 s and the record carries the tick's start time (#141) |
+| mid_bank | Atmospheric flight time (s) | 473 | 472.51 | 0.490397 | 1 | yes | fixed-step termination is quantized to 1 s: the record carries the first tick past the boundary |
 | mid_bank | Peak heat flux, AMAT's Sutton-Graves (kW/m2) | 174.163 | 174.965 | -0.801794 (-4.6e-03) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 | mid_bank | Heat load, AMAT's Sutton-Graves (MJ/m2) | 19.8792 | 20.0635 | -0.184315 (-9.2e-03) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 | lift_down | Peak heat flux, our law (kW/m2) | 228.78 | 228.798 | -0.0184907 (-8.1e-05) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | lift_down | Peak aerodynamic load (g) | 11.6156 | 11.6165 | -8.88e-04 (-7.6e-05) | 0.001 rel | yes | our peak is sampled at 1 s ticks, AMAT's at 0.1 s |
 | lift_down | Heat load, our law (MJ/m2) | 15.3216 | 15.3206 | 0.00102155 (+6.7e-05) | 0.001 rel | yes | our integral stops at the terminating tick, AMAT's trapezoid at its last sample |
-| lift_down | Atmospheric flight time (s) | 188 | 188.279 | -0.279018 | 1 | yes | fixed-step termination is quantized to 1 s and the record carries the tick's start time (#141) |
+| lift_down | Atmospheric flight time (s) | 189 | 188.279 | 0.720982 | 1 | yes | fixed-step termination is quantized to 1 s: the record carries the first tick past the boundary |
 | lift_down | Peak heat flux, AMAT's Sutton-Graves (kW/m2) | 228.78 | 230.871 | -2.09136 (-9.1e-03) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 | lift_down | Heat load, AMAT's Sutton-Graves (MJ/m2) | 15.3216 | 15.4823 | -0.160744 (-1.0e-02) | 0.02 rel | yes | Sutton-Graves v^3 vs our v^3.05, nose radius matched at entry speed: (v0/v)^0.05 |
 
@@ -166,10 +166,6 @@ standard correlation for a plausible nose radius, not the value of `cq`.
   own `a_s`, `a_n`, `a_w`.
 - AMAT's heading-equation regularization, above.
 - AMAT's CD(Mach) path calls `np.float`, removed in numpy 1.24; not exercised here (constant CD).
-- Ours: in fixed-step mode the final record's `sim_time_s`, the peak times and the last trajectory
-  row carry the start time of the terminating tick while the state is one tick later
-  ([#141](https://github.com/GovitPowerz/Aerocapture/issues/141)). The dynamics are unaffected; the
-  flight-time rows above read up to 1 s early for that reason.
 
 ## 4. A published result reproduced
 

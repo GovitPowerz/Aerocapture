@@ -125,7 +125,6 @@ pub struct SimState {
     pub(crate) sim_time: f64,
     pub(crate) term: TermReason,
     pub(crate) step: usize,
-    pub(crate) first_iter: bool,
 
     // ── Dispersed run state (copied from init::RunState; density_perturbation mutated each tick) ──
     pub(crate) run_state: init::RunState,

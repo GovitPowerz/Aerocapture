@@ -87,7 +87,7 @@ QUANTITIES: dict[str, Quantity] = {
         "Atmospheric flight time (s)",
         "sim_time_s",
         "flight_time_s",
-        Tolerance(1.0, False, "fixed-step termination is quantized to 1 s and the record carries the tick's start time (#141)"),
+        Tolerance(1.0, False, "fixed-step termination is quantized to 1 s: the record carries the first tick past the boundary"),
     ),
     "sg_peak_heat_flux": Quantity(
         "Peak heat flux, AMAT's Sutton-Graves (kW/m2)", "heat_flux_kw_m2", "peak_heat_flux_kw_m2", Tolerance(0.02, True, SUTTON_GRAVES), amat_native=True
