@@ -114,8 +114,18 @@ the shared `VALIDATION_SEED_OFFSET` stream (`training/seeds.py`).
 ## Reward structure
 
 Potential-based per-step shaping (Ng, Harada & Russell 1999): `r_shape = gamma * Phi(s') -
-Phi(s)`, computed by `StepRewardCalculator` (`StepRewardCalculator.potential` selects the mode), so
-the optimal policy is provably preserved. With `[rl.reward] potential = "phase_aware"` (default), `Phi` is gated on the bounce flag (obs[15]):
+Phi(s)`, computed by `StepRewardCalculator` (`StepRewardCalculator.potential` selects the mode),
+with `Phi(s') = 0` when the step terminates the episode. That zero is the condition for the
+shaping to leave the optimal policy unchanged in an episodic task (Grzes 2017, "Reward shaping in
+episodic reinforcement learning"): the shaped return then telescopes to `-Phi(s_0)`, which no
+action changes. With the terminal potential kept, the return carries an extra `gamma^T *
+Phi(s_T)`, which depends on where the policy ends the episode; under `potential = "dv"` that is
+about minus the predicted correction DV at the terminal state, a second, differently scaled
+terminal DV penalty on top of `compute_terminal_cost`. The trainer did exactly that until
+2026-09-24, so the Section 5 baseline below was trained with it. A truncated step (timeout) is not
+absorbing and keeps `Phi(s_T)`, because the value bootstraps from the terminal observation. Both
+loops go through `train.py::_shaped_rewards`; gate `tests/rl/test_rewards.py`. With `[rl.reward]
+potential = "phase_aware"` (default), `Phi` is gated on the bounce flag (obs[15]):
 the capture-phase potential combines corridor tracking (`corridor_weight * pdyn_error^2`), an
 energy-gain penalty (`energy_rate_weight * max(delta_energy, 0)`) and constraint proximity
 (`constraint_weight * (heat_flux_frac^2 + heat_load_frac^2)`); the exit phase replaces the
@@ -129,7 +139,7 @@ that omits index 15 is valid) while keeping the thermal-proximity term (DV is bl
 limits). `dv*_weight` default to 1.0; return normalization rescales the combined stream but not
 the dv-vs-thermal ratio, so raise `constraint_weight` (or lower `dv*_weight`) to give the thermal
 term more authority. The terminal reward adds the raw `compute_terminal_cost` (DV + constraint
-penalties; it uses the cost defaults and ignores the TOML `[cost_function]`) on TERMINATED
+penalties, with the TOML `[cost_function]` kwargs via `report.read_cost_kwargs`) on TERMINATED
 episodes only; truncated (`max_time` timeout, ifinal=2) episodes bootstrap `V(terminal_obs)` /
 `Q(terminal_obs)` instead (dones masked with `& ~truncated`), since adding the timeout virtual-DV
 cost on top would double-count the terminal state in the value target; `episodic_*` logging
@@ -169,8 +179,10 @@ the first 10-20 updates) and then walks off it.
 These four cells were trained in the pre-parity env (the lag and shaper bypass above), so they
 optimized a different decision process than the one their validation gate and the quoted numbers
 fly. The dense warm start begins as a ~181 m/s policy in that env against 113 m/s deployed
-(`experiments/obs_lag/`), which is enough on its own to explain the walk-off. The re-quote on the
-parity env is open (`TODO.md`).
+(`experiments/obs_lag/`), which is enough on its own to explain the walk-off. They were also
+trained with the non-invariant shaping above (`potential = "dv"` with the terminal potential
+kept), so their objective carried a second terminal DV penalty the population champions never
+saw. The re-quote on the parity env with the corrected shaping is open (`TODO.md`).
 
 ## Gates
 
