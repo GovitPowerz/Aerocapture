@@ -76,7 +76,8 @@ Checkpoints (`checkpoint_g*.{json,npz}`) make every step resumable; `--n-gen` on
    adaptive DOPRI45 with sub-tick events (`runner::integrate_adaptive_with_events` +
    `integration::events::check_events_and_locate`: bounce, atmosphere exit, crash, phase transition).
 6. Termination bookkeeping (`SimState.term`: captured / hyperbolic / crash / pending crash /
-   timeout) and NN telemetry update.
+   timeout) and NN telemetry update. `sim_time` advances with the state, so every time label
+   (peaks, bounce, final record, last trajectory row) names the state it describes.
 7. `finalize::build_final_record` assembles the 52-column final record; captured runs get the real
    correction DV (`orbit::maneuver::compute_deltav`), the others a virtual DV so every outcome
    stays comparable in cost.

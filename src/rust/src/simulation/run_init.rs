@@ -168,7 +168,6 @@ pub fn build_sim_state(
         sim_time: entry_initial_date,
         term: TermReason::None,
         step: 0,
-        first_iter: true,
         run_state,
         nav_biases,
         supervised_trace: Vec::new(),
@@ -196,7 +195,7 @@ pub fn build_sim_state(
     // instead of a zeroed-out NavigationOutput. Bias mode is stateless (the call is
     // a pure function of the truth state + biases), so priming costs nothing. EKF
     // mode advances the filter via `ekf.predict(nav_dt, ...)` on every call; since
-    // tick.rs also navigates on first_iter, priming there would predict the filter
+    // tick.rs also navigates on the first tick, priming there would predict the filter
     // twice before any physics advance. Skip priming for EKF; the first tick will
     // populate `last_nav` before the policy's second action. The initial RL action
     // (step 0) is based on a default NavigationOutput under EKF mode.

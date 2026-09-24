@@ -152,3 +152,31 @@ fn heat_load_final_matches_final_record() {
         diff
     );
 }
+
+/// #141: `sim_time` labels the state it describes. The terminating tick's state is
+/// `t_k + dt`, so the trajectory's last row, the final record's `sim_time_s` and the
+/// peak / bounce times must not lag the terminal state by one tick.
+#[test]
+fn time_labels_follow_the_terminal_state() {
+    use crate::simulation::final_record::{FR_BOUNCE_TIME_S, FR_SIM_TIME_S, FR_TIME_MAX_FLUX_S};
+    let (config, data) = load_test_config();
+    let results = run_for_api(&config, &data, true, None).expect("run");
+    let r = &results[0];
+    let times: Vec<f64> = r.trajectory.iter().map(|row| row[7]).collect();
+    assert!(
+        times.windows(2).all(|w| w[1] > w[0]),
+        "trajectory times must be strictly increasing (the final row used to repeat the last tick's time)"
+    );
+    let sim_time = r.final_record[FR_SIM_TIME_S];
+    assert_eq!(*times.last().unwrap(), sim_time);
+    // One photo row per integration step plus the final row: the final state is n_steps * dt in.
+    let n_steps = (times.len() - 1) as f64;
+    assert_eq!(sim_time, times[0] + n_steps * data.periods.integration);
+    for idx in [FR_TIME_MAX_FLUX_S, FR_BOUNCE_TIME_S] {
+        let t = r.final_record[idx];
+        assert!(
+            times[0] < t && t <= sim_time && times.contains(&t),
+            "peak/bounce time {t} is not a state time"
+        );
+    }
+}

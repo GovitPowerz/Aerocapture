@@ -45,6 +45,11 @@ pub struct TickOutcome {
 /// is still `None` (tick completed normally) or it is set to a terminal reason
 /// and `outcome.done` is `true`.
 ///
+/// `state.sim_time` is the time of `state.state` throughout: GNC runs at the
+/// tick start `t_k`, the integration step advances both to `t_k + dt` (or to
+/// the terminal event's time in adaptive mode), so peak times, bounce time,
+/// the final record and the final photo row all label the state they describe.
+///
 /// `forced_bank`: when `Some(radians)`, overrides guidance output with this bank
 /// command. Used by `BatchedSimulation` to inject RL policy actions. The existing
 /// `run_single` call site always passes `None`.
@@ -59,11 +64,6 @@ pub fn step_one_tick(
     event_ctx: &EventContext,
 ) -> TickOutcome {
     let dt = state.dt;
-
-    if !state.first_iter {
-        state.sim_time += dt;
-    }
-    state.first_iter = false;
 
     let flags = state.sequencer.update(state.sim_time, &data.periods);
 
@@ -293,6 +293,7 @@ pub fn step_one_tick(
             adaptive_events = result.triggered;
         }
     }
+    state.sim_time += dt;
 
     // Populate GNC context on event records from this tick's state
     // (GNC quantities are constant within a tick, so the current values apply)
@@ -308,10 +309,6 @@ pub fn step_one_tick(
 
     let (altitude, _lat_geo) =
         geodetic_from_spherical(state.state[0], state.state[1], state.state[2], planet);
-
-    let run_state_snap = state.run_state;
-    let sim_time = state.sim_time;
-    track_peak_values(state, altitude, sim_time, data, &run_state_snap);
 
     // === Process adaptive integrator events (in chronological order) ===
     for triggered in &adaptive_events {
@@ -348,6 +345,11 @@ pub fn step_one_tick(
             }
         }
     }
+
+    // After the event pass so a terminal event's time labels the peak it may hold.
+    let run_state_snap = state.run_state;
+    let sim_time = state.sim_time;
+    track_peak_values(state, altitude, sim_time, data, &run_state_snap);
 
     // NaN/Inf safety net: extreme GA parameters can blow up numerically.
     // All termination checks evaluate to false on NaN, so the loop would spin forever.

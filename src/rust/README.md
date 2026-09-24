@@ -188,7 +188,8 @@ src/rust/src/
                                        step API)
     tick.rs                        — `step_one_tick`: the single per-tick GNC + integration step shared by the CLI `run_single` loop and the RL `BatchedSimulation` env (+ shared helpers
                                        `promote_pending_crash_if_applicable`, `navigate_from_state`); also records the per-tick NN candidate trace and updates the NN telemetry state post-guidance from
-                                       the effective command
+                                       the effective command. `sim_time` is the time of `state.state`: GNC runs at the tick start, the integration step advances both by `dt`
+                                       (adaptive terminal events rewind it to the event time), so peak / bounce times, the final record and the final photo row label the state they describe (#141)
     final_record.rs                — Named index constants for the 52-element final-record array; single source of truth for `fr[N]` writes in `finalize.rs` and reads in aerocapture-py
                                        (`results.rs`, `env.rs`)
     init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` reads;
