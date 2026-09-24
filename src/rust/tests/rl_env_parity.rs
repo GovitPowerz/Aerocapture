@@ -10,7 +10,7 @@ mod common;
 use aerocapture::config::SimInput;
 use aerocapture::data::SimData;
 use aerocapture::data::nn_state::NnState;
-use aerocapture::gnc::guidance::neural::{NnInputContext, NnModelView, build_nn_input};
+use aerocapture::gnc::guidance::neural::{NnInputContext, nn_bank_angle};
 use aerocapture::simulation::init;
 use aerocapture::simulation::runner::{
     SimState, SimStateOptions, TermReason, build_event_ctx, build_event_defs, build_final_record,
@@ -53,15 +53,16 @@ fn assert_env_matches_deploy(config_name: &str) {
                 env.sim_time(),
                 data.target_orbit.inclination,
             );
-            let obs = build_nn_input(
+            // Same input build as `env.rs::build_obs_for_env`, decoded per the
+            // model's own `output_param`.
+            let action = nn_bank_angle(
                 &env.last_nav_output(),
-                NnModelView::of(nn),
+                nn,
+                &mut policy_state,
                 &data,
                 planet,
                 &nn_ctx,
             );
-            let out = nn.forward(&mut policy_state, &obs);
-            let action = out[0].atan2(out[1]);
             act_tick(&mut env, &config, &data, planet, Some(action), &defs, &ctx);
             env_banks.push(env.guidance_state.prev_bank_for_nn);
             if env.term() != TermReason::None {

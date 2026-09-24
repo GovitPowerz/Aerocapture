@@ -64,7 +64,7 @@ def main() -> None:
         extra = {**LEGACY_NOISE_REGIME, **({"guidance.command_shaping.enabled": False} if a.arm == "deploy_noshape" else {})}
         fr = evaluate_cell(a.cell, a.toml, seeds, extra_overrides=extra, per_seed_overrides=matched).final_records
     else:
-        fr = fly_env(a.cell / "best_model.json", eval_toml, {"simulation.n_sims": 1, **cell_ov, **LEGACY_NOISE_REGIME}, seeds)
+        fr = fly_env(Path(str(cell_ov["data.neural_network"])), eval_toml, {**cell_ov, **LEGACY_NOISE_REGIME}, seeds)
 
     OUT.mkdir(exist_ok=True)
     name = a.cell.name + "_" + a.arm + (f"_{a.tag}" if a.tag else "")

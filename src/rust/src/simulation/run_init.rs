@@ -179,6 +179,7 @@ pub fn build_sim_state(
         gm_rng,
         gm_normal,
         last_nav: crate::gnc::navigation::estimator::NavigationOutput::default(),
+        last_nav_time: f64::NAN,
         dt,
         max_time,
         exit_altitude,

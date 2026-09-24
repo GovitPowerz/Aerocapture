@@ -144,6 +144,7 @@ pub fn sense_tick(state: &mut SimState, config: &SimInput, data: &SimData, plane
 
         // Guidance (`act_tick`) and the RL observation (`last_nav_output()`) both read this.
         state.last_nav = nav_out;
+        state.last_nav_time = state.sim_time;
     } else {
         // Reference trajectory mode: compute pdyn from truth state for photo output
         let (alt_truth, _) =
@@ -181,6 +182,12 @@ pub fn act_tick(
 
     // === Guidance + Pilot ===
     if !config.reference_trajectory {
+        debug_assert!(
+            state.last_nav_time == state.sim_time,
+            "act_tick at t={} without a sense_tick at that time (last sensed t={})",
+            state.sim_time,
+            state.last_nav_time
+        );
         let nav_out = state.last_nav;
 
         let guidance_out = dispatch::guidance_step(

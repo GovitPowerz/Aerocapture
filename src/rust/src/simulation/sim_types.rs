@@ -150,6 +150,9 @@ pub struct SimState {
 
     // ── Last navigation output (cached for RL observation building) ──
     pub(crate) last_nav: crate::gnc::navigation::estimator::NavigationOutput,
+    /// `sim_time` at which `last_nav` was sensed (NaN until the first `sense_tick`);
+    /// `act_tick` debug-asserts it matches the tick it is about to fly.
+    pub(crate) last_nav_time: f64,
 
     // ── Pre-loop constants (read-only within the tick, stored here for single-arg dispatch) ──
     pub(crate) dt: f64,
