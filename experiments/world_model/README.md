@@ -1,0 +1,320 @@
+# Learned dynamics (world model) of the aerocapture plant
+
+Issue #113. A learned, action-conditioned dynamics model of the aerocapture plant is trained on
+simulator flights, then asked to do the three jobs a world model is for: predict a trajectory,
+predict what an intervention changes, and plan. It is scored the way a world-model paper would
+score it, and it plans through FNPAG's corrector next to a clairvoyant replay of the true plant.
+The deliverable is where it breaks and why.
+
+Nothing in the simulator or the deployed cells changes. Everything runs through the existing PyO3
+seam, `aerocapture_rs.BatchedSimulation`, with the bank injected from Python.
+
+## Result in one paragraph
+
+The models fit one step well (teacher-forced error 0.009 to 0.012 standardized units, against 0.020
+for "nothing changes") and free-run better than "nothing changes" for 94 to 170 ticks (GRU) or 37
+to 73 ticks (one-step MLP). Every downstream use that needs a longer horizon fails. Free-running,
+the predicted altitude drifts away from what the predicted speed and flight-path angle imply
+(h' = V sin(gamma) holds 76 to 86 times worse than on the flown trajectories after 50 ticks), and a
+pass flown from entry reads as a crash. Five of six models predict a crash for every constant bank
+from 20 to 110 deg, where the plant ranges from a 10,800 km apoapsis to a sure crash. FNPAG's
+corrector trusts that answer and pins the minimum bank, and every learned-model planner captures
+with a 5,800 to 10,000 km median apoapsis error and 835 to 965 m/s of correction delta-v. The
+clairvoyant replay flies the same corrector to 145 m/s. The sampled uncertainty is honest at one
+tick (89% coverage of the 90% interval) and overconfident by 20 ticks (43 to 53%); pooling three
+training seeds restores 82 to 86%. Seeds with the same validation likelihood disagree on the
+direction of the bank's effect: on energy in mid-descent, and on apoapsis at the bounce, where all
+three GRUs get it backwards.
+
+## Plant, state and action
+
+The plant is the paper's NN training environment (`configs/training/msr_aller_nn_atan2_train.toml`:
+medium dispersions, `per_draw` noise, NN-tuned navigation) with a stub model that exposes all 35
+candidate inputs (`configs/wm_medium.toml`). The out-of-distribution plant `configs/wm_high.toml`
+raises to `high` the four domains the paper's robustness stress raises: atmosphere, density
+perturbation, navigation, nav filter. The issue's second shift, legacy to `per_draw` noise, is not
+run: it needs a second set of models trained on legacy-regime data, and it was traded at design
+time for three training seeds per model. The planner's own flights are the third shift.
+
+- **State, 42 channels.** The 35 candidate NN inputs as the onboard software sees them
+  (navigation estimates, the config's calibrated normalization), plus the 7 aux channels of the RL
+  env: energy, dynamic pressure, predicted correction delta-v x3, heat flux and heat load
+  fractions. Two inputs never vary on this plant (`cos_bank_nominal`, `inclination_err_rate`), so
+  the loss and every metric use the other 40. The density dispersion is not in the state: the
+  plant is partially observed.
+- **One signed bank per 1 s guidance tick.** The command passes through the pilot model (rate
+  limit, biases). Lateral guidance, the exit-phase law, the thermal limiter and command shaping
+  are bypassed.
+- **A one-tick timing contract.** `step(a_k)` returns the navigation state at the start of tick
+  k together with the telemetry inputs of a_k, so a_k first moves the physics in step k + 1. The
+  model therefore predicts x_{k+1} from x_{<=k} and a_{k+1}. `tests/test_world_model.py` pins
+  this contract and the replay determinism that the oracle and the counterfactuals rest on:
+  re-flying a seed on a shared action prefix reproduces the prefix bit for bit, whatever its batch
+  neighbours.
+
+## Data
+
+The behavior policy is a random piecewise-constant signed bank (`wm_plant.bank_schedule`): a
+per-flight base magnitude drawn from U(40, 100) deg, segments of log-uniform duration in
+[5, 200] ticks around it (sigma 25 deg, random sign), plus a 3 deg Ornstein-Uhlenbeck jitter
+(tau 10 s). The base range sits on the capture corridor: on this plant a constant bank of 20 to
+50 deg leaves on a 3,900 to 10,800 km apoapsis, 65 deg hits the 500 km target on the median flight,
+and 70 deg or more crashes most flights (the bank sweep in `world_model.json`). Open-loop random
+banks rarely thread that corridor, so only 9% of training flights exit with an apoapsis between
+200 and 1,500 km.
+
+| pool | config | seeds | flights | steps | crash | capture | apoapsis 200-1500 km |
+|---|---|---|---|---|---|---|---|
+| train | `wm_medium` | `WORLD_MODEL_SEED_OFFSET` stream | 10,000 | 3.94 M | 53.5% | 46.2% | 9.2% |
+| val | `wm_medium` | same stream | 1,000 | 0.39 M | 54.0% | 45.9% | 9.6% |
+| test_id | `wm_medium` | same stream | 1,000 | 0.39 M | 56.1% | 43.6% | 7.9% |
+| test_ood | `wm_high` | same stream | 1,000 | 0.39 M | 45.9% | 44.0% | 7.7% |
+| planning | `wm_medium` | same stream, the next 1,000 | 1,000 | flown by each planner | | | |
+
+Two closed-loop pools join the evaluation once the planners have flown: `closed_loop` (the
+clairvoyant planner's 1,000 flights) and `self_planned` (the GRU s0 planner's own flights).
+
+## Models
+
+`wm_model.py`. Both are plain PyTorch, not the `torch_mirror` layers: the mirror has no
+probabilistic head, and flying a learned dynamics model onboard is out of scope here. Both models
+read the standardized state x_k and the next action as
+(sin a_{k+1}, cos a_{k+1}), and output a diagonal Gaussian over the standardized increment
+x_{k+1} - x_k. Training is teacher-forced Gaussian negative log-likelihood over whole flights
+(Adam 1e-3 with cosine decay to 1e-4, gradient clip 1, 64 flights per batch, 40 epochs, the best
+validation epoch kept), three training seeds each.
+
+| model | parameters | best val NLL (s0 / s1 / s2) | best epoch | train time |
+|---|---|---|---|---|
+| GRU(128) + MLP head | 198,484 | -3.23 / -3.46 / -3.26 | 27 / 38 / 28 | 12-13 min |
+| one-step MLP (ablation, no memory) | 98,900 | -3.25 / -3.26 / -3.26 | 38 / 39 / 39 | 2.2 min |
+
+The GRU's validation NLL bottoms out at epoch 27 or 28 for two of three seeds and then climbs by
+3 to 4 nats while the training NLL keeps falling, so the best-validation checkpoint is the one
+kept.
+
+## The six evaluations
+
+All on the in-distribution test pool unless named. Standardized RMSE is over the 40 varying
+channels, in units of the training pool's per-channel standard deviation, median over
+(flight, start) pairs with starts every 50 ticks.
+
+1. **Rollout error vs horizon** (`fig_rollout_error.svg`). Free-running on the flown banks vs
+   teacher-forced vs persistence (x stays at x_t0), plus the kinematic residual
+   |altitude step - V sin(fpa) dt|.
+2. **Calibration** (`fig_calibration.svg`). 32 sampled free runs per start: reliability of
+   central intervals and ensemble CRPS at 1 to 200 ticks, for each model and for the 96-member
+   ensemble of a kind's three training seeds.
+3. **Out-of-distribution** (`fig_ood.svg`). Rollout error, CRPS and 90% coverage at 50 ticks on
+   four pools: in-distribution, high dispersions, the clairvoyant planner's flights, and the GRU
+   s0 planner's own flights.
+4. **Tail prediction** (`fig_tail.svg`). A free run on the flown banks from tick 100, 200, 300 or
+   400, from the descent to late in the ascent (absolute ticks, because a start at a fraction of
+   each flight would leak its length), predicts the
+   terminal correction delta-v, a crash reading as infinite. Two ROC AUCs: the delta-v tail of the
+   clairvoyant planner's flights ("not captured or delta-v at or above the pool's p95"), against
+   persistence = the current navigation delta-v estimate; and crashes in the in-distribution test
+   pool, against persistence = the lowest current osculating periapsis. Flights already over at
+   the start are dropped.
+5. **Counterfactual response** (`fig_counterfactual.svg`). On the clairvoyant planner's flights,
+   the bank magnitude is pulsed by +10 or -10 deg for 20 ticks at 0.25 / 0.5 / 0.75 / 1.0 of the
+   bounce tick, the rest of the flown banks unchanged. The true response comes from replaying the
+   seed. Three readouts: the orbital energy and the osculating apoapsis 30 ticks after the pulse
+   starts (apoapsis only where the orbit is bound on both branches), and the exit apoapsis. Model
+   rollouts for the 30-tick readouts run a fixed horizon.
+6. **Planning** (`fig_planning.svg`). FNPAG's corrector (`wm_planner.py`): every 10 ticks,
+   bisect a constant bank magnitude so the predicted exit apoapsis hits 500.13 km (11
+   predictions per replan, FNPAG's deployed bank limits and apoapsis tolerance), roll sign from a
+   port of the lateral reversal law at FNPAG's deployed gains. The predictor is a learned model
+   (six arms) or a replay of the true plant from t = 0 on the same seed (the oracle, which sees
+   the flight's future noise). The fourth panel is the planner's first query: the exit apoapsis
+   of a constant bank flown from tick 0, model vs plant, 200 flights.
+
+## Results
+
+Numbers are medians over pairs, reported as the range over the three training seeds.
+
+| evaluation | GRU | one-step MLP | reference |
+|---|---|---|---|
+| one-step error, teacher-forced | 0.012 | 0.009 | persistence 0.020 |
+| free-running error at 10 / 50 / 200 ticks | 0.05 / 0.39-0.44 / 1.7-8.5 | 0.06-0.10 / 0.40-0.95 / 27-3,900 | persistence 0.19 / 0.69 / 1.51 |
+| horizon where free-running loses to persistence | 94-170 ticks | 37-73 ticks | |
+| kinematic residual at 1 / 50 / 200 ticks | 2-3x / 76-86x / 490-5,200x the flown trajectories' | | flown 0.002 km per tick |
+| 90% coverage at 1 / 20 / 50 ticks | 0.88-0.89 / 0.43-0.53 / 0.44-0.59 | 0.89 / 0.44-0.55 / 0.50-0.55 | nominal 0.90 |
+| 90% coverage at 1 tick, high dispersions | 0.72-0.74 | 0.74 | nominal 0.90 |
+| 90% coverage at 50 ticks, own planned flights | 0.24 (s0) | | 0.44 on the test pool |
+| delta-v tail AUC from tick 100 / 200 / 300 / 400 | 0.32-0.50 / 0.09-0.50 / 0.50-0.66 / 0.48-0.99 | 0.50 / 0.09-0.50 / 0.50-0.73 / 0.49-0.98 | persistence 0.10 / 0.08 / 0.89 / 0.99 |
+| crash AUC from tick 100 / 200 / 300 / 400 | 0.50-0.94 / 0.50-0.82 / 0.53-0.90 / 0.63-0.85 | 0.50 / 0.50-0.90 / 0.49-0.88 / 0.54-0.88 | persistence 0.82 / 0.87 / 1.00 / 0.99 |
+| counterfactual sign agreement, energy, at 0.5 / 0.75 / 1.0 of the bounce tick | 0.00-0.59 / 0.99-1.0 / 1.0 | 0.12-1.0 / 1.0 / 0.44-1.0 | |
+| counterfactual slope, energy, at 0.75 / 1.0 | 0.23-0.52 / 0.31-0.58 | 0.25-0.52 / -0.01-0.50 | 1 |
+| counterfactual sign agreement, apoapsis, at 0.75 / 1.0 | 1.0 / 0.00-0.36 | 1.0 / 0.76-1.0 | |
+| usable exit-apoapsis counterfactuals | 0 of 8,000 | 0 of 8,000 | |
+
+Planning on the 1,000-seed planning pool (`per_draw` noise):
+
+| planner | capture | delta-v p50 | p95 | CVaR95 (95% CI) | abs apoapsis error p50 / p95, km | periapsis p50, km | first 150 ticks at bank_min | ms per flight-replan |
+|---|---|---|---|---|---|---|---|---|
+| clairvoyant plant replay | 100% | 145 | 164 | 169 (168-171) | 11 / 28 | -79 | 0% | 7.5 |
+| GRU s0 | 100% | 947 | 1254 | 1340 (1312-1364) | 9,888 / 31,792 | 32 | 99.3% | 6.3 |
+| GRU s1 | 100% | 964 | 1269 | 1342 (1318-1363) | 9,973 / 33,889 | 30 | 99.3% | 1.4 |
+| GRU s2 | 100% | 835 | 1046 | 1112 (1086-1140) | 5,782 / 10,126 | 24 | 33.4% | 9.6 |
+| MLP s0 | 100% | 964 | 1268 | 1341 (1317-1362) | 9,973 / 33,872 | 30 | 99.3% | 0.8 |
+| MLP s1 | 100% | 964 | 1269 | 1343 (1318-1363) | 9,973 / 33,889 | 30 | 99.3% | 1.1 |
+| MLP s2 | 100% | 885 | 1246 | 1338 (1308-1363) | 8,799 / 31,391 | 42 | 99.3% | 0.6 |
+| FNPAG deployed cell (context) | 99.5% | 122 | 140 | 150 (145-155) | 20 / 74 | 8 | | |
+
+Paired on the same seeds, every learned planner costs 702 to 829 m/s more than the clairvoyant one
+on average and wins on no flight (`vs_oracle` in the JSON).
+Delta-v statistics are over captured flights (`paper_stats.run_stats`). Planning cost is wall time
+per flight and replan, batched over the 1,000 flights on this machine: the replay re-flies each
+flight from t = 0 with 14 Rayon threads, the learned models run on 10 torch threads and stop a
+rollout once every flight in the batch has terminated, so a model that predicts early crashes
+plans cheaply. For scale, FNPAG flies a whole flight, every replan included, in 89 ms on one
+thread (`docs/performance.md`).
+
+FNPAG's deployed cell is context, not a head-to-head: it runs its own navigation tuning, replans
+every 2 s and hands off to the exit-phase law after the bounce. The clairvoyant planner hits the
+apoapsis more tightly than FNPAG (median error 11 km vs 20 km) but exits with a median periapsis of
+-79 km against FNPAG's +8 km, which costs 22 m/s more in the periapsis-raise burn. So the gap
+sits in the exit periapsis, not in prediction. The replanned constant bank has no exit-phase law,
+the likeliest source; this experiment does not separate it from the 10 s replan period and the
+navigation tuning.
+
+## What counts as failure
+
+- **Rollout.** A free-running prediction fails at the horizon where its median error exceeds
+  persistence's.
+- **Calibration.** A 90% interval fails when it covers less than 80% of outcomes.
+- **Tail.** A predictor fails when its AUC does not beat persistence (the navigation's own
+  current delta-v estimate).
+- **Counterfactual.** A predictor fails when it gets the sign of the response wrong more often
+  than right.
+- **Planning.** A learned-model planner fails when its captured delta-v CVaR95 exceeds the
+  clairvoyant planner's 95% interval.
+
+## Where it fails
+
+### 1. Free runs leave the kinematics behind, so the planner's question has no usable answer
+
+On the flown trajectories, an altitude step and V sin(fpa) dt agree to 0.002 km per tick. A GRU
+free run misses that identity by 2 to 3 times as much at one tick, 76 to 86 times at 50 ticks and
+490 to 5,200 times at 200 ticks, and its altitude is 14 to 15 km off after 100 ticks. The
+planner's first query is the exit apoapsis of a constant bank flown from the first tick, which
+needs a rollout to the exit: hundreds of ticks, beyond the 94 to 170 (GRU) and 37 to 73 (MLP)
+ticks where the models beat persistence. On 200 test flights the plant's median answer is
+10,814 km at 20 deg, 499 km at 65 deg and a crash from 70 deg. Five of the six models answer
+"crash" at every bank from 20 to 110 deg. GRU s2 answers "unbound" up to 90 deg and "crash" from 100 deg. None has
+a capture region.
+
+Diagnosis. Each model outputs an independent Gaussian increment per channel. Teacher forcing hands
+it a consistent state at every step, so the training loss never meets an altitude that disagrees
+with the predicted speed and flight-path angle, and nothing in the model enforces h' = V sin(gamma)
+once its own outputs feed back. The residual growth measures that coupling coming apart. One-step
+accuracy does not rank the models either: the MLP has the lower teacher-forced error (0.009 vs
+0.012) and the worse free run, diverging numerically after about 100 ticks.
+
+The same drift decides the tail evaluation. From tick 200 on, four of six models predict a crash
+for every closed-loop flight (none crashed), which ties every score and pins the AUC at 0.5. The
+two that do not, GRU s2 and MLP s2, follow persistence, the navigation's own delta-v estimate: both
+rank the tail backwards at tick 200 (0.09, persistence 0.08), below it at 300 (0.66 to 0.73 against
+0.89) and level with it at 400 (0.98 to 0.99). On crashes in the test pool, where persistence is
+the lowest current periapsis (0.82 / 0.87 / 1.00 / 0.99 from tick 100 / 200 / 300 / 400), a model
+beats it twice in 24 tries: GRU s0 at tick 100 (0.94) and MLP s2 at tick 200 (0.90).
+
+### 2. The corrector turns a wrong model into a saturated command
+
+FNPAG's bisection reads only the sign of the apoapsis residual. When the model answers "crash" at
+both ends of the bank bracket, the residual is negative everywhere and the corrector commands the
+minimum bank. Five of the six learned planners sit at the minimum bank for 99.3% of the first 150
+ticks (the clairvoyant planner: 0%). The vehicle skims the atmosphere and leaves with a median
+apoapsis error of 5,800 to 10,000 km, which costs 835 to 965 m/s of correction delta-v against
+145 m/s for the same corrector on the true plant. Every learned planner still captures 100% of flights, so the
+capture rate alone would have scored this as a success.
+
+### 3. The sampled uncertainty covers the noise, not the model
+
+The 90% interval of 32 sampled free runs covers 88 to 89% of outcomes at one tick and 43 to 53% at
+20 ticks (GRU). Between 10 and 20 ticks the median error of the ensemble mean is 1.25 to 2 times
+the median ensemble spread (GRU); a calibrated Gaussian ensemble keeps that ratio at 0.67. The 32
+samples share one model's mean dynamics,
+so that model's bias is in every sample. Pooling the three training seeds (96 members) lifts the
+90% coverage at 10 / 20 / 50 ticks to 0.82 / 0.82 / 0.83 (GRU) and 0.81 / 0.83 / 0.86 (MLP), and
+cuts the CRPS by 7% (GRU) and 13% (MLP) at 10 ticks and 16% and 20% at 50. The missing term is epistemic: seeds disagree
+where the model is wrong. Three members still under-cover.
+
+Distribution shift shows up in the same place. The high-dispersion plant moves the median error
+by little (0.012 to 0.015 at one tick, unchanged at 50 ticks) but drops one-step coverage from
+0.89 to 0.72 to 0.74 (ensemble: 0.95 to 0.81 to 0.82). On the flights it planned itself, GRU s0's
+50-tick coverage falls to 0.24, against 0.44 on the test pool.
+
+### 4. Equal likelihood, opposite answers to "what does this bank do"
+
+A +10 or -10 deg pulse of 20 ticks at half the bounce tick changes the orbital energy 30 ticks
+later by a median 5.6 kJ/kg on the plant. The three MLPs reach validation NLLs within 0.005 nats
+of each other; two get the sign of that change right on every flight and the third on 12%. Two
+GRUs get it wrong on all but 0.1% of flights and the third right on 59%. Later in the pass the
+energy sign is right in 11 of 12 (model, time) cells, but the regression slope of predicted on true
+change is 0.23 to 0.58, so the effect is underestimated 1.7 to 4.3 times.
+
+The apoapsis, the quantity the corrector steers, is worse. Thirty ticks after a pulse at the
+bounce, the plant's osculating apoapsis moves by a median 95 km. All three GRUs predict the
+opposite direction (sign agreement 0.01, 0.36 and 0.00); the MLPs get it right (0.76 to 1.0).
+With the pulse at 0.75 of the bounce tick, every model that keeps the orbit bound gets the sign,
+but the slopes run from 0.01 to 1.8 against a true median change of 6,200 km. Earlier pulses have
+no apoapsis to score: the orbit is still hyperbolic 30 ticks later. The exit-apoapsis version has
+no answer at all: for every model, none of the 8,000 pulses ends in a bound predicted exit on both
+branches.
+
+Diagnosis. Validation likelihood does not tell these models apart, so it does not identify the
+bank's 30-tick effect. A one-step loss scores the bank's effect one tick at a time; the 30-tick
+effect is a product of 30 such steps through altitude and density, and nothing in the objective
+checks the product.
+
+### What it says
+
+Every failure traces to one fact: the models learned the conditional distribution of the next
+navigation vector given the recent ones, and the three downstream jobs need the transition law.
+Dispersion shift barely moves the mean error. The horizon does, and the planner's own flights
+cost calibration (0.24 coverage at 50 ticks for the model that flew them). The evidence
+points to two changes, both cheap here: train on multi-step rollouts, so the objective sees the
+drift and the action response, and ensemble, which already recovers most of the calibration. A
+state built around the plant's seven physical states is the heavier third option.
+
+## Compute
+
+One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, about 73 minutes end to end
+(stage `meta` and `wall_s` fields in `world_model.json`):
+
+| stage | wall time |
+|---|---|
+| data: 13,000 flights, 5.1 M steps, 130,000 to 185,000 env-ticks/s | 29 s |
+| train: 3 GRU at 12 to 13 min (18 to 20 s per epoch), 3 MLP at 2.2 min | 44 min |
+| plan: clairvoyant replay 6.8 min, learned models 0.4 to 5.8 min each, FNPAG 8 s | 19 min |
+| eval + plot | 8.7 min |
+
+The estimate before starting was 4 to 5 hours. `BatchedSimulation` and small CPU models made it an
+hour.
+
+## Reproduce
+
+Build the extension first (`./build.sh`), then run one command from the repo root:
+
+```bash
+uv run python experiments/world_model/world_model.py
+```
+
+Stages run in order and each resumes from its cache under `training_output/world_model/`:
+`data` (the four pools, seconds), `train` (six models), `plan` (seven planners on the planning pool
+plus FNPAG's deployed cell), `eval`, `plot`. `--stages eval plot` recomputes the evaluations from
+cached models and flights, `--stages plot` only redraws the figures from `world_model.json`,
+`--force` recomputes cached artifacts, and `--arms` selects the planners of the `plan` stage.
+
+## Files
+
+- `world_model.py`: the driver, every stage, the figures.
+- `wm_plant.py`: the seam as the model sees it: behavior policy, stub model, lockstep plant, open-loop fly.
+- `wm_model.py`: features, the GRU and MLP dynamics models, training, rollouts.
+- `wm_planner.py`: the lateral port, FNPAG's bisection, the readouts, the two predictor arms, the MPC loop.
+- `wm_metrics.py`: CRPS (closed form and ensemble), central-interval coverage, rank AUC.
+- `configs/wm_medium.toml`, `configs/wm_high.toml`: the two plants.
+- `world_model.json`: every number above, per model and seed.

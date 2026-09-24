@@ -396,7 +396,7 @@ use `--sim-timeout` against NaN hangs).
 - `seeds.py` — the reserved seed-pool registry: every `*_SEED_OFFSET` (`VALIDATION_SEED_OFFSET` 1M,
   `FINAL_EVAL_SEED_OFFSET` 2M, `RL_TRAINING_SEED_OFFSET` 3M, `WARM_START_SEED_OFFSET` 4M,
   `NN_INPUT_REPORT_SEED_OFFSET` 5M, `CALIBRATION_SEED_OFFSET` 6M, `SWEEP_EVAL_SEED_OFFSET` 7M, headline
-  requote 8M, stress 9M, `PROBE_EVAL_SEED_OFFSET` 10M, `CONFIRM_EVAL_SEED_OFFSET` 20M; `tests/test_seed_offsets.py` asserts the
+  requote 8M, stress 9M, `PROBE_EVAL_SEED_OFFSET` 10M, `WORLD_MODEL_SEED_OFFSET` 11M, `CONFIRM_EVAL_SEED_OFFSET` 20M; `tests/test_seed_offsets.py` asserts the
   list AND that no other module defines one), `make_reserved_seeds(base_mc_seed, offset, n)`, and
   `make_confirmatory_pools(base, n_replicates=10, n=100_000)` (`CONFIRM_EVAL_SEED_OFFSET` names
   the stream; duplicate-free seeds from `[2^31, 2^32)`, structurally disjoint from every
@@ -772,6 +772,11 @@ validation_n_sims` sims each).
   because a checkpoint resume restores the saved trainer RNG state and would silently override
   `--seed`). Campaign runs use the sweep config's allocation (GA n_pop 60, training_n_sims 10),
   not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).
+- `experiments/world_model/`: the learned-dynamics (world model) experiment of issue #113, GRU and
+  one-step MLP dynamics models trained on `BatchedSimulation` flights under a random piecewise bank,
+  scored on rollout error, calibration, OOD, tail prediction, counterfactuals and FNPAG-style
+  planning against a clairvoyant replay of the plant. One resumable driver (`world_model.py`),
+  results `world_model.json`, six figures; `experiments/world_model/README.md` has the findings.
 - `experiments/paper/*.sh` — the numbered campaign runners (classical baselines, optimizer
   budget / dimensionality, joint reference, architecture sweep, quantization, the RL baseline
   `18_rl_baseline.sh`); `experiments/paper/README.md` documents them.

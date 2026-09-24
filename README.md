@@ -48,6 +48,7 @@ Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constr
 - **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–102 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
 - **Policy gradients do not compete under the matched protocol** (paper Section 5, issue #101). PPO from scratch captures but pays 2–3x the correction ΔV of the population-trained cell of the same architecture and leans on the constraint limits (5.6% of scenarios violate the heat-flux limit for the dense cell; 53% violate a limit for the GRU cell, 48.6% heat flux and 32.8% g-load); PPO warm-started from a champion deploys the champion (its best validation checkpoint is the starting point) and then drifts off it. Raw data: `rl/*` keys in `articles/paper/data/results.json` (2M pool, n = 1000, paired) and `experiments/ou_marginal/confirmatory_marginal.json` (10⁶).
 - **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
+- **A learned model of the plant does not plan here** (issue #113, [experiments/world_model/](experiments/world_model/README.md)). GRU and one-step MLP dynamics models trained on 10,000 flights beat "nothing changes" for 94 to 170 ticks of free run at best, and the planner needs the whole pass. Five of six predict a crash for every constant bank from entry, FNPAG's corrector then pins the minimum bank, and every learned-model planner pays 835 to 965 m/s of correction ΔV where the same corrector on a clairvoyant replay of the plant pays 145. The write-up diagnoses four failure modes; pooling three training seeds recovers most of the lost calibration.
 
 ### Historical result and evaluation correction
 
@@ -134,7 +135,7 @@ docs/
   adr/                     Architecture decision records
   design/                  Dated design docs (indexed in docs/design/README.md)
   agents/                  Agent operating docs (issue tracker, triage labels, domain docs)
-experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/), the trainer seam gate (trainer_seam_gate/), the throughput study (throughput/)
+experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/), the trainer seam gate (trainer_seam_gate/), the throughput study (throughput/), the world-model experiment (world_model/)
 models/demo/               The committed demo cells (headline fine-tune + legacy champion)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data

@@ -1,0 +1,15 @@
+# World-model plant, out-of-distribution regime (#113): wm_medium.toml with the four MC
+# domains the paper's robustness stress bumps to high (configs/training/paper/robustness_retrain/*_high.toml).
+base = ["wm_medium.toml"]
+
+[monte_carlo.atmosphere]
+level = "high"
+
+[monte_carlo.density_perturbation]
+level = "high"
+
+[monte_carlo.navigation]
+level = "high"
+
+[monte_carlo.nav_filter]
+level = "high"
