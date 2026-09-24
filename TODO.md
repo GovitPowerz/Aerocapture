@@ -8,6 +8,11 @@
       "Environment"). Retrain with `experiments/paper/18_rl_baseline.sh`, re-bundle `rl/<cell>`,
       requote the Section 5 table, and check whether the warm start still walks off the champion
       (it started as a ~181 m/s policy in the old env vs 113 m/s deployed, `experiments/obs_lag/`).
+      The same cells were also trained with non-invariant reward shaping: `potential = "dv"`
+      kept `Phi(s_T)` on terminations, adding `gamma^T * Phi(s_T)` (about minus the terminal
+      predicted DV) on top of `compute_terminal_cost`. Fixed alongside (`Phi = 0` at absorbing
+      states, RL README "Reward structure"); the retrain picks up both fixes, so the re-quote
+      cannot attribute a change to either one alone.
 - [ ] Add neural counterparts for navigation and control: train neural counterparts for the
       density estimator (replacing the exponential filter) and the pilot model (replacing the
       first/second-order dynamics), compared against the classical algorithms on identical MC

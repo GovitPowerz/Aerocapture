@@ -236,6 +236,28 @@ def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool
     return out
 
 
+def _shaped_rewards(
+    step_calc: StepRewardCalculator,
+    obs: npt.NDArray[np.float32],
+    next_obs: npt.NDArray[np.float32],
+    aux_cur: npt.NDArray[np.float32],
+    aux_next: npt.NDArray[np.float32],
+    done: npt.NDArray[np.bool_],
+    info: list[dict[str, Any]],
+) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
+    """PBRS rewards of one vector step -> (shaped, term_obs, truncated).
+
+    A done env's s' is its pre-reset terminal obs (`next_obs` already holds the
+    reset). Terminations are absorbing (Phi(s') = 0); truncations bootstrap
+    from term_obs and keep Phi(s').
+    """
+    term_obs = _terminal_observations(info, done, obs.shape[1])
+    truncated = np.array([bool(d.get("truncated", False)) for d in info], dtype=np.bool_)
+    next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
+    shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next, absorbing=done & ~truncated)
+    return shaped.astype(np.float32), term_obs, truncated
+
+
 def _evaluate_model(toml_path: Path, model: Path, cfg: RLConfig, seed_offset: int) -> CellResult:
     """Fly an exported policy JSON on `cfg.validation_n_sims` seeds of the reserved pool at `seed_offset`."""
     return evaluate_cell(None, toml_path, pool=(seed_offset, cfg.validation_n_sims), model=model)
@@ -552,13 +574,7 @@ def collect_rollout(
         actions_np = bank.cpu().numpy().astype(np.float32)
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        # Terminal-obs-aware next obs: unchanged PBRS + value bootstrap logic.
-        term_obs = _terminal_observations(info, done, env.obs_dim)
-        next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
-
-        shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
-
-        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+        shaped, term_obs, truncated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
@@ -976,11 +992,7 @@ def _run_sac(
 
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        term_obs = _terminal_observations(info, done, env.obs_dim)
-        next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
-        shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next).astype(np.float32)
-
-        truncated = np.array([bool(info[i].get("truncated", False)) for i in range(cfg.n_envs)], dtype=np.bool_)
+        shaped, term_obs, truncated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)

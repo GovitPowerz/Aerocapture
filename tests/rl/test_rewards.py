@@ -37,7 +37,7 @@ def test_pbrs_identity_gives_minus_one_minus_gamma_phi(default_calc: StepRewardC
     """
     obs = _make_obs(n=4, **{"15": -1.0, "19": 0.5})  # capture + pdyn_error
     aux = np.zeros((4, 7), dtype=np.float32)
-    r = default_calc.step_reward(obs, obs, aux, aux)
+    r = default_calc.step_reward(obs, obs, aux, aux, absorbing=np.zeros(4, dtype=bool))
     phi = default_calc._potential(obs, aux)
     expected = default_calc.gamma * phi - phi
     assert np.allclose(r, expected, atol=1e-8)
@@ -48,7 +48,7 @@ def test_pbrs_improvement_gives_positive_reward(default_calc: StepRewardCalculat
     obs_bad = _make_obs(n=1, **{"15": -1.0, "19": 1.0})  # big pdyn error
     obs_good = _make_obs(n=1, **{"15": -1.0, "19": 0.0})  # zero pdyn error
     aux = np.zeros((1, 7), dtype=np.float32)
-    r = default_calc.step_reward(obs_bad, obs_good, aux, aux)
+    r = default_calc.step_reward(obs_bad, obs_good, aux, aux, absorbing=np.zeros(1, dtype=bool))
     assert r[0] > 0
 
 
@@ -57,7 +57,7 @@ def test_pbrs_degradation_gives_negative_reward(default_calc: StepRewardCalculat
     obs_good = _make_obs(n=1, **{"15": -1.0, "19": 0.0})
     obs_bad = _make_obs(n=1, **{"15": -1.0, "19": 1.0})
     aux = np.zeros((1, 7), dtype=np.float32)
-    r = default_calc.step_reward(obs_good, obs_bad, aux, aux)
+    r = default_calc.step_reward(obs_good, obs_bad, aux, aux, absorbing=np.zeros(1, dtype=bool))
     assert r[0] < 0
 
 
@@ -153,9 +153,61 @@ def test_dv_potential_keeps_thermal_term() -> None:
 def test_dv_reward_positive_when_dv_decreases() -> None:
     calc = _dv_calc()
     obs = _make_obs(n=1)
-    r = calc.step_reward(obs, obs, _aux(dv1=200.0), _aux(dv1=100.0))
+    r = calc.step_reward(obs, obs, _aux(dv1=200.0), _aux(dv1=100.0), absorbing=np.zeros(1, dtype=bool))
     # gamma*Phi(next) - Phi(cur) = 0.99*(-100) - (-200) = 101 > 0
     assert np.isclose(r[0], 101.0, atol=1e-4)
+
+
+def test_absorbing_step_zeroes_next_potential() -> None:
+    """A termination pays gamma * 0 - Phi(cur); a non-absorbing step keeps gamma * Phi(next)."""
+    calc = _dv_calc()
+    obs = _make_obs(n=2)
+    r = calc.step_reward(obs, obs, _aux(n=2, dv1=200.0), _aux(n=2, dv1=100.0), absorbing=np.array([True, False]))
+    assert r[0] == pytest.approx(200.0)
+    assert r[1] == pytest.approx(0.99 * -100.0 + 200.0)
+
+
+def test_terminated_shaped_return_is_minus_phi0_for_any_trajectory() -> None:
+    """With Phi(s_T) = 0 the discounted shaped return telescopes to -Phi(s_0): no terminal
+    state earns more shaping than another, so the shaping cannot move the optimum."""
+    calc = _dv_calc()
+    rng = np.random.default_rng(0)
+    obs = _make_obs(n=1)
+    for _ in range(5):
+        n_steps = int(rng.integers(2, 60))
+        aux = _aux(n=n_steps + 1)
+        aux[:, 2:5] = rng.uniform(-500.0, 3000.0, (n_steps + 1, 3))
+        aux[:, 5:7] = rng.uniform(0.0, 1.2, (n_steps + 1, 2))
+        ret = sum(
+            calc.gamma**t * calc.step_reward(obs, obs, aux[t : t + 1], aux[t + 1 : t + 2], absorbing=np.array([t == n_steps - 1]))[0] for t in range(n_steps)
+        )
+        assert ret == pytest.approx(-calc._potential(obs, aux[:1])[0], rel=1e-9)
+
+
+def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncation() -> None:
+    """The PPO and SAC loops share `_shaped_rewards`: a done env shapes against its pre-reset
+    terminal obs/aux, with Phi(s_T) = 0 when terminated and Phi(s_T) kept when truncated."""
+    pytest.importorskip("aerocapture_rs")
+    from aerocapture.training.rl.train import _shaped_rewards
+
+    calc = StepRewardCalculator(input_mask=[0, 1, 2], potential="dv", gamma=0.99)
+    obs = np.zeros((3, 3), dtype=np.float32)
+    next_obs = np.full((3, 3), 7.0, dtype=np.float32)  # done envs: the post-reset obs
+    aux_cur = _aux(n=3, dv1=300.0)
+    aux_next = _aux(n=3, dv1=100.0)  # done envs: the env returns the pre-reset (terminal) aux
+    done = np.array([True, True, False])
+    info = [
+        {"truncated": False, "terminal_observation": [0.5, 0.5, 0.5]},
+        {"truncated": True, "terminal_observation": [0.5, 0.5, 0.5]},
+        {},
+    ]
+    shaped, term_obs, truncated = _shaped_rewards(calc, obs, next_obs, aux_cur, aux_next, done, info)
+    phi_terminal = -100.0
+    assert shaped[0] == pytest.approx(300.0)  # terminated: 0.99 * 0 - (-300)
+    assert shaped[1] == pytest.approx(0.99 * phi_terminal + 300.0)  # truncated: bootstrapped, keeps Phi(s_T)
+    assert shaped[2] == pytest.approx(0.99 * phi_terminal + 300.0)  # mid-episode
+    np.testing.assert_array_equal(truncated, [False, True, False])
+    np.testing.assert_array_equal(term_obs[:2], np.full((2, 3), 0.5, dtype=np.float32))
 
 
 def test_dv_mode_requires_no_obs_indices() -> None:

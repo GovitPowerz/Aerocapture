@@ -1,7 +1,8 @@
 """Potential-based per-step shaping and terminal cost for RL training.
 
 Per Ng, Harada, Russell (1999), shaping of the form `F = gamma * Phi(s') - Phi(s)`
-leaves the set of optimal policies unchanged. The potential `Phi` is phase-aware:
+leaves the set of optimal policies unchanged, provided `Phi = 0` at absorbing
+states in an episodic task (Grzes 2017). The potential `Phi` is phase-aware:
 capture phase (pre-bounce) penalizes corridor + constraint proximity + energy;
 exit phase (post-bounce) penalizes apoapsis and eccentricity errors.
 
@@ -42,9 +43,11 @@ class StepRewardCalculator:
 
     `Phi(obs, aux)` is the (negative) potential; lower is worse. Thermal proximity
     is always read from the raw aux fractions, never inverted from obs. The per-step
-    shaped reward is `gamma * Phi(next) - Phi(cur)`, so the return telescopes
-    to `gamma^T * Phi(terminal) - Phi(initial)` which is a fixed offset for
-    any policy -- the optimum is preserved.
+    shaped reward is `gamma * Phi(next) - Phi(cur)` with `Phi(next) := 0` on a
+    termination, so the return telescopes to `-Phi(initial)`, which no action
+    can change -- the optimum is preserved. A non-zero `Phi(terminal)` would
+    leave `gamma^T * Phi(terminal)` in the return, a policy-dependent second
+    terminal reward.
     """
 
     input_mask: list[int]
@@ -153,10 +156,16 @@ class StepRewardCalculator:
         obs_next: npt.NDArray[np.float32],
         aux_cur: npt.NDArray[np.float32],
         aux_next: npt.NDArray[np.float32],
+        absorbing: npt.NDArray[np.bool_],
     ) -> npt.NDArray[np.float64]:
-        """PBRS shaped reward: gamma * Phi(next) - Phi(cur), shape (n_envs,)."""
+        """PBRS shaped reward: gamma * Phi(next) - Phi(cur), shape (n_envs,).
+
+        `absorbing` marks true terminations, where Phi(next) is 0. A truncation
+        (timeout) is not absorbing: the value bootstraps from the terminal obs,
+        so it keeps Phi(next).
+        """
         phi_cur = self._potential(obs_cur, aux_cur)
-        phi_next = self._potential(obs_next, aux_next)
+        phi_next = np.where(absorbing, 0.0, self._potential(obs_next, aux_next))
         return self.gamma * phi_next - phi_cur
 
 
