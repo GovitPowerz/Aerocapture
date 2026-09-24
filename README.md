@@ -95,13 +95,13 @@ uv run python -m aerocapture.demo
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
 # Tests (CI runs every test file on every PR and every push to main):
-cargo test --release --workspace --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --all-targets --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
 
 ## Reading guide
 
-1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from.
+1. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the two-language split and its one seam, a training run in fifteen lines, a simulation tick in eight, the seed pools, where the paper's numbers come from. [docs/performance.md](docs/performance.md) measures what it costs: thread scaling, a training generation's profile, an accelerator-port feasibility note.
 2. [CONTEXT.md](CONTEXT.md) — the vocabulary (capture / exit phase, scaffolding, champion, final selection vs final eval, sizing tail).
 3. [docs/adr/](docs/adr/) — the decisions the results rest on: adaptive training seeds, final selection on the validation pool, per-draw noise seeding (now the default), the `run_grid` bit-identity chokepoint, feasibility before performance in selection, the five-tier PyO3 seam, config keys declared once.
 4. The module reference, next to the code it describes: [src/rust/README.md](src/rust/README.md) (simulator), [src/rust/aerocapture-py/README.md](src/rust/aerocapture-py/README.md) (the PyO3 seam), [src/rust/src/data/neural/README.md](src/rust/src/data/neural/README.md) (NN runtime + PyTorch mirror), [configs/README.md](configs/README.md) (TOML), [src/python/aerocapture/training/README.md](src/python/aerocapture/training/README.md) (training), [src/python/aerocapture/training/rl/README.md](src/python/aerocapture/training/rl/README.md) (RL).
@@ -130,10 +130,11 @@ articles/
   paper/                   Paper (Typst source + committed PDF, figures, evaluation data)
 docs/
   ARCHITECTURE.md          The two-language split, a training run and a simulation tick in a page
+  performance.md           Throughput, thread scaling, per-generation profile, accelerator feasibility
   adr/                     Architecture decision records
   design/                  Dated design docs (indexed in docs/design/README.md)
   agents/                  Agent operating docs (issue tracker, triage labels, domain docs)
-experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/) and the trainer seam gate (trainer_seam_gate/)
+experiments/               Campaign runners (paper/, ou_marginal/, fnpag_ab/), the trainer seam gate (trainer_seam_gate/), the throughput study (throughput/)
 models/demo/               The committed demo cells (headline fine-tune + legacy champion)
 training_output/           GA training output (checkpoints, logs, reports, animations)
 tests/                     Python test suite + golden reference data
@@ -488,7 +489,7 @@ Gate: `uv run pytest tests/test_external_validation.py -q` against AMAT outputs 
 
 ```bash
 # Rust tests
-cargo test --release --workspace --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --all-targets --manifest-path src/rust/Cargo.toml
 
 # Python tests
 uv run pytest tests/
@@ -508,7 +509,7 @@ uv run pytest tests/
 
 GitHub Actions runs on every push to `main`, every PR to `main`, and manual dispatch:
 
-- **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace` (both crates: the simulator and the `aerocapture-py` seam)
+- **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace --all-targets` (both crates: the simulator and the `aerocapture-py` seam; the benches run once in criterion's test mode)
 - **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
 - **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and an import step before pytest proves the extension is present, so no `importorskip` can silently skip. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 

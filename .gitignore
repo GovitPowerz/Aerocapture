@@ -56,6 +56,8 @@ output/*
 !experiments/ou_marginal/*.json
 # Frozen AMAT outputs the physics cross-check gate compares against (docs/validation.md):
 !experiments/external_validation/amat_frozen.json
+# Throughput study results (docs/performance.md quotes them):
+!experiments/throughput/throughput.json
 # Appendix per-scheme stats (read by appendix.typ at compile time — without
 # these the paper does not build from a clean checkout).
 !articles/paper/figures/appendix/**/*.json

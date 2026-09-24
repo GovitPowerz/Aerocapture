@@ -84,6 +84,16 @@ Checkpoints (`checkpoint_g*.{json,npz}`) make every step resumable; `--n-gen` on
 
 The RL env (`aerocapture-py/src/env.rs`, `BatchedSimulation`) drives the same `step_one_tick`.
 
+## Where the time goes
+
+[`docs/performance.md`](performance.md) measures it on one machine: `run_grid` throughput against
+Rayon thread count per scheme, the three entry points' per-sim cost, a paper-allocation training
+generation split into Rust simulation and Python overhead (with the cProfile hotspots), the
+per-scheme guidance cost (`src/rust/benches/tick.rs`), memory, and a feasibility note on an
+accelerator port. The simulation is 84% of a generation at the paper allocation, and the Mamba
+policy, not the plant, is the larger half of a simulation. `tests/test_thread_invariance.py` gates
+`run_grid` output as byte-identical at any thread count.
+
 ## Seed pools
 
 All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one RNG stream each:

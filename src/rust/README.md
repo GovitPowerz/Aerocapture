@@ -234,3 +234,17 @@ worth knowing by name: the six guidance goldens (`tests/reference_data/rust_gold
 root, regenerated per the root `CLAUDE.md` lesson), `tests/entry_fan_agreement.rs`,
 `tests/nn_flat_order_fixtures.rs`, `tests/nn_model_roundtrip.rs`. `cargo test --release` lists the
 rest.
+
+## Benchmarks
+
+Two criterion benches under `benches/`; timings are not a gate, since they are noisy, but
+`cargo test --workspace --all-targets` (check_all.sh, CI) runs each bench once in criterion's test
+mode, so their setup assertions are. `tick` is the per-scheme guidance cost: every guidance call of
+one nominal flight, replayed from its exact pre-call state, with the replay checked bit for bit
+against the flight before anything is timed.
+`quant_forward` is the Mamba-962 forward pass in f64, f32 and quantized kernels. The numbers and
+how to read them are in [docs/performance.md](../../docs/performance.md).
+
+```bash
+cargo bench --bench tick --manifest-path src/rust/Cargo.toml
+```

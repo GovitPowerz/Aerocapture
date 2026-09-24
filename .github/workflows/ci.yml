@@ -30,7 +30,7 @@ jobs:
           - check: clippy
             command: cargo clippy --workspace --all-targets -- -D warnings
           - check: test
-            command: cargo test --release --workspace
+            command: cargo test --release --workspace --all-targets
 
     steps:
       - uses: actions/checkout@v4

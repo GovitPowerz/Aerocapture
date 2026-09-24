@@ -5,7 +5,7 @@ cd src/rust
 echo "Running all checks..."
 
 echo "Running tests..."
-cargo test --quiet --workspace
+cargo test --quiet --workspace --all-targets
 test_status=$?
 
 echo "Checking formatting..."
