@@ -81,8 +81,8 @@ def check_ref_trajectory_wiring(toml_data: dict, ref_traj_path: Path) -> None:
         sys.exit(1)
 
 
-def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tuple[list[ParamSpec], int]:
-    """Build the optimizer ParamSpec list (NN v2/v1 / piecewise / scheme table + scaffolding tail). Returns (param_specs, n_params)."""
+def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> list[ParamSpec]:
+    """Build the optimizer ParamSpec list (NN v2/v1 / piecewise / scheme table + scaffolding tail)."""
     # Build parameter specifications
     from aerocapture.training.param_spaces import PARAM_SPACES
 
@@ -158,8 +158,7 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> tu
         if verbose:
             print(f"joint reference: ref_bank gene in [{bank_low:.1f}, {bank_high:.1f}] deg (per-individual constant-bank reference tables)")
 
-    n_params = len(param_specs)
-    return param_specs, n_params
+    return param_specs
 
 
 def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dict]:

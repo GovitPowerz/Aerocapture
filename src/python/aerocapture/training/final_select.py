@@ -463,7 +463,7 @@ def main() -> None:
     if config.optimizer.validation_n_sims <= 0:
         raise SystemExit("ERROR: [optimizer] validation_n_sims is 0 -- no validation pool exists to select on. Set validation_n_sims > 0 in the TOML.")
 
-    param_specs, _ = _setup_param_specs(config, toml_data, verbose=False)
+    param_specs = _setup_param_specs(config, toml_data, verbose=False)
     bounds = load_warm_start_bounds(training_dir)
     if bounds is not None:
         # Overlay the EXACT weight-slab bounds the checkpoint population was

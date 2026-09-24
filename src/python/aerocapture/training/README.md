@@ -66,8 +66,8 @@ picks the adapter and lets it build itself (`SingleAlgoTrainer.from_config` /
 pools, initial population, pymoo seeding), then hands it to `trainer.run_loop`. `trainer.Trainer`
 (a `runtime_checkable` Protocol) is the loop contract: `prologue / should_continue / re_evaluate /
 advance / observe / top_k / emit / maybe_checkpoint / finalize / on_interrupt / interrupted_result`
-plus the `finalize_in_display_scope`, `start_gen`, `excluded_seeds`, `seed_curator` attributes the
-loop reads. `SingleAlgoTrainer` is a pymoo algorithm + the gate / checkpoint / final-selection
+plus the `finalize_in_display_scope`, `start_gen`, `excluded_seeds`, `seed_curator`, `problem`, `rng`
+attributes the loop reads (the loop takes no separate problem or RNG). `SingleAlgoTrainer` is a pymoo algorithm + the gate / checkpoint / final-selection
 logic, `IslandsTrainer` a thin adapter over `IslandModel`. Per generation: `should_continue` (the
 CMA-ES self-termination guard) -> `_apply_seed_strategy` -> `re_evaluate` on seed change ->
 `advance` (one `algorithm.next()`) -> `observe` (validation gate / no-validation promotion) ->
@@ -182,8 +182,8 @@ run. Then `report.py` renders the PDF unless `--skip-report`.
 **Checkpoints and resume.** Auto-resume when the output dir holds a checkpoint (`--resume` not
 needed; the probe globs single-algo `checkpoint_g*.json` AND islands `checkpoint_g*.npz`, taking
 the LATEST npz that carries the v2 marker so a foreign single-algo checkpoint neither crashes nor
-shadows it; `train()` skips its own `load_checkpoint` when `algorithm == "islands"` so a stale
-`checkpoint.json` cannot double-bump `n_gen`). On resume `--n-gen` means "N additional
+shadows it; only `SingleAlgoTrainer.from_config` calls `load_checkpoint`, so a stale
+`checkpoint.json` cannot double-bump an islands run's `n_gen`). On resume `--n-gen` means "N additional
 generations" (`config.optimizer.n_gen += resumed_gen + 1`, mirrored inside `IslandsTrainer`). A
 checkpoint is always saved at end of training, labeled with the last generation that ACTUALLY
 ran (`completed_gen`, so a CMA-ES internal early stop does not inflate the resume math);
@@ -351,7 +351,7 @@ use `--sim-timeout` against NaN hangs).
   islands to re-stamp `rank` (DE's `_infill` picks its target via `pop.get("rank") == 0`), and
   returns `(generation, seed_curator_state, saved_cost_transform)`. When `validation_n_sims = 0`
   each island promotes its finite training argmin into `best_overall_*`, and `IslandsTrainer`
-  unions the reserved pools into `excluded_seeds` unconditionally. `resize_populations` /
+  unions the reserved pools into `excluded_seeds` unconditionally (the curator shares that set). `resize_populations` /
   `revalidate_each` back the resume features above. Spec:
   `docs/design/2026-05-28-island-model-pso-ga-de-design.md`.
 - `seed_curator.py` — `SeedCurator` (above).

@@ -35,5 +35,6 @@ def test_importing_train_succeeds() -> None:
 
 
 def test_no_module_imports_train_as_a_library() -> None:
-    offenders = [p.name for p in sorted(TRAINING_DIR.rglob("*.py")) if p.name != "train.py" and _TRAIN_IMPORT.search(p.read_text())]
+    entry = TRAINING_DIR / "train.py"  # by path: rl/train.py is held to the rule too
+    offenders = [str(p.relative_to(TRAINING_DIR)) for p in sorted(TRAINING_DIR.rglob("*.py")) if p != entry and _TRAIN_IMPORT.search(p.read_text())]
     assert offenders == [], f"modules importing train.py: {offenders}"

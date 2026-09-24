@@ -113,4 +113,4 @@ def run_trainer(
     )
     if logger is None:
         logger = TrainingLogger(scheme=cfg.guidance_type, run=0, output_dir=save_dir, config_hash="fake")
-    return trainer, run_loop(trainer, config=cfg, problem=problem, rng=rng, logger=logger, display=NoopDisplay())
+    return trainer, run_loop(trainer, config=cfg, logger=logger, display=NoopDisplay())

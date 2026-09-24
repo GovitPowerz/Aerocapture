@@ -693,7 +693,7 @@ class IslandModel:
             if state["pop_X"] is not None:
                 # Fail loudly when the saved chromosome width disagrees with the
                 # current ParamSpec count — the islands analogue of
-                # `_check_resume_chromosome_shape` in train.py. Catches the user
+                # `checkpoint._check_resume_chromosome_shape`. Catches the user
                 # flipping `scaffolding` / `output_parameterization` /
                 # `input_mask` (all change n_params) between runs; without it the
                 # old-width pop is restored and later mis-decoded into garbage.

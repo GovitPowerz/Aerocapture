@@ -22,7 +22,7 @@ import numpy.typing as npt
 from aerocapture.training.charts import bin_indices
 from aerocapture.training.encoding import decode_normalized
 from aerocapture.training.evaluate import _aero_rs
-from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS, ParamSpec
 
 if TYPE_CHECKING:
     from aerocapture.training.config import TrainingConfig
@@ -295,8 +295,6 @@ def _accumulate_corridor(
     `[guidance.command_shaping]`, unprefixed -> `[guidance.<scheme>]`), the same
     path the GA evaluates on.
     """
-    from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS
-
     section = GUIDANCE_TOML_SECTIONS[config.guidance_type]
     pop_overrides: list[dict[str, object]] = []
     for i in range(X.shape[0]):

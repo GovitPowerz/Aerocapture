@@ -98,7 +98,7 @@ def train(
         cost_kwargs = build_cost_kwargs(_toml)
         toml_abs_path = str(toml_path.resolve())
 
-    param_specs, _n_params = _setup_param_specs(config, _toml, verbose)
+    param_specs = _setup_param_specs(config, _toml, verbose)
 
     # Compute config hash for experiment grouping
     config_hash = hashlib.sha256(repr(config).encode()).hexdigest()[:12]
@@ -150,7 +150,7 @@ def train(
         cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
     )
 
-    return run_loop(trainer, config=config, problem=problem, rng=rng, logger=logger, display=display)
+    return run_loop(trainer, config=config, logger=logger, display=display)
 
 
 if __name__ == "__main__":

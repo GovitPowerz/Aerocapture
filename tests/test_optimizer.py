@@ -269,7 +269,7 @@ def _converging_cmaes(n_params: int = 6, n_gen: int = 5000) -> tuple[Any, Any]:
     prob = _Sphere()
     pop = Population.new("X", np.random.default_rng(0).random((cfg.n_pop, n_params)))
     Evaluator().eval(prob, pop)
-    warm_start_algorithm(algo, prob, pop)  # the exact seeding train.py uses
+    warm_start_algorithm(algo, prob, pop)  # the exact seeding both trainer adapters use
     return algo, prob
 
 

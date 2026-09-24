@@ -1207,7 +1207,7 @@ def test_pso_checkpoint_restores_particles_and_is_initialized() -> None:
 
 
 def test_warm_start_algorithm_seeds_pop_into_gen_0() -> None:
-    """Importing the helper from train.py, verify a seeded pop survives
+    """Importing the helper from optimizer.py, verify a seeded pop survives
     `.next()` — pymoo's setup(pop=…) alone discards it via _initialize()."""
     from aerocapture.training.optimizer import warm_start_algorithm
 

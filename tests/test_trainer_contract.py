@@ -100,6 +100,32 @@ class TestIslands:
 
 
 @pytest.mark.parametrize("algorithm", ["ga", "islands"])
+def test_train_resolves_builds_and_runs_the_selected_adapter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, algorithm: str) -> None:
+    """`train()` itself: TOML -> problem (base seed from `[monte_carlo] seed`) -> adapter dispatch -> `run_loop`."""
+    import aerocapture.training.train as train_mod
+
+    (tmp_path / "cfg.toml").write_text("[monte_carlo]\nseed = 7\n")
+    built: list[FakeProblem] = []
+
+    def _fake_problem(*, param_specs: list, toml_path: str, seeds: list[int], **_: object) -> FakeProblem:
+        built.append(FakeProblem(param_specs, seeds=seeds, toml_path=toml_path))
+        return built[-1]
+
+    monkeypatch.setattr(train_mod, "AerocaptureProblem", _fake_problem)
+    save_dir = tmp_path / "out"
+    cfg = _config(save_dir, algorithm=algorithm, n_gen=2)
+    cfg.sim.toml_config = "cfg.toml"
+    result = train_mod.train(cfg, seed=0, cwd=str(tmp_path), verbose=False, no_tui=True)
+
+    assert result["interrupted"] is False
+    assert result["best_individual"] is not None
+    assert built[0].toml_path == str((tmp_path / "cfg.toml").resolve())
+    assert built[0].seeds == [7, 8]  # the fixed training list starts at `[monte_carlo] seed`
+    assert _jsonl_records(save_dir)
+    assert (save_dir / "final_selection.json").exists()
+
+
+@pytest.mark.parametrize("algorithm", ["ga", "islands"])
 def test_adapters_satisfy_the_protocol(tmp_path: Path, algorithm: str) -> None:
     cfg = _config(tmp_path, algorithm=algorithm, n_gen=1)
     trainer, _ = _run(cfg, tmp_path)

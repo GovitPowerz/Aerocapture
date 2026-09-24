@@ -3,8 +3,8 @@
 `Trainer` is the contract `run_loop` drives per generation (`prologue /
 should_continue / re_evaluate / advance / observe / top_k / emit /
 maybe_checkpoint / finalize / on_interrupt / interrupted_result`, plus the
-`finalize_in_display_scope` / `start_gen` / `excluded_seeds` / `seed_curator`
-attributes the loop reads). `SingleAlgoTrainer` wraps a bare pymoo algorithm
+`finalize_in_display_scope` / `start_gen` / `excluded_seeds` / `seed_curator` /
+`problem` / `rng` attributes the loop reads). `SingleAlgoTrainer` wraps a bare pymoo algorithm
 plus the gate / checkpoint / selection logic; `IslandsTrainer` is a thin adapter
 over `IslandModel`. Each adapter owns its setup in `from_config(config, problem,
 save_dir, ...)`: resume detection, reserved seed pools, the initial population
@@ -191,6 +191,8 @@ class Trainer(Protocol):
     start_gen: int
     excluded_seeds: set[int]
     seed_curator: SeedCurator | None
+    problem: PerSeedEvaluator
+    rng: np.random.Generator
 
     def prologue(self, logger: TrainingLogger, display: DisplayProtocol) -> None: ...
     def should_continue(self, gen: int) -> bool: ...
@@ -209,12 +211,11 @@ def run_loop(
     trainer: Trainer,
     *,
     config: TrainingConfig,
-    problem: PerSeedEvaluator,
-    rng: np.random.Generator,
     logger: TrainingLogger,
     display: DisplayProtocol,
 ) -> dict[str, Any]:
     """The per-generation loop, identical for both adapters."""
+    problem, rng = trainer.problem, trainer.rng
     strategy = config.optimizer.seed_strategy
     interrupted = False
     pending_seed_change = False
@@ -911,7 +912,6 @@ class IslandsTrainer:
             save_dir=save_dir,
             problem=problem,
             param_specs=problem.param_specs,
-            n_params=len(problem.param_specs),
             pop_array=pop_array,
             pop_costs=pop_costs,
             val_seeds=val_seeds,
@@ -933,7 +933,6 @@ class IslandsTrainer:
         save_dir: Path,
         problem: PerSeedEvaluator,
         param_specs: list[ParamSpec],
-        n_params: int,
         pop_array: npt.NDArray[np.float64],
         pop_costs: npt.NDArray[np.float64] | None,
         val_seeds: list[int] | None,
@@ -969,11 +968,14 @@ class IslandsTrainer:
         self.excluded_seeds = excluded_seeds | set(final_eval_seeds)
         if val_seeds:
             self.excluded_seeds = self.excluded_seeds | set(val_seeds)
+        # The curator's candidate draws honour the same widened set (a resume restore inherits it).
+        if self.seed_curator is not None:
+            self.seed_curator.excluded_seeds = self.excluded_seeds
 
         self.island_model = IslandModel(
             config=config.optimizer,
             problem=problem,
-            n_params=n_params,
+            n_params=len(param_specs),
             validation_seeds=val_seeds or [],
             final_eval_seeds=final_eval_seeds,
             base_mc_seed=base_mc_seed,

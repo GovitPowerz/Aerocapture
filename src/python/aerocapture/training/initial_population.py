@@ -370,8 +370,6 @@ def _build_initial_population(
             if warm_start_active:
                 from aerocapture.training.warm_start import WARM_START_SEED_OFFSET, build_warm_start_chromosome
 
-                assert isinstance(problem, AerocaptureProblem)  # the eval callback flies the simulator through the problem's override builder
-
                 # Build the periodic in-training eval callback. When
                 # `[warm_start] eval_interval > 0`, this fires every N epochs
                 # AND on the final epoch (see _chunked_bptt_train) -- writes
@@ -381,6 +379,7 @@ def _build_initial_population(
                 # the user actually opted in to avoid pointless MC work.
                 warm_eval_callback = None
                 if config.warm_start.eval_interval > 0 and val_seeds is not None:
+                    assert isinstance(problem, AerocaptureProblem)  # the eval callback flies the simulator through the problem's override builder
                     warm_seeds_for_eval = make_reserved_seeds(base_mc_seed, WARM_START_SEED_OFFSET, config.warm_start.n_warm_seeds)
                     warm_eval_callback = _make_warm_start_eval_callback(
                         problem=problem,

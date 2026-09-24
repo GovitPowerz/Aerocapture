@@ -28,21 +28,21 @@ class TestSpecInjection:
     def test_ref_bank_appended_for_ftc(self) -> None:
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         toml["reference"] = {"joint_bank": True}
-        specs, n = _setup_param_specs(cfg, toml, verbose=False)
+        specs = _setup_param_specs(cfg, toml, verbose=False)
         assert specs[-1].name == "ref_bank"
-        assert n == len(PARAM_SPACES["ftc"]) + 1
+        assert len(specs) == len(PARAM_SPACES["ftc"]) + 1
         assert specs[-1].p_min == 55.0 and specs[-1].p_max == 80.0
 
     def test_custom_bounds(self) -> None:
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         toml["reference"] = {"joint_bank": True, "bank_low": 60.0, "bank_high": 75.0}
-        specs, _ = _setup_param_specs(cfg, toml, verbose=False)
+        specs = _setup_param_specs(cfg, toml, verbose=False)
         assert specs[-1].p_min == 60.0 and specs[-1].p_max == 75.0
 
     def test_absent_knob_leaves_specs_unchanged(self) -> None:
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         toml.pop("reference", None)
-        specs, _ = _setup_param_specs(cfg, toml, verbose=False)
+        specs = _setup_param_specs(cfg, toml, verbose=False)
         assert all(s.name != "ref_bank" for s in specs)
 
     def test_non_tracking_scheme_rejected(self) -> None:
@@ -56,7 +56,7 @@ class TestProblemIntegration:
     def _problem(self) -> AerocaptureProblem:
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         toml["reference"] = {"joint_bank": True}
-        specs, _ = _setup_param_specs(cfg, toml, verbose=False)
+        specs = _setup_param_specs(cfg, toml, verbose=False)
         return AerocaptureProblem(param_specs=specs, toml_path=FTC_TOML, seeds=[1, 2], cost_kwargs={}, scheme="ftc")
 
     def test_ref_bank_not_routed_to_guidance_toml(self) -> None:
