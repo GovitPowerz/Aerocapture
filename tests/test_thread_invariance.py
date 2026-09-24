@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from aerocapture.training.layer_schema import layer_n_params
 from aerocapture.training.toml_utils import load_toml_with_bases
 
 aero = pytest.importorskip("aerocapture_rs")
@@ -64,7 +65,7 @@ def test_in_memory_nn_weights_byte_identical_across_thread_counts() -> None:
     # inside the parallel SimData construction (problem.py::_run_grid_records).
     network = load_toml_with_bases(Path(DENSE_TOML))["network"]
     arch = network["architecture"]
-    n_w = sum(layer["input_size"] * layer["output_size"] + layer["output_size"] for layer in arch)
+    n_w = sum(layer_n_params(layer) for layer in arch)
     weights = np.random.default_rng(114).standard_normal((3, n_w)) * 0.1
     _assert_thread_invariant(
         DENSE_TOML,

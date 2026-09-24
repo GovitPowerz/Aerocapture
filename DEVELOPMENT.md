@@ -10,7 +10,7 @@ The author decides. Scientific hypotheses, experiment design and the seed pools 
 
 ## Evidence rule
 
-A pull request is accepted when its description names the gates it re-ran and they pass. The standing gates are listed in [CLAUDE.md](CLAUDE.md) (Build & Development Commands): the six guidance goldens under `tests/reference_data/rust_golden/`, `tests/test_pyo3.py::test_pyo3_matches_subprocess`, the `run_grid` bit-identity gate (`tests/test_run_grid.py`, [ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)), and the per-layer Rust/PyTorch equivalence gates (`tests/test_nn_equivalence.py`). Numbers must not move; a change that touches another bit-identity gate names it.
+A pull request is accepted when its description names the gates it re-ran and they pass. The standing gates are listed in [CLAUDE.md](CLAUDE.md) (Build & Development Commands): the six guidance goldens under `tests/reference_data/rust_golden/`, `tests/test_pyo3.py::test_pyo3_matches_subprocess`, the `run_grid` bit-identity gate (`tests/test_run_grid.py`, [ADR-0004](docs/adr/0004-run-grid-bit-identity-chokepoint.md)) and its thread-count companion (`tests/test_thread_invariance.py`), and the per-layer Rust/PyTorch equivalence gates (`tests/test_nn_equivalence.py`). Numbers must not move; a change that touches another bit-identity gate names it.
 
 A numerical or scientific claim needs an independent check on top: a paired comparison on reserved pools, seed-repeat error bars, or the frozen 10 x 100,000-scenario confirmatory pools. Claims an agent writes into a PR, a design doc or the paper are re-run or checked against the tree before merge; a commissioned review's findings are fact-checked one by one before any becomes an issue.
 

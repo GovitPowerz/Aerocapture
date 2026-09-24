@@ -1,29 +1,10 @@
 """Throughput and scaling study of the batched simulator (#114).
 
-Five stages, all run by default. Each rewrites its own block of throughput.json
-(with the machine and commit it ran on; blocks of stages not run are kept), then
-both figures are redrawn from the JSON:
-
-  scaling  sims/s vs Rayon thread count per scheme: one run_grid call flying one
-           deployed cell on n seeds of the final-eval pool, repeats interleaved
-           across thread counts so thermal drift spreads over all of them
-  seams    per-sim cost at 1 thread of the three entry points: run_grid, run_batch
-           (per-sim TOML patch + parse + SimData build) and the Rust CLI (process,
-           config + table load, CSV output; it flies its own Monte Carlo draws)
-  grid     run_grid wall at the paper allocation (the converged headline
-           population, 512 in-memory Mamba weight vectors) vs n_seeds: the
-           intercept is the per-call SimData build, the slope the cells
-  memory   peak RSS added by a run_grid call (a fresh process per point)
-  profile  per-generation wall time of the real GA loop resumed from the headline
-           checkpoint, split by loop phase and by Rust vs Python, plus the
-           cProfile top-5 Python hotspots
-
-Cells are the paper's deployed operating points from the committed bundle
-(articles/paper/data/runs/), so scaling, seams and memory reproduce on a fresh
-clone; grid and profile resume the headline run's local checkpoint
-(training_output/mamba_p962_long). Noise regime: per_draw (the default,
-ADR-0006); timing does not depend on it. Build the release CLI and the
-extension first (./build.sh); close other workloads.
+Stages (all by default): scaling, seams, grid, memory, profile, fnpag_step. Each
+rewrites its own block of throughput.json, stamped with the machine and commit it
+ran on, then both figures are redrawn from the JSON. What each stage measures, its
+inputs and how to regenerate: experiments/throughput/README.md; the write-up:
+docs/performance.md.
 
 Usage: uv run python experiments/throughput/throughput.py [--stages scaling ...] [--plot-only]
 """
@@ -44,11 +25,12 @@ import sys
 import tempfile
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator
-from contextlib import ExitStack, contextmanager
+from collections.abc import Callable
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import aerocapture_rs
 import matplotlib as mpl
@@ -74,9 +56,9 @@ CLI = REPO / "src/rust/target/release/aerocapture"
 HEADLINE_TOML = "configs/training/sweep/mamba_p962.toml"
 HEADLINE_RUN = REPO / "training_output/mamba_p962_long"
 PAPER_N_POP, PAPER_N_SIMS = 512, 2  # experiments/paper/10b_arch_long_challengers.sh
-STAGES = ("scaling", "seams", "grid", "memory", "profile")
+STAGES = ("scaling", "seams", "grid", "memory", "profile", "fnpag_step")
 # What a timing depends on (docs excluded): a dirty file here makes the stamped commit a lie.
-_SOURCES = ("src", "configs", "data", "articles/paper/data/runs", "experiments/throughput/throughput.py")
+_SOURCES = ("src", "configs", "data", "articles/paper/data/runs", "pyproject.toml", "uv.lock", "experiments/throughput/throughput.py")
 
 
 @dataclass(frozen=True)
@@ -93,11 +75,13 @@ class Cell:
         return {**load_scaffolding_overrides(cell), "data.neural_network": str(cell / "best_model.json")}
 
 
+FNPAG = Cell("FNPAG", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag", "fnpag")
+MAMBA = Cell("NN Mamba-962", HEADLINE_TOML, "headline/mamba_p962", None)
 CELLS = [
     Cell("FTC", "configs/training/msr_aller_ftc_train.toml", "classical_baselines/ftc", "ftc"),
-    Cell("FNPAG", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag", "fnpag"),
+    FNPAG,
     Cell("NN dense-515", "configs/training/msr_aller_nn_atan2_best_paper.toml", "headline/dense_p515", None),
-    Cell("NN Mamba-962", HEADLINE_TOML, "headline/mamba_p962", None),
+    MAMBA,
 ]
 
 
@@ -147,7 +131,7 @@ def _sim_time_col() -> int:
     return int(aerocapture_rs.final_record_indices()["sim_time_s"])
 
 
-# ── scaling ──────────────────────────────────────────────────────────────────
+# --- scaling ---
 
 
 def thread_counts() -> list[int]:
@@ -193,7 +177,7 @@ def stage_scaling(args: argparse.Namespace) -> dict[str, object]:
     return {"meta": meta(), "seam": "run_grid, n_pop=1", "pool": "final-eval", "n": args.n, "repeats": args.repeats, "thread_counts": threads, "cells": rows}
 
 
-# ── seams ────────────────────────────────────────────────────────────────────
+# --- seams ---
 
 
 def _cli_toml(cell: Cell, ovr: dict[str, object], n: int, tmp: Path) -> Path:
@@ -205,13 +189,14 @@ def _cli_toml(cell: Cell, ovr: dict[str, object], n: int, tmp: Path) -> Path:
     return path
 
 
-def _cli(toml: Path) -> tuple[float, float]:
-    """(process wall, the CLI's own simulation-phase wall) at 1 Rayon thread."""
+def _cli(toml: Path) -> tuple[float, float | None]:
+    """(process wall, the CLI's own simulation-phase wall) at 1 Rayon thread; a one-sim
+    run prints no simulation-phase line."""
     t0 = time.perf_counter()
     run = subprocess.run([str(CLI), str(toml)], env={**os.environ, "RAYON_NUM_THREADS": "1"}, capture_output=True, text=True, check=True)
     wall = time.perf_counter() - t0
     m = re.search(r"Completed \d+ simulations in ([\d.]+)s", run.stderr)
-    return wall, float(m.group(1)) if m else wall
+    return wall, float(m.group(1)) if m else None
 
 
 def stage_seams(args: argparse.Namespace) -> dict[str, object]:
@@ -232,6 +217,7 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
                 grid_w.append(_grid_wall(cell.toml, [ovr], seeds, 1))
                 batch_w.append(_batch_wall(cell.toml, batch))
                 wall, sim = _cli(cli_n)
+                assert sim is not None, f"{CLI.name} printed no 'Completed ... simulations' line"
                 cli_w.append(wall)
                 cli_sim.append(sim)
                 cli_one.append(_cli(cli_1)[0])
@@ -261,17 +247,7 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-# ── the headline training loop (grid + profile) ──────────────────────────────
-
-
-@contextmanager
-def _patched(obj: object, name: str, value: object) -> Iterator[None]:
-    old = getattr(obj, name)
-    setattr(obj, name, value)
-    try:
-        yield
-    finally:
-        setattr(obj, name, old)
+# --- the headline training loop (grid + profile) ---
 
 
 def _train_headline(n_gen: int, n_sims: int, run_loop: Callable[..., dict[str, Any]]) -> None:
@@ -290,11 +266,9 @@ def _train_headline(n_gen: int, n_sims: int, run_loop: Callable[..., dict[str, A
         cfg.optimizer.n_pop = PAPER_N_POP
         cfg.optimizer.training_n_sims = n_sims
         cfg.sim.sim_timeout_secs = 5.0
-        cfg.sim.final_file = "output/final.train_nn_temp"
-        cfg.sim.exec_dir = "."
         cfg.sim.nn_param_file = str(Path(tmp) / "deployed_best_model.json")
         cfg.save_dir = tmp
-        with _patched(train_mod, "run_loop", run_loop):
+        with patch.object(train_mod, "run_loop", run_loop):
             train_mod.train(cfg, seed=1, cwd=".", resume_dir=tmp, no_tui=True, verbose=False)
 
 
@@ -348,16 +322,6 @@ class PhaseClock:
         self.loop_s = time.perf_counter() - self._loop_t0
 
 
-class _RustSeam:
-    """`aerocapture_rs` with `run_grid` timed into the clock's current phase."""
-
-    def __init__(self, clock: PhaseClock) -> None:
-        self.run_grid = clock.accrue(clock.rust, aerocapture_rs.run_grid)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(aerocapture_rs, name)
-
-
 class _TimedTrainer:
     """Forwards to the real trainer, timing each loop-contract method as a phase.
     `finalize` (the once-per-run final selection) is skipped: not a generation cost."""
@@ -375,9 +339,13 @@ class _TimedTrainer:
         if name == "finalize":
             return self._finalize
         if name == "advance":
-            self._clock.generations += 1
+            return self._clock.timed("population", self._advance)
         phase = self.PHASES.get(name)
         return self._clock.timed(phase, attr) if phase is not None else attr
+
+    def _advance(self, *args: Any) -> None:
+        self._clock.generations += 1
+        self._inner.advance(*args)
 
     def _prologue(self, *args: Any) -> None:
         self._inner.prologue(*args)
@@ -397,20 +365,25 @@ def _instrumented_generations(n_gen: int, n_sims: int, profiler: cProfile.Profil
     clock = PhaseClock(profiler)
 
     def loop(trainer: Any, **kwargs: Any) -> dict[str, Any]:
+        # The resumed curator keeps the checkpoint's seed list (PAPER_N_SIMS long): another
+        # allocation clears it so the first generation bootstraps n_sims seeds and re-evaluates.
+        curator = trainer.seed_curator
+        if curator is not None and curator.seed_list is not None and len(curator.seed_list) != n_sims:
+            curator.seed_list = None
         return trainer_mod.run_loop(_TimedTrainer(trainer, clock), **kwargs)
 
     problem_cls = problem_mod.AerocaptureProblem
     with ExitStack() as stack:
-        stack.enter_context(_patched(problem_mod, "_aero_rs", _RustSeam(clock)))
-        stack.enter_context(_patched(problem_mod, "compute_cost", clock.accrue(clock.cost, problem_mod.compute_cost)))
-        stack.enter_context(_patched(problem_cls, "_run_grid_records", clock.accrue(clock.grid_records, problem_cls._run_grid_records)))
-        stack.enter_context(_patched(trainer_mod, "_maybe_curate", clock.timed("curation", trainer_mod._maybe_curate)))
-        stack.enter_context(_patched(trainer_mod, "_apply_seed_strategy", clock.timed("seed_draw", trainer_mod._apply_seed_strategy)))
+        stack.enter_context(patch.object(aerocapture_rs, "run_grid", clock.accrue(clock.rust, aerocapture_rs.run_grid)))
+        stack.enter_context(patch.object(problem_mod, "compute_cost", clock.accrue(clock.cost, problem_mod.compute_cost)))
+        stack.enter_context(patch.object(problem_cls, "_run_grid_records", clock.accrue(clock.grid_records, problem_cls._run_grid_records)))
+        stack.enter_context(patch.object(trainer_mod, "_maybe_curate", clock.timed("curation", trainer_mod._maybe_curate)))
+        stack.enter_context(patch.object(trainer_mod, "_apply_seed_strategy", clock.timed("seed_draw", trainer_mod._apply_seed_strategy)))
         _train_headline(n_gen, n_sims, loop)
     return clock
 
 
-# ── grid ─────────────────────────────────────────────────────────────────────
+# --- grid ---
 
 
 def stage_grid(args: argparse.Namespace) -> dict[str, object]:
@@ -426,7 +399,7 @@ def stage_grid(args: argparse.Namespace) -> dict[str, object]:
     seeds = reserved_pool(Path(HEADLINE_TOML), FINAL_EVAL_SEED_OFFSET, max(ks))
     clock = PhaseClock()
     walls: dict[int, list[float]] = {k: [] for k in ks}
-    with _patched(problem_mod, "_aero_rs", _RustSeam(clock)):
+    with patch.object(aerocapture_rs, "run_grid", clock.accrue(clock.rust, aerocapture_rs.run_grid)):
         trainer.problem.evaluate_population_per_seed(trainer.X, seeds[:1])  # warm-up
         for _ in range(args.repeats):
             for k in ks:
@@ -455,7 +428,7 @@ def stage_grid(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-# ── memory ───────────────────────────────────────────────────────────────────
+# --- memory ---
 
 _MEMORY_PROBE = """
 import json, resource, sys
@@ -469,7 +442,7 @@ print(json.dumps([base, resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, out.
 
 
 def stage_memory(args: argparse.Namespace) -> dict[str, object]:
-    cell = CELLS[-1]
+    cell = MAMBA
     ovr = cell.overrides()
     unit = 1 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes on macOS, KiB on Linux
     points = []
@@ -498,7 +471,28 @@ def stage_memory(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-# ── profile ──────────────────────────────────────────────────────────────────
+# --- fnpag_step ---
+
+
+def stage_fnpag_step(args: argparse.Namespace) -> dict[str, object]:
+    """FNPAG's per-sim cost at its GA-tuned predictor step vs the 2.0 s default the
+    golden config flies: the deployed cell, 1 thread, repeats interleaved."""
+    ovr = FNPAG.overrides()
+    n: int = args.fnpag_n
+    seeds = reserved_pool(Path(FNPAG.toml), FINAL_EVAL_SEED_OFFSET, n)
+    steps = [float(ovr["guidance.fnpag.prediction_dt"]), 2.0]  # type: ignore[arg-type]
+    walls: dict[float, list[float]] = {dt: [] for dt in steps}
+    for _ in range(args.repeats):
+        for dt in steps:
+            walls[dt].append(_grid_wall(FNPAG.toml, [{**ovr, "guidance.fnpag.prediction_dt": dt}], seeds, 1))
+    points = [
+        {"prediction_dt_s": round(dt, 4), "wall_s": [round(w, 4) for w in walls[dt]], "ms_per_sim": round(1000 * _median(walls[dt]) / n, 2)} for dt in steps
+    ]
+    print("  fnpag   " + "  ".join(f"dt={p['prediction_dt_s']} s: {p['ms_per_sim']} ms/sim" for p in points))
+    return {"meta": meta(), "cell": FNPAG.label, "threads": 1, "n": n, "repeats": args.repeats, "points": points}
+
+
+# --- profile ---
 
 
 def _anchor(file: str, line: int) -> str:
@@ -594,7 +588,7 @@ def stage_profile(args: argparse.Namespace) -> dict[str, object]:
     }
 
 
-# ── figures ──────────────────────────────────────────────────────────────────
+# --- figures ---
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]  # reference categorical order, validated
@@ -704,6 +698,7 @@ STAGE_FNS: dict[str, Callable[[argparse.Namespace], dict[str, object]]] = {
     "grid": stage_grid,
     "memory": stage_memory,
     "profile": stage_profile,
+    "fnpag_step": stage_fnpag_step,
 }
 
 
@@ -714,6 +709,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--seams-n", type=int, default=200, help="sims per seam measurement (1 thread)")
     ap.add_argument("--profile-gens", type=int, default=20)
+    ap.add_argument("--fnpag-n", type=int, default=50, help="sims per fnpag_step point (1 thread)")
     ap.add_argument("--profile-sims", type=int, nargs="+", default=[PAPER_N_SIMS, 10], help="training_n_sims per profiled allocation")
     ap.add_argument("--plot-only", action="store_true", help="redraw the figures from throughput.json")
     args = ap.parse_args(argv)

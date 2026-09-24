@@ -14,8 +14,9 @@
 //! its inverse is the mean cost of one guidance tick.
 //!
 //! Classical schemes fly their golden test configs (the pinned reference
-//! configurations); the two NN rows fly the paper's deployed models from the
-//! committed bundle (articles/paper/data/runs/headline/).
+//! configurations, legacy noise regime); piecewise constant and the two NN rows
+//! fly training configs (per_draw regime), the NN rows with the paper's deployed
+//! models from the committed bundle (articles/paper/data/runs/headline/).
 //!
 //! Run: cargo bench --bench tick --manifest-path src/rust/Cargo.toml
 
