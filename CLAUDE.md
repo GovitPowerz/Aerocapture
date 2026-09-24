@@ -160,6 +160,19 @@ post-loop final selection / eval / report still run on the converged pop. Conseq
 stop well before `n_gen` -- raise `restarts` / use `bipop`, or footnote the asymmetry. The islands path is unaffected (islands are hardcoded PSO/GA/DE). Regression:
 `tests/test_optimizer.py::TestCmaesInternalTermination`.
 
+### RL env parity: the env must be the deployed NN's decision process
+
+Until the parity fix, `BatchedSimulation` returned the navigation the action had been applied at
+(a one-tick lag) and injected the action AFTER the command shaper, so the `prev_bank` telemetry
+recorded the raw action while deploy records the shaped command. Flown through that env, the
+deployed dense champion lost 59 m/s mean. An earlier fix had made the telemetry "track the forced
+action", which looked right in isolation and was half the bug. The rule now: `reset()`/`step()`
+end at a `tick::sense_tick`, and the action replaces the NN forward pass inside `guidance_step`
+(`policy_bank`). The gate is behavioural, not a field check: `src/rust/tests/rl_env_parity.rs`
+flies the model's own output through the env loop and requires a bit-identical trajectory to
+`step_one_tick(None)`. Any new env feature (a different action, a new observation channel) must
+keep that test green.
+
 ### Noise regimes: per-draw is the default, legacy reproduces quoted numbers
 
 `[monte_carlo] noise_seeding = "per_draw"` (ADR-0006) is the default: each dispersion draw gets its own OU-density / EKF-noise stream. `"legacy"` freezes ONE noise path across every

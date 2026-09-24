@@ -186,9 +186,10 @@ src/rust/src/
     run_init.rs                    — `build_sim_state` (the single SimState constructor, shared by CLI `run_single` and the batch/env path)
     finalize.rs                    — `build_final_record` + `ifinal_for` + `is_pending_crash` + virtual-DV (turns a terminated SimState into the 52-element record; consumed by the CLI and the RL
                                        step API)
-    tick.rs                        — `step_one_tick`: the single per-tick GNC + integration step shared by the CLI `run_single` loop and the RL `BatchedSimulation` env (+ shared helpers
+    tick.rs                        — `step_one_tick` = `sense_tick` (density-noise step + navigation, cached in `last_nav`) + `act_tick` (guidance, pilot, integration, termination): the
+                                       single per-tick step of the CLI `run_single` loop; the RL `BatchedSimulation` env calls the halves around its policy (+ shared helpers
                                        `promote_pending_crash_if_applicable`, `navigate_from_state`); also records the per-tick NN candidate trace and updates the NN telemetry state post-guidance from
-                                       the effective command. `sim_time` is the time of `state.state`: GNC runs at the tick start, the integration step advances both by `dt`
+                                       the shaped command. `sim_time` is the time of `state.state`: GNC runs at the tick start, the integration step advances both by `dt`
                                        (adaptive terminal events rewind it to the event time), so peak / bounce times, the final record and the final photo row label the state they describe (#141)
     final_record.rs                — Named index constants for the 52-element final-record array; single source of truth for `fr[N]` writes in `finalize.rs` and reads in aerocapture-py
                                        (`results.rs`, `env.rs`)
@@ -232,8 +233,9 @@ under `tests/` (shared fixtures in `tests/common/`: `fixtures.rs`, `assertions.r
 subprocess tests. Dev-dependencies: `approx`, `rstest`, `proptest`, `tempfile`. Bit-identity gates
 worth knowing by name: the six guidance goldens (`tests/reference_data/rust_golden/` at the repo
 root, regenerated per the root `CLAUDE.md` lesson), `tests/entry_fan_agreement.rs`,
-`tests/nn_flat_order_fixtures.rs`, `tests/nn_model_roundtrip.rs`. `cargo test --release` lists the
-rest.
+`tests/nn_flat_order_fixtures.rs`, `tests/nn_model_roundtrip.rs`, `tests/rl_env_parity.rs` (the RL
+env's sense/act loop with the model's own output reproduces `step_one_tick(None)`, bias and EKF
+navigation). `cargo test --release` lists the rest.
 
 ## Benchmarks
 

@@ -2,6 +2,12 @@
 
 ## Backlog
 
+- [ ] Re-quote the paper's Section 5 RL baseline on the parity env: the four
+      `configs/training/paper/rl/` cells were trained before `BatchedSimulation` matched deploy
+      (one-tick observation lag, action injected after the command shaper; see the RL README
+      "Environment"). Retrain with `experiments/paper/18_rl_baseline.sh`, re-bundle `rl/<cell>`,
+      requote the Section 5 table, and check whether the warm start still walks off the champion
+      (it started as a ~181 m/s policy in the old env vs 113 m/s deployed, `experiments/obs_lag/`).
 - [ ] Add neural counterparts for navigation and control: train neural counterparts for the
       density estimator (replacing the exponential filter) and the pilot model (replacing the
       first/second-order dynamics), compared against the classical algorithms on identical MC

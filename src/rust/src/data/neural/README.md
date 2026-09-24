@@ -44,8 +44,8 @@ point of view (without them, post-reversal near-duplicate states collapse the su
 target). Their backing state lives on `GuidanceState::{prev_inclination_error_for_nn,
 prev_bank_for_nn, prev_realized_bank_for_nn, last_sign_flip_time_for_nn,
 inclination_error_integral}` and is updated unconditionally by `tick.rs` post-guidance from the
-EFFECTIVE command (the RL env's `forced_bank` when injected, else the dispatcher output), so RL
-observations track the policy's own previous action; sign-flip detection compares
+shaped command `guidance_step` returns. The RL env's action enters guidance as the NN output
+(`policy_bank`), so RL observations record the same shaped command a deployed NN's would; sign-flip detection compares
 signum(new_bank) vs signum(prev_bank), excluding zero-crossing cases.
 `NnInputContext::from_guidance_state(&GuidanceState, sim_time, target_inclination)` is the one
 place that state is read.
