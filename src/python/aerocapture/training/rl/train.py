@@ -245,17 +245,19 @@ def _shaped_rewards(
     done: npt.NDArray[np.bool_],
     info: list[dict[str, Any]],
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32], npt.NDArray[np.bool_]]:
-    """PBRS rewards of one vector step -> (shaped, term_obs, truncated).
+    """PBRS rewards of one vector step -> (shaped, next_obs_true, terminated).
 
-    A done env's s' is its pre-reset terminal obs (`next_obs` already holds the
-    reset). Terminations are absorbing (Phi(s') = 0); truncations bootstrap
-    from term_obs and keep Phi(s').
+    `next_obs_true` is s': a done env's pre-reset terminal obs (`next_obs`
+    already holds the reset). `terminated` is `done & ~truncated`: those steps
+    are absorbing (Phi(s') = 0, no bootstrap); truncations bootstrap from
+    `next_obs_true` and keep Phi(s').
     """
     term_obs = _terminal_observations(info, done, obs.shape[1])
     truncated = np.array([bool(d.get("truncated", False)) for d in info], dtype=np.bool_)
-    next_obs_for_shape = np.where(done[:, None], term_obs, next_obs)
-    shaped = step_calc.step_reward(obs, next_obs_for_shape, aux_cur, aux_next, absorbing=done & ~truncated)
-    return shaped.astype(np.float32), term_obs, truncated
+    next_obs_true = np.where(done[:, None], term_obs, next_obs)
+    terminated = done & ~truncated
+    shaped = step_calc.step_reward(obs, next_obs_true, aux_cur, aux_next, absorbing=terminated)
+    return shaped.astype(np.float32), next_obs_true, terminated
 
 
 def _evaluate_model(toml_path: Path, model: Path, cfg: RLConfig, seed_offset: int) -> CellResult:
@@ -574,16 +576,16 @@ def collect_rollout(
         actions_np = bank.cpu().numpy().astype(np.float32)
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        shaped, term_obs, truncated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
+        shaped, next_obs_true, terminated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
-                # Truncated (max_time timeout) episodes bootstrap V(term_obs)
+                # Truncated (max_time timeout) episodes bootstrap V(next_obs_true)
                 # through GAE instead -- adding the timeout virtual-DV cost on
                 # top would count the terminal state twice in the value target.
                 # episodic_* stay logged for every done (outcome diagnostics).
-                if not truncated[i]:
+                if terminated[i]:
                     shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
@@ -594,9 +596,7 @@ def collect_rollout(
             shaped = ret_norm.normalize(shaped.astype(np.float64)).astype(np.float32)
 
         with torch.no_grad():
-            nv_obs = term_obs.copy()
-            nv_obs = np.where(done[:, None], nv_obs, next_obs)
-            nv_obs_policy = obs_norm.normalize(nv_obs) if obs_norm is not None else nv_obs
+            nv_obs_policy = obs_norm.normalize(next_obs_true) if obs_norm is not None else next_obs_true
             nv = value(torch.from_numpy(nv_obs_policy).float()).cpu().numpy()
 
         buf.obs[t] = obs
@@ -604,7 +604,7 @@ def collect_rollout(
         buf.log_probs[t] = log_prob.cpu().numpy()
         buf.rewards[t] = shaped
         buf.values[t] = v_pred.cpu().numpy()
-        buf.dones[t] = done & ~truncated
+        buf.dones[t] = terminated
         next_values[t] = nv
 
         # Advance hidden state; zero per-env on done (matches Rust auto-reset).
@@ -992,15 +992,15 @@ def _run_sac(
 
         next_obs, _rust_reward, done, info, aux_next = env.step(actions_np)
 
-        shaped, term_obs, truncated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
+        shaped, next_obs_true, terminated = _shaped_rewards(step_calc, obs, next_obs, aux_cur, aux_next, done, info)
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
                 term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
-                # Truncated (max_time timeout) episodes bootstrap Q(term_obs)
+                # Truncated (max_time timeout) episodes bootstrap Q(next_obs_true)
                 # via (1-done)*Q(next) instead -- adding the timeout virtual-DV
                 # cost on top would count the terminal state twice.
-                if not truncated[i]:
+                if terminated[i]:
                     shaped[i] += float(-term_cost)
                 episodic_returns.append(float(-term_cost))
                 episodic_dvs.append(float(info[i].get("dv_m_s", float("nan"))))
@@ -1014,12 +1014,11 @@ def _run_sac(
 
         # SAC stores normalized obs in replay buffer for policy/critic consistency.
         # For truncated steps, the Q-target bootstraps via (1-done)*Q(next), so
-        # `next_obs` must be the *terminal* observation (pre-reset), not the reset
-        # observation of a freshly-drawn episode (which would leak cross-episode state).
-        true_next = np.where(done[:, None], term_obs, next_obs)
-        next_obs_policy = obs_norm.normalize(true_next) if obs_norm is not None else true_next
-        done_for_buffer = done & ~truncated
-        agent.replay_buffer.push(obs_policy, raw_np, shaped_norm, next_obs_policy, done_for_buffer)
+        # the stored next obs is `next_obs_true`: the *terminal* observation
+        # (pre-reset), not the reset observation of a freshly-drawn episode
+        # (which would leak cross-episode state).
+        next_obs_policy = obs_norm.normalize(next_obs_true) if obs_norm is not None else next_obs_true
+        agent.replay_buffer.push(obs_policy, raw_np, shaped_norm, next_obs_policy, terminated)
         obs = next_obs
         aux_cur = aux_next
         env_steps += cfg.n_envs

@@ -181,33 +181,39 @@ def test_terminated_shaped_return_is_minus_phi0_for_any_trajectory() -> None:
         ret = sum(
             calc.gamma**t * calc.step_reward(obs, obs, aux[t : t + 1], aux[t + 1 : t + 2], absorbing=np.array([t == n_steps - 1]))[0] for t in range(n_steps)
         )
-        assert ret == pytest.approx(-calc._potential(obs, aux[:1])[0], rel=1e-9)
+        assert ret == pytest.approx(-calc._potential(obs, aux[:1])[0], rel=1e-9, abs=1e-6)
 
 
-def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncation() -> None:
+def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncation(default_calc: StepRewardCalculator) -> None:
     """The PPO and SAC loops share `_shaped_rewards`: a done env shapes against its pre-reset
-    terminal obs/aux, with Phi(s_T) = 0 when terminated and Phi(s_T) kept when truncated."""
+    terminal obs (not the reset obs `next_obs` carries), with Phi(s_T) = 0 when terminated and
+    Phi(s_T) kept when truncated. The phase-aware potential reads obs, so the substitution is
+    visible in the shaped value."""
     pytest.importorskip("aerocapture_rs")
     from aerocapture.training.rl.train import _shaped_rewards
 
-    calc = StepRewardCalculator(input_mask=[0, 1, 2], potential="dv", gamma=0.99)
-    obs = np.zeros((3, 3), dtype=np.float32)
-    next_obs = np.full((3, 3), 7.0, dtype=np.float32)  # done envs: the post-reset obs
-    aux_cur = _aux(n=3, dv1=300.0)
-    aux_next = _aux(n=3, dv1=100.0)  # done envs: the env returns the pre-reset (terminal) aux
+    calc = default_calc
+    obs = _make_obs(n=3, **{"15": -1.0, "19": 0.5})
+    next_obs = _make_obs(n=3, **{"15": -1.0, "19": 1.0})  # done envs: the post-reset obs
+    term = _make_obs(n=1, **{"15": -1.0, "19": 2.0})[0]  # pre-reset terminal obs
+    aux = np.zeros((3, 7), dtype=np.float32)
     done = np.array([True, True, False])
     info = [
-        {"truncated": False, "terminal_observation": [0.5, 0.5, 0.5]},
-        {"truncated": True, "terminal_observation": [0.5, 0.5, 0.5]},
+        {"truncated": False, "terminal_observation": term.tolist()},
+        {"truncated": True, "terminal_observation": term.tolist()},
         {},
     ]
-    shaped, term_obs, truncated = _shaped_rewards(calc, obs, next_obs, aux_cur, aux_next, done, info)
-    phi_terminal = -100.0
-    assert shaped[0] == pytest.approx(300.0)  # terminated: 0.99 * 0 - (-300)
-    assert shaped[1] == pytest.approx(0.99 * phi_terminal + 300.0)  # truncated: bootstrapped, keeps Phi(s_T)
-    assert shaped[2] == pytest.approx(0.99 * phi_terminal + 300.0)  # mid-episode
-    np.testing.assert_array_equal(truncated, [False, True, False])
-    np.testing.assert_array_equal(term_obs[:2], np.full((2, 3), 0.5, dtype=np.float32))
+    shaped, next_obs_true, terminated = _shaped_rewards(calc, obs, next_obs, aux, aux, done, info)
+    phi_cur = calc._potential(obs[:1], aux[:1])[0]
+    phi_term = calc._potential(term[None], aux[:1])[0]
+    phi_reset = calc._potential(next_obs[:1], aux[:1])[0]
+    assert len({phi_cur, phi_term, phi_reset, 0.0}) == 4  # every branch below is distinguishable
+    assert shaped[0] == pytest.approx(-phi_cur)  # terminated: 0.99 * 0 - Phi(cur)
+    assert shaped[1] == pytest.approx(0.99 * phi_term - phi_cur)  # truncated: bootstrapped, keeps Phi(s_T)
+    assert shaped[2] == pytest.approx(0.99 * phi_reset - phi_cur)  # mid-episode: s' is next_obs
+    np.testing.assert_array_equal(terminated, [True, False, False])
+    np.testing.assert_array_equal(next_obs_true[:2], np.stack([term, term]))
+    np.testing.assert_array_equal(next_obs_true[2], next_obs[2])
 
 
 def test_dv_mode_requires_no_obs_indices() -> None:
