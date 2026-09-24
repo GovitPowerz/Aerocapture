@@ -1,6 +1,6 @@
 """Throughput and scaling study of the batched simulator (#114).
 
-Stages (all by default): scaling, seams, grid, memory, profile, fnpag_step. Each
+Stages (all by default): scaling, seams, grid, memory, profile, fnpag_step, benches. Each
 rewrites its own block of throughput.json, stamped with the machine and commit it
 ran on, then both figures are redrawn from the JSON. What each stage measures, its
 inputs and how to regenerate: experiments/throughput/README.md; the write-up:
@@ -53,10 +53,12 @@ HERE = Path(__file__).resolve().parent
 OUT = HERE / "throughput.json"
 BUNDLE = REPO / "articles/paper/data/runs"
 CLI = REPO / "src/rust/target/release/aerocapture"
+CRITERION = Path(os.environ.get("CARGO_TARGET_DIR", REPO / "src/rust/target")) / "criterion"
 HEADLINE_TOML = "configs/training/sweep/mamba_p962.toml"
 HEADLINE_RUN = REPO / "training_output/mamba_p962_long"
 PAPER_N_POP, PAPER_N_SIMS = 512, 2  # experiments/paper/10b_arch_long_challengers.sh
-STAGES = ("scaling", "seams", "grid", "memory", "profile", "fnpag_step")
+STAGES = ("scaling", "seams", "grid", "memory", "profile", "fnpag_step", "benches")
+_HEADLINE_STAGES = ("grid", "profile")  # resume the local headline checkpoint
 # What a timing depends on (docs excluded): a dirty file here makes the stamped commit a lie.
 _SOURCES = ("src", "configs", "data", "articles/paper/data/runs", "pyproject.toml", "uv.lock", "experiments/throughput/throughput.py")
 
@@ -67,6 +69,10 @@ class Cell:
     toml: str
     bundle: str  # under articles/paper/data/runs/
     scheme: str | None  # classical guidance type (best_params.json routes as its gains); None = NN
+
+    @property
+    def slug(self) -> str:
+        return Path(self.bundle).name
 
     def overrides(self) -> dict[str, object]:
         cell = BUNDLE / self.bundle
@@ -184,7 +190,7 @@ def _cli_toml(cell: Cell, ovr: dict[str, object], n: int, tmp: Path) -> Path:
     data: dict[str, Any] = {"base": [str(REPO / cell.toml)]}
     for key, value in {**ovr, "simulation.n_sims": n, "data.output_dir": str(tmp), "data.results_suffix": f".throughput_{n}"}.items():
         set_dot_path(data, key, value)
-    path = tmp / f"cli_{n}.toml"
+    path = tmp / f"{cell.slug}_{n}.toml"
     write_toml(data, path)
     return path
 
@@ -250,16 +256,20 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
 # --- the headline training loop (grid + profile) ---
 
 
+def _headline_checkpoint() -> Path | None:
+    ckpts = sorted(HEADLINE_RUN.glob("checkpoint_g*.npz"))
+    return ckpts[-1] if ckpts else None
+
+
 def _train_headline(n_gen: int, n_sims: int, run_loop: Callable[..., dict[str, Any]]) -> None:
     """`train()` resumed from a scratch copy of the headline run's last checkpoint at the
     paper population, with `run_loop` swapped in. Every write lands in the scratch dir:
     save_checkpoint also deploys the NN to `[data] neural_network`, repointed there
     (the TOML's own path is the real sweep cell's model)."""
-    ckpts = sorted(HEADLINE_RUN.glob("checkpoint_g*.npz"))
-    if not ckpts:
-        raise SystemExit(f"{HEADLINE_RUN} has no checkpoint: the grid and profile stages resume the headline run")
+    ckpt = _headline_checkpoint()
+    assert ckpt is not None
     with tempfile.TemporaryDirectory(prefix="throughput_train_") as tmp:
-        for f in (ckpts[-1], ckpts[-1].with_suffix(".json")):
+        for f in (ckpt, ckpt.with_suffix(".json")):
             shutil.copy2(f, tmp)
         cfg, _ = build_training_config_from_toml(HEADLINE_TOML)
         cfg.optimizer.n_gen = n_gen
@@ -285,6 +295,7 @@ class PhaseClock:
         self.cost: dict[str, float] = defaultdict(float)
         self.generations = 0
         self.logged_gen_s: list[float] = []
+        self.optimizer: dict[str, object] = {}
         self.loop_s = 0.0
         self._loop_t0 = 0.0
         self.profiler = profiler
@@ -367,6 +378,8 @@ def _instrumented_generations(n_gen: int, n_sims: int, profiler: cProfile.Profil
     def loop(trainer: Any, **kwargs: Any) -> dict[str, Any]:
         # The resumed curator keeps the checkpoint's seed list (PAPER_N_SIMS long): another
         # allocation clears it so the first generation bootstraps n_sims seeds and re-evaluates.
+        opt = trainer.config.optimizer
+        clock.optimizer = {k: getattr(opt, k) for k in ("algorithm", "seed_strategy", "seed_pool_interval", "validation_n_sims", "curation_sample_size")}
         curator = trainer.seed_curator
         if curator is not None and curator.seed_list is not None and len(curator.seed_list) != n_sims:
             curator.seed_list = None
@@ -492,6 +505,51 @@ def stage_fnpag_step(args: argparse.Namespace) -> dict[str, object]:
     return {"meta": meta(), "cell": FNPAG.label, "threads": 1, "n": n, "repeats": args.repeats, "points": points}
 
 
+# --- benches ---
+
+
+def _criterion_ns(group: str, bench: str) -> float:
+    """Criterion's per-iteration estimate in ns: the linear-sampling slope, else the mean."""
+    est = json.loads((CRITERION / group / bench / "new" / "estimates.json").read_text())
+    return float((est.get("slope") or est["mean"])["point_estimate"])
+
+
+def stage_benches(args: argparse.Namespace) -> dict[str, object]:
+    """The Rust microbenchmarks, recorded: `tick` over its built-in rows plus the four
+    deployed cells (TOMLs routed by the Python deploy rule, passed through
+    AEROCAPTURE_TICK_CONFIGS), and the Mamba-962 f64 forward pass."""
+    manifest = str(REPO / "src/rust/Cargo.toml")
+    deployed = {f"{c.slug}_deployed": c for c in CELLS}
+    with tempfile.TemporaryDirectory(prefix="throughput_tick_") as tmp:
+        rows_env = ";".join(f"{ident}={_cli_toml(c, c.overrides(), 1, Path(tmp))}" for ident, c in deployed.items())
+        env = {**os.environ, "AEROCAPTURE_TICK_CONFIGS": rows_env}
+        run = subprocess.run(["cargo", "bench", "--bench", "tick", "--manifest-path", manifest], env=env, capture_output=True, text=True, check=True)
+    subprocess.run(["cargo", "bench", "--bench", "quant_forward", "--manifest-path", manifest, "--", "f64_model"], capture_output=True, check=True)
+    rows = []
+    for m in re.finditer(r"^(\S+): (\d+) guidance calls in the nominal flight of (\S+)$", run.stderr, re.M):
+        ident, calls = m.group(1), int(m.group(2))
+        cell = deployed.get(ident)
+        ns = _criterion_ns("guidance_per_flight", ident)
+        rows.append(
+            {
+                "id": ident,
+                "config": f"{cell.toml} + articles/paper/data/runs/{cell.bundle}" if cell else m.group(3),
+                "calls": calls,
+                "us_per_flight": round(ns / 1e3, 2),
+                "us_per_call": round(ns / calls / 1e3, 4),
+            }
+        )
+        print(f"  tick    {ident:24s} {calls:4d} calls  {rows[-1]['us_per_call']:>10} us/call")
+    forward_ns = _criterion_ns("forward", "f64_model")
+    print(f"  forward Mamba-962 f64 {forward_ns:.0f} ns/tick")
+    return {
+        "meta": meta(),
+        "harness": "criterion, one thread; tick: 20 samples of whole-flight guidance replays of one nominal flight per config; forward: 100 samples",
+        "tick": rows,
+        "mamba_forward_f64_ns_per_tick": round(forward_ns, 1),
+    }
+
+
 # --- profile ---
 
 
@@ -580,7 +638,7 @@ def stage_profile(args: argparse.Namespace) -> dict[str, object]:
     return {
         "meta": meta(),
         "config": HEADLINE_TOML,
-        "algorithm": "ga (the headline optimizer), seed_strategy adaptive, validation + curation on",
+        "optimizer": clock.optimizer,
         "resumed_from": f"{HEADLINE_RUN.name} last checkpoint",
         "display": "plain (no Rich TUI)",
         "allocations": rows,
@@ -699,6 +757,7 @@ STAGE_FNS: dict[str, Callable[[argparse.Namespace], dict[str, object]]] = {
     "memory": stage_memory,
     "profile": stage_profile,
     "fnpag_step": stage_fnpag_step,
+    "benches": stage_benches,
 }
 
 
@@ -717,6 +776,9 @@ def main(argv: list[str] | None = None) -> None:
     results: dict[str, Any] = json.loads(OUT.read_text()) if OUT.exists() else {}
     if not args.plot_only:
         for stage in args.stages:
+            if stage in _HEADLINE_STAGES and _headline_checkpoint() is None:
+                print(f"== {stage}: skipped, {HEADLINE_RUN} has no checkpoint (the committed block is kept)")
+                continue
             print(f"== {stage}")
             results[stage] = STAGE_FNS[stage](args)
             OUT.write_text(json.dumps(results, indent=2) + "\n")

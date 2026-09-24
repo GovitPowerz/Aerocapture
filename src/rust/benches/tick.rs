@@ -18,6 +18,10 @@
 //! fly training configs (per_draw regime), the NN rows with the paper's deployed
 //! models from the committed bundle (articles/paper/data/runs/headline/).
 //!
+//! Extra rows come from `AEROCAPTURE_TICK_CONFIGS` (`id=config.toml;...`): the
+//! throughput driver passes the four deployed cells that way, their GA parameters
+//! routed by the Python deploy rule rather than a second copy of it here.
+//!
 //! Run: cargo bench --bench tick --manifest-path src/rust/Cargo.toml
 
 use std::collections::HashSet;
@@ -67,6 +71,20 @@ const SCHEMES: &[(&str, &str, Option<&str>)] = &[
         Some("articles/paper/data/runs/headline/mamba_p962/best_model.json"),
     ),
 ];
+
+fn extra_rows() -> Vec<(String, String)> {
+    std::env::var("AEROCAPTURE_TICK_CONFIGS")
+        .unwrap_or_default()
+        .split(';')
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let (id, config) = row
+                .split_once('=')
+                .expect("AEROCAPTURE_TICK_CONFIGS rows are id=path");
+            (id.to_string(), config.to_string())
+        })
+        .collect()
+}
 
 struct Call {
     nav: NavigationOutput,
@@ -160,14 +178,28 @@ fn bench_guidance(c: &mut Criterion) {
         .expect("cd to the repo root (configs and data paths are root-relative)");
     let mut g = c.benchmark_group("guidance_per_flight");
     g.sample_size(20);
-    for (id, config, model) in SCHEMES {
-        let flight = fly(config, *model);
+    let rows = SCHEMES
+        .iter()
+        .map(|(id, config, model)| {
+            (
+                id.to_string(),
+                config.to_string(),
+                model.map(str::to_string),
+            )
+        })
+        .chain(
+            extra_rows()
+                .into_iter()
+                .map(|(id, config)| (id, config, None)),
+        );
+    for (id, config, model) in rows {
+        let flight = fly(&config, model.as_deref());
         eprintln!(
             "{id}: {} guidance calls in the nominal flight of {config}",
             flight.calls.len()
         );
         g.throughput(Throughput::Elements(flight.calls.len() as u64));
-        g.bench_function(*id, |b| {
+        g.bench_function(&id, |b| {
             b.iter_batched_ref(
                 || {
                     flight
