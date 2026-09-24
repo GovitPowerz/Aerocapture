@@ -143,8 +143,8 @@ def test_init_v2_population_unknown_type_raises() -> None:
 def test_build_initial_population_for_v2_normalizes_to_unit_cube() -> None:
     """Wrapper in train.py produces [0, 1] values and passes forget-bias through."""
     from aerocapture.training.encoding import _lstm_specs
+    from aerocapture.training.initial_population import build_initial_population_for_v2
     from aerocapture.training.torch_mirror.schemas import LstmSpec
-    from aerocapture.training.train import build_initial_population_for_v2
 
     architecture = [
         {"type": "lstm", "input_size": 8, "hidden_size": 8},
@@ -189,8 +189,8 @@ def test_build_initial_population_for_v2_does_not_saturate_search_box() -> None:
     inside the box with room to spare.
     """
     from aerocapture.training.encoding import nn_param_specs_from_v2
+    from aerocapture.training.initial_population import build_initial_population_for_v2
     from aerocapture.training.torch_mirror.schemas import LayerSpec
-    from aerocapture.training.train import build_initial_population_for_v2
     from pydantic import TypeAdapter
 
     # Mirror the real train.py call path for a dense+lstm architecture,

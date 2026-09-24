@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from typing import cast
 
 from aerocapture.training.config import TrainingConfig
-from aerocapture.training.train import _resolve_config_normalization
+from aerocapture.training.training_config import _resolve_config_normalization
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

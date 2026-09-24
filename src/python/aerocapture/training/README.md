@@ -60,9 +60,15 @@ Mission artifacts (corridor, reference trajectory) always live at the canonical
 
 ## The training loop
 
-`train.train` runs ONE per-generation loop contract (`trainer.py`) against two adapters:
-`SingleAlgoTrainer` (a pymoo algorithm + the gate / checkpoint / final-selection logic) and
-`IslandsTrainer` (a thin adapter over `IslandModel`). Per generation: `should_continue` (the
+`train.train` is resolve -> build -> run: it resolves the config, builds the `AerocaptureProblem`,
+picks the adapter and lets it build itself (`SingleAlgoTrainer.from_config` /
+`IslandsTrainer.from_config(config, problem, save_dir, ...)`: resume detection, reserved seed
+pools, initial population, pymoo seeding), then hands it to `trainer.run_loop`. `trainer.Trainer`
+(a `runtime_checkable` Protocol) is the loop contract: `prologue / should_continue / re_evaluate /
+advance / observe / top_k / emit / maybe_checkpoint / finalize / on_interrupt / interrupted_result`
+plus the `finalize_in_display_scope`, `start_gen`, `excluded_seeds`, `seed_curator` attributes the
+loop reads. `SingleAlgoTrainer` is a pymoo algorithm + the gate / checkpoint / final-selection
+logic, `IslandsTrainer` a thin adapter over `IslandModel`. Per generation: `should_continue` (the
 CMA-ES self-termination guard) -> `_apply_seed_strategy` -> `re_evaluate` on seed change ->
 `advance` (one `algorithm.next()`) -> `observe` (validation gate / no-validation promotion) ->
 `_maybe_curate(top_k_provider=trainer.top_k)` -> `emit` (JSONL + display + heartbeat) ->
@@ -71,8 +77,12 @@ Per-path conventions are preserved bit-exactly (the 3-run bit-equivalence gate i
 `experiments/trainer_seam_gate/`, a script, not a pytest): single-algo logs gen+1 / checkpoints at
 (gen+1)%interval labeled gen+1 / finalizes INSIDE the display+interrupt scope; islands logs gen /
 checkpoints labeled gen with last-gen force / finalizes outside (`finalize_in_display_scope`).
-`trainer.py` imports train.py helpers lazily inside the adapter methods and train() imports the
-adapters lazily (both directions avoid the circular import).
+The adapters talk to the problem through `problem.PerSeedEvaluator` only (`training_rms` is the
+RMS-over-seeds cost pymoo minimizes; no `_run_batch` pokes), so `tests/test_trainer_contract.py`
+drives both adapters through `run_loop` against `tests/fixtures/fake_problem.py` with no
+simulator and no patched privates; `tests/test_training_imports.py` pins that `trainer.py` never
+loads `train.py` (the leaf modules: `training_config`, `checkpoint`, `artifacts`,
+`initial_population`, `corridor`, `optimizer`, `seeds`).
 
 **Seeding pymoo.** `warm_start_algorithm(algorithm, problem, init_pop, *, seed, n_iter)` hands the
 seeded population to the algorithm without letting pymoo re-initialize it (pymoo's first
@@ -101,7 +111,7 @@ the CDF tails by `curation_trim_fraction`), and picks one seed per bin per
 STATE only (seed_list, last_curation_gen) via `_restore_seed_curator`; the knobs come from the
 current TOML, with a printed notice when the checkpointed values differ. `algorithm.pop` is
 re-evaluated pre-`algorithm.next()` only when the seeds actually changed; CMA-ES skips the re-eval
-entirely. `fixed` and `rotating` have no class (inline in `train.py`); `adaptive` is
+entirely. `fixed` and `rotating` have no class (inline in `trainer.py`); `adaptive` is
 `seed_curator.SeedCurator` (`curate(problem, top_k_X)`, `to_dict()` / `from_dict()`). The single
 difference between the two adapters is the `top_k_provider` (single-algo: this gen's argmin
 slice; islands: `IslandModel.pool_top_k_X`, the union across the 3 populations).
@@ -212,7 +222,7 @@ use `--sim-timeout` against NaN hangs).
   decoder vs the head and shallow-copies the architecture list), `WarmStartConfig.from_dict`,
   `candidate_input_names()` / `candidate_input_index()` / `candidate_input_normalization()`
   (derived from `aerocapture_rs.candidate_inputs()`, with a fallback tuple for machines without
-  the extension), `build_training_config_from_toml` (in `train.py`).
+  the extension), `build_training_config_from_toml` (in `training_config.py`).
 - `toml_utils.py` — `load_toml_with_bases()` (mirrors Rust `resolve_toml_bases`),
   `set_dot_path()`, `write_toml()` (the minimal machine-consumed writer), `find_mission_name()`
   (recursive walk of the base chain to the first `missions/` entry), `reject_unknown_keys(section,
@@ -252,9 +262,9 @@ use `--sim-timeout` against NaN hangs).
   `probe_common.score_model`, `mamba3_962_compare`, `warm_start_compare`, `ablation`, `animate`,
   every paper script, `experiments/ou_marginal`, `experiments/fnpag_ab`. The seam is still called
   directly where the override builder is genuinely different: `problem.py` (`run_grid`, the
-  training chokepoint), `train.py` (the warm-start eval callback on `problem._build_overrides`,
-  the piecewise corridor accumulation over a population, the piecewise best nominal via
-  `nominal_flight_overrides`), `reference.py` / `make_reference.py` (reference generation),
+  training chokepoint), `initial_population.py` (the warm-start eval callback on
+  `problem._build_overrides`), `corridor.py` (the piecewise corridor accumulation over a
+  population), `train.py` (the piecewise best nominal via `nominal_flight_overrides`), `reference.py` / `make_reference.py` (reference generation),
   `sensitivity.py` (`run_with_draws`), `aerocapture.physics_crosscheck` (undispersed AMAT cells),
   and `articles/paper/scripts/compute_benchmark.py`'s timed repeats (the warmup resolves the cell
   through `evaluate_cell`; the repeats replay that batch on the bare seam so cell resolution stays
@@ -268,7 +278,7 @@ use `--sim-timeout` against NaN hangs).
 - `initialization.py` / `initialization_v2.py` — Activation-aware weight init (Xavier / He /
   LeCun uniform) for v1 populations (`create_nn_initial_population`; the uniform
   `create_initial_population` for classical schemes); `init_v2_population(architecture, n_pop, bound_multiplier,
-  rng)` per layer type for v2, normalized to [0, 1] by `train.py::build_initial_population_for_v2`
+  rng)` per layer type for v2, normalized to [0, 1] by `initial_population.py::build_initial_population_for_v2`
   (details in the NN runtime README). `population.py`:
   `resize_population`.
 - `layer_schema.py` — per-layer tensor names / shapes / flat order, read from
@@ -277,12 +287,22 @@ use `--sim-timeout` against NaN hangs).
 
 ### Loop and optimizers
 
-- `train.py` — orchestration + CLI (`build_training_config_from_toml`, `_setup_param_specs`,
-  `_build_initial_population`, `check_ref_trajectory_wiring`, `_resolve_piecewise_n_segments`,
-  `write_best_artifacts`, `deploy_optimized_artifacts`, `warm_start_algorithm`,
-  `_apply_seed_strategy`, `_maybe_curate`, `_restore_seed_curator`, `save_checkpoint` /
-  `load_checkpoint`, `_prune_old_checkpoints`, `_persist_islands_promotion`).
-- `trainer.py` — the loop contract, `SingleAlgoTrainer`, `IslandsTrainer`.
+- `train.py` - `train()` (resolve -> build -> `run_loop`) + the CLI. Nothing imports it as a
+  library.
+- `trainer.py` - the `Trainer` Protocol, `run_loop`, `SingleAlgoTrainer`, `IslandsTrainer` (each
+  with `from_config`), the loop's `_apply_seed_strategy` / `_maybe_curate`,
+  `_build_validation_payload`, `_persist_islands_promotion`.
+- `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`,
+  `check_ref_trajectory_wiring`, `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
+- `checkpoint.py` - `save_checkpoint` / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
+  `_restore_seed_curator`, `_check_resume_chromosome_shape`.
+- `artifacts.py` - `write_best_artifacts`, `deploy_optimized_artifacts`, `_emit_warm_start_artifacts`.
+- `initial_population.py` - `_build_initial_population` (resume / v1 / v2 / warm-start),
+  `_seed_initial_population`, `build_initial_population_for_v2`, the scaffolding slabs, the
+  warm-start eval callback.
+- `seeds.py` also carries the training-side draws (`_draw_disjoint_seeds`, `_compute_fixed_seeds`,
+  `base_mc_seed_from_toml`); `optimizer.py` carries `warm_start_algorithm`; `corridor.py` carries
+  `_accumulate_corridor`; `encoding.py` carries `_decode_nn_weights`.
 - `optimizer.py` — `OptimizerConfig` (with `GASettings`, `CMAESSettings`, `DESettings`,
   `PSOSettings`, `QPSOSettings` (`alpha_start` / `alpha_end` validated in (0, 2]),
   `IslandSettings`; `from_dict()` for TOML-like dicts) and `create_algorithm(config, n_params)`:
@@ -342,7 +362,10 @@ use `--sim-timeout` against NaN hangs).
 
 - `problem.py` — `AerocaptureProblem(Problem)`: normalized [0,1] decision variables decoded via
   `decode_normalized_array()` at eval time; `_evaluate(X, out)` sets `out["F"]` as (n_pop, 1)
-  through `_run_batch()` (RMS over the seed axis, `_run_batch_pyo3`).
+  through `_run_batch()` -> `training_rms(problem, X)` (RMS over the seed axis; the module-level
+  function is what the trainer seam and `IslandModel` re-evaluate through). `PerSeedEvaluator` is
+  the Protocol the seam drives (the four per-seed methods + `update_seeds`, `seeds`, `cost_kwargs`,
+  `param_specs`, `toml_path`).
   `evaluate_population_records_per_seed(X, seeds) -> ((n_pop, n_seeds) costs, (n_pop, n_seeds, 52)
   records)` is the ONE batched kernel over `_run_grid_records` (one `run_grid` call, SimData built
   once); `evaluate_population_per_seed` is its costs-only view and `evaluate_individual_per_seed`
@@ -602,7 +625,7 @@ which the full piecewise baseline run (train it first) produces. The three table
 TOMLs (ftc, energy_controller, pred_guid; fnpag is in `REQUIRES_REF_TRAJECTORY` but never reads
 the table) wire `data.reference_trajectory` to the mission file EXPLICITLY; base
 `missions/mars.toml` keeps the legacy `data/reference_trajectory/msr_aller.dat` for test/nominal
-configs and the goldens. `train.py::check_ref_trajectory_wiring` hard-errors when a ref-tracking
+configs and the goldens. `training_config.py::check_ref_trajectory_wiring` hard-errors when a ref-tracking
 scheme's resolved config does not point at the mission's optimized ref. SimData re-reads the
 file every generation, so never regenerate the reference while a ref-tracking scheme is
 training. The file is exempted from .gitignore and committed so CI/e2e resolve it. NN training

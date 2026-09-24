@@ -210,7 +210,7 @@ class TestWarmStartBoundsLoader:
 
 class TestSharedTrainHelpers:
     def test_build_cost_kwargs_defaults_and_overrides(self) -> None:
-        from aerocapture.training.train import build_cost_kwargs
+        from aerocapture.training.cost import build_cost_kwargs
 
         kw = build_cost_kwargs({})
         assert kw["dv_threshold"] == 1000.0
@@ -226,9 +226,9 @@ class TestSharedTrainHelpers:
         assert kw2["cost_transform"] == "log"
 
     def test_write_best_artifacts_non_nn(self, tmp_path: Path) -> None:
+        from aerocapture.training.artifacts import write_best_artifacts
         from aerocapture.training.config import TrainingConfig
         from aerocapture.training.param_spaces import ParamSpec
-        from aerocapture.training.train import write_best_artifacts
 
         cfg = TrainingConfig()
         cfg.guidance_type = "equilibrium_glide"
@@ -465,7 +465,7 @@ class TestIslandsPromotionPersistence:
 
     def test_winner_written_to_its_island_and_checkpoint_saved(self, tmp_path: Path) -> None:
         from aerocapture.training.final_select import SelectionResult
-        from aerocapture.training.train import _persist_islands_promotion
+        from aerocapture.training.trainer import _persist_islands_promotion
 
         sel = SelectionResult(
             individual=np.array([0.1, 0.2]),

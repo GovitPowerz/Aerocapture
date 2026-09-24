@@ -193,6 +193,10 @@ class _UnitCubeProblem(Problem):
     def __init__(self) -> None:
         super().__init__(n_var=4, n_obj=1, xl=0.0, xu=1.0)
         self.cost_kwargs: dict[str, Any] = {}
+        self.seeds: list[int] = [0]
+
+    def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
+        return np.vstack([self.evaluate_individual_per_seed(x, seeds) for x in X])
 
     def _evaluate(self, X: np.ndarray, out: dict, *args: Any, **kwargs: Any) -> None:
         out["F"] = X.sum(axis=1).reshape(-1, 1)
@@ -573,8 +577,8 @@ def test_pool_top_k_across_islands_unions_populations() -> None:
 
 
 def test_re_evaluate_all_populations_updates_f() -> None:
-    """re_evaluate_all_populations calls problem._run_batch directly,
-    overwriting each island's pop.F with fresh values."""
+    """re_evaluate_all_populations re-scores every island's pop through
+    `training_rms` (the per-seed interface), overwriting pop.F with fresh values."""
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
@@ -590,11 +594,11 @@ def test_re_evaluate_all_populations_updates_f() -> None:
         island.algorithm.setup(problem, seed=0)
     model.step(current_gen=0)
 
-    # Inject a _run_batch stub that returns zeros.
-    def _stub_run_batch(X: np.ndarray) -> np.ndarray:
-        return np.zeros(X.shape[0], dtype=np.float64)
+    # Inject a per-seed stub that returns zeros.
+    def _stub_per_seed(X: np.ndarray, seeds: list[int]) -> np.ndarray:
+        return np.zeros((X.shape[0], len(seeds)), dtype=np.float64)
 
-    problem._run_batch = _stub_run_batch  # type: ignore[attr-defined]
+    problem.evaluate_population_per_seed = _stub_per_seed  # type: ignore[method-assign]
 
     model.re_evaluate_all_populations()
     for island in model.islands:
@@ -1205,7 +1209,7 @@ def test_pso_checkpoint_restores_particles_and_is_initialized() -> None:
 def test_warm_start_algorithm_seeds_pop_into_gen_0() -> None:
     """Importing the helper from train.py, verify a seeded pop survives
     `.next()` — pymoo's setup(pop=…) alone discards it via _initialize()."""
-    from aerocapture.training.train import warm_start_algorithm
+    from aerocapture.training.optimizer import warm_start_algorithm
 
     problem = _UnitCubeProblem()
     sentinel = np.array([0.7, 0.3, 0.1, 0.4])
@@ -1276,7 +1280,7 @@ def test_warm_start_algorithm_sets_start_time() -> None:
     where `start_time` is normally stamped); without setting it explicitly,
     pymoo's internal `default_termination` firing past `n_max_gen=1000`
     causes `algorithm.result()` to crash on `end_time - None`."""
-    from aerocapture.training.train import warm_start_algorithm
+    from aerocapture.training.optimizer import warm_start_algorithm
 
     problem = _UnitCubeProblem()
     init = Population.new("X", np.zeros((6, 4)))

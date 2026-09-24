@@ -1,14 +1,14 @@
-"""Integration test: verify TrainingLogger is called correctly by train.py."""
+"""Integration test: the loop calls TrainingLogger once per generation."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import numpy as np
-from aerocapture.training.problem import AerocaptureProblem
+from aerocapture.training.param_spaces import PARAM_SPACES
 
 from tests.fixtures.factories import make_training_config
+from tests.fixtures.fake_problem import FakeProblem, run_trainer
 
 
 class TestTrainLoggerIntegration:
@@ -19,24 +19,14 @@ class TestTrainLoggerIntegration:
         config.optimizer.n_pop = 4
         config.save_dir = str(tmp_path)
 
-        mock_logger_instance = MagicMock()
-        mock_logger_instance.buffer = []
-        MockLoggerClass = MagicMock(return_value=mock_logger_instance)
+        mock_logger = MagicMock()
+        mock_logger.buffer = []
+        # toml_path "" = no validation pool (no prologue record), as train() without a TOML.
+        problem = FakeProblem(list(PARAM_SPACES["equilibrium_glide"]), seeds=[42], toml_path="")
 
-        # Mock the AerocaptureProblem._evaluate to avoid running Rust
-        def mock_evaluate(self_prob, X, out, *args, **kwargs):  # type: ignore[no-untyped-def]
-            out["F"] = np.random.default_rng(42).random((X.shape[0], 1)) * 1000
-
-        with (
-            patch("aerocapture.training.logger.TrainingLogger", MockLoggerClass),
-            patch("aerocapture.training.problem.AerocaptureProblem._evaluate", mock_evaluate),
-            patch.object(AerocaptureProblem, "_run_batch", return_value=np.full(config.optimizer.n_pop, 1000.0)),
-        ):
-            from aerocapture.training.train import train
-
-            train(config, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
+        run_trainer(config, problem, cwd=str(tmp_path), logger=mock_logger)
 
         # log_generation should be called n_gen times
-        assert mock_logger_instance.log_generation.call_count == 2
+        assert mock_logger.log_generation.call_count == 2
         # close should be called once
-        assert mock_logger_instance.close.call_count == 1
+        assert mock_logger.close.call_count == 1

@@ -19,6 +19,7 @@ from pymoo.core.algorithm import Algorithm
 from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
+from aerocapture.training.problem import training_rms
 
 # A winner whose final-eval rms materially exceeds the validation rms it was
 # selected on has overfit the validation corpus (the within-island gate picked
@@ -499,7 +500,7 @@ class IslandModel:
         """Resize every island's restored population to ``target_n``.
 
         Grows (clone+jitter + fresh-random) or shrinks (best-N by F) each
-        island's pop, re-evaluates the resized pop via ``_run_batch`` (under
+        island's pop, re-evaluates the resized pop via ``training_rms`` (under
         whatever seeds the problem currently holds -- correct for ``fixed`` /
         restored-curator ``adaptive``; for ``rotating`` / bootstrap ``adaptive``
         the first post-resume gen re-evals under proper seeds before any
@@ -530,7 +531,7 @@ class IslandModel:
             # survivors already had checkpoint-era F, but those were under a
             # possibly-different seed list, so a fresh batch keeps all costs
             # comparable (mirrors re_evaluate_all_populations).
-            new_F = self.problem._run_batch(new_X)
+            new_F = training_rms(self.problem, new_X)
             new_pop = Population.new("X", new_X)
             new_pop.set("F", new_F.reshape(-1, 1))
             if not isinstance(island.algorithm, PSO):
@@ -571,14 +572,13 @@ class IslandModel:
         """Re-evaluate every island's algorithm.pop under the current seed list.
 
         Called when the shared seed list changes (rotating strategy or adaptive
-        curation). Mirrors the pre-`next()` re-eval block in the single-algorithm
-        path in train.py.
+        curation). Mirrors `SingleAlgoTrainer.re_evaluate`.
         """
         for island in self.islands:
             if island.algorithm.pop is None:
                 continue
             parent_X = island.algorithm.pop.get("X")
-            fresh_F = self.problem._run_batch(parent_X)
+            fresh_F = training_rms(self.problem, parent_X)
             island.algorithm.pop.set("F", fresh_F.reshape(-1, 1))
 
     def checkpoint(

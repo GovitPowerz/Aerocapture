@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from aerocapture.training.param_spaces import JOINT_REF_BANK_SCHEMES, PARAM_SPACES
 from aerocapture.training.problem import AerocaptureProblem
-from aerocapture.training.train import _setup_param_specs, build_training_config_from_toml
+from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
 
 FTC_TOML = "configs/training/msr_aller_ftc_train.toml"
 
@@ -123,7 +123,7 @@ class TestDeployOptimizedArtifacts:
         """A winner whose constant-bank nominal produced no trajectory must not be
         deployed: the Rust loader silently accepts a 0-point table and interpolates 0.0."""
         from aerocapture.training import reference as ref_mod
-        from aerocapture.training.train import deploy_optimized_artifacts
+        from aerocapture.training.artifacts import deploy_optimized_artifacts
 
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         monkeypatch.setattr(ref_mod, "generate_constant_bank_tables", self._fake_tables(""))
@@ -134,7 +134,7 @@ class TestDeployOptimizedArtifacts:
         import tomllib
 
         from aerocapture.training import reference as ref_mod
-        from aerocapture.training.train import deploy_optimized_artifacts
+        from aerocapture.training.artifacts import deploy_optimized_artifacts
 
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         row = "  1.0 2.0 3.0 3.0 0.5 10.0 0.42\n"

@@ -47,3 +47,8 @@ individual as the baseline champion, `winner_feasible = false`); in c, the PSO
 island's gen-0 argmin exceeds the heat-load limit on 1/20 draws, is rejected,
 and every later record is identical. That is the intended behaviour change,
 not a seam regression.
+
+Re-run for the adapter-setup refactor (`feature/trainer-seam-setup`, 2026-09-24, #74):
+baseline = `main` source, post = adapters built by `from_config`, the loop in
+`trainer.run_loop`, re-evaluation through `problem.training_rms`, helpers in leaf
+modules. All three runs identical.

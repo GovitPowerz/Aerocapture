@@ -175,7 +175,7 @@ class TestRestoreOnResume:
         """Resume keeps curator STATE (seed_list, last_curation_gen) from the
         checkpoint but config knobs from the TOML -- a legacy checkpoint must not
         silently reset trim_fraction/bucket_selection to 0.0/'random'."""
-        from aerocapture.training.train import _restore_seed_curator
+        from aerocapture.training.checkpoint import _restore_seed_curator
 
         configured = SeedCurator(
             sample_size=500,

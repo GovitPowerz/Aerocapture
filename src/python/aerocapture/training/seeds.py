@@ -39,13 +39,19 @@ PROBE_EVAL_SEED_OFFSET = 10_000_000
 MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
 
 
+def base_mc_seed_from_toml(toml: dict) -> int:
+    """`[monte_carlo] seed`, the base every reserved pool derives from (42 when unset)."""
+    mc_seed_val = toml.get("monte_carlo", {}).get("seed")
+    return int(mc_seed_val) if mc_seed_val is not None else 42
+
+
 def make_reserved_seeds(base_mc_seed: int, offset: int, n: int) -> list[int]:
     """Generate a deterministic, reproducible list of MC seeds from a reserved RNG stream.
 
     Given the same (base_mc_seed, offset, n), always returns the same seeds.
     Different offsets produce independent streams -- disjointness between pools
     is therefore probabilistic (collision odds ~n^2/2^31 per pool pair), not
-    guaranteed by construction; train.py additionally excludes the reserved
+    guaranteed by construction; the trainer additionally excludes the reserved
     validation/final-eval pools from rotating/adaptive training draws.
     """
     seeds: list[int] = np.random.default_rng(base_mc_seed + offset).integers(0, 2**31, size=n).tolist()
@@ -75,3 +81,29 @@ def make_confirmatory_pools(base_mc_seed: int, n_replicates: int = 10, n: int = 
         seeds.update(rng.integers(2**31, 2**32, size=total - len(seeds)).tolist())
     ordered = rng.permutation(np.array(sorted(seeds), dtype=np.int64))
     return [ordered[i * n : (i + 1) * n].tolist() for i in range(n_replicates)]
+
+
+def _draw_disjoint_seeds(
+    rng: np.random.Generator,
+    n: int,
+    excluded: set[int],
+) -> list[int]:
+    """Draw `n` random seeds disjoint from `excluded`."""
+    drawn: list[int] = []
+    while len(drawn) < n:
+        batch = rng.integers(0, 2**31, size=n - len(drawn)).tolist()
+        drawn.extend(s for s in batch if s not in excluded)
+    return drawn[:n]
+
+
+def _compute_fixed_seeds(base_mc_seed: int, n_sims: int, excluded: set[int]) -> list[int]:
+    """Deterministic seed list for the `fixed` strategy.
+
+    Raises ValueError if any seed in the range overlaps `excluded`.
+    """
+    seeds = [base_mc_seed + i for i in range(n_sims)]
+    overlap = set(seeds) & excluded
+    if overlap:
+        msg = f"fixed seed range [{base_mc_seed}..{base_mc_seed + n_sims - 1}] overlaps {len(overlap)} validation/final-eval reserved seeds"
+        raise ValueError(msg)
+    return seeds

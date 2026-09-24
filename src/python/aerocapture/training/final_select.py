@@ -7,7 +7,7 @@ final-eval pool stays a clean test set that only ever evaluates the single
 deployed winner (no min-of-N selection bias on reported numbers).
 
 Three call sites share `select_final_individual`:
-- single-algorithm end-of-training hook in train.py (known = [champion]),
+- `SingleAlgoTrainer.finalize` (known = [champion]),
 - the islands trainer (known = all island champions),
 - the standalone CLI (`python -m aerocapture.training.final_select`), which
   re-applies the rule to an existing training directory from its latest
@@ -384,8 +384,8 @@ def run_final_select(
     CLI would leave the PREVIOUS winner's optimized TOML and ref_trajectory.dat
     behind a re-selected best_params.json (gains and reference co-adapt, so a
     mismatched table invalidates every downstream evaluation)."""
+    from aerocapture.training.artifacts import deploy_optimized_artifacts, write_best_artifacts  # noqa: PLC0415
     from aerocapture.training.evaluate import constraint_violation_rates, format_violation_rates, is_feasible  # noqa: PLC0415
-    from aerocapture.training.train import deploy_optimized_artifacts, write_best_artifacts  # noqa: PLC0415
 
     state = load_selection_state(training_dir)
     ceiling = float(config.optimizer.max_violation_rate)
@@ -450,9 +450,10 @@ def main() -> None:
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout (seconds)")
     args = parser.parse_args()
 
+    from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
     from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
-    from aerocapture.training.train import _setup_param_specs, build_cost_kwargs, build_training_config_from_toml  # noqa: PLC0415
+    from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml  # noqa: PLC0415
     from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
 
     training_dir = Path(args.training_dir)

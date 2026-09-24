@@ -6,7 +6,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -26,6 +26,33 @@ try:
 except ImportError:
     _aero_rs = None  # type: ignore[assignment]
     _HAS_PYO3 = False
+
+
+class PerSeedEvaluator(Protocol):
+    """The evaluation interface the trainer seam drives (the loop, both adapters,
+    curation, the validation gate and final selection). Implementations are also
+    pymoo `Problem`s (the adapters hand them to `Evaluator` / `warm_start_algorithm`).
+    `AerocaptureProblem` is the simulator-backed one; tests drive the seam with a fake."""
+
+    param_specs: list[ParamSpec]
+    toml_path: str
+    seeds: list[int]
+    cost_kwargs: dict[str, Any]
+
+    def update_seeds(self, seeds: list[int]) -> None: ...
+    def evaluate_population_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
+    def evaluate_population_records_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+    def evaluate_individual_per_seed(self, x: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
+    def evaluate_individual_records_per_seed(self, x: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+
+def training_rms(problem: PerSeedEvaluator, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    """The population cost pymoo minimizes: RMS over the problem's CURRENT
+    training seeds (bit-identical to the old per-seed run_batch loop). The
+    trainer seam re-evaluates through this, never through a Problem private."""
+    costs = problem.evaluate_population_per_seed(X, problem.seeds)
+    rms: npt.NDArray[np.float64] = np.sqrt(np.mean(costs**2, axis=1))
+    return rms
 
 
 class AerocaptureProblem(Problem):
@@ -99,11 +126,8 @@ class AerocaptureProblem(Problem):
 
     def _run_batch_pyo3(self, X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """Evaluate the population via one GIL-releasing run_grid call (all seeds),
-        aggregating costs by RMS across the seed axis (bit-identical to the old
-        per-seed run_batch loop)."""
-        costs = self.evaluate_population_per_seed(X, self.seeds)
-        rms: npt.NDArray[np.float64] = np.sqrt(np.mean(costs**2, axis=1))
-        return rms
+        aggregating costs by RMS across the seed axis (`training_rms`)."""
+        return training_rms(self, X)
 
     def evaluate_population_per_seed(
         self,

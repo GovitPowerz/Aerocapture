@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 import numpy as np
+from aerocapture.training.initial_population import build_scaffolding_initial_slab
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
-from aerocapture.training.train import build_scaffolding_initial_slab
 
 
 def test_seed_centers_at_ftc_optimum(tmp_path: Path) -> None:
@@ -53,8 +53,8 @@ def test_missing_ftc_params_fails_loud(tmp_path: Path) -> None:
 def test_build_default_scaffolding_slab_no_file(tmp_path: Path) -> None:
     """live seeding builds the slab from ParamSpec defaults, touching no file."""
     from aerocapture.training.encoding import encode_to_normalized
+    from aerocapture.training.initial_population import build_default_scaffolding_slab
     from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
-    from aerocapture.training.train import build_default_scaffolding_slab
 
     rng = np.random.default_rng(0)
     slab = build_default_scaffolding_slab(_NN_LIVE_PARAMS, n_pop=8, rng=rng, jitter=0.0)
@@ -67,8 +67,8 @@ def test_build_default_scaffolding_slab_no_file(tmp_path: Path) -> None:
 
 
 def test_build_default_scaffolding_slab_jitter_bounds() -> None:
+    from aerocapture.training.initial_population import build_default_scaffolding_slab
     from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
-    from aerocapture.training.train import build_default_scaffolding_slab
 
     rng = np.random.default_rng(1)
     slab = build_default_scaffolding_slab(_NN_LIVE_PARAMS, n_pop=100, rng=rng, jitter=0.02)

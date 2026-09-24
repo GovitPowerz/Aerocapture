@@ -188,7 +188,7 @@ class TestSentinelOverrides:
     """Tests for sentinel chromosome override construction."""
 
     def test_sentinel_bank_angles_coverage(self) -> None:
-        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+        from aerocapture.training.corridor import _SENTINEL_BANK_ANGLES
 
         assert len(_SENTINEL_BANK_ANGLES) == 11
         assert _SENTINEL_BANK_ANGLES[0] == 0
@@ -198,7 +198,7 @@ class TestSentinelOverrides:
             assert _SENTINEL_BANK_ANGLES[i + 1] - _SENTINEL_BANK_ANGLES[i] == 18
 
     def test_sentinel_override_construction(self) -> None:
-        from aerocapture.training.train import _SENTINEL_BANK_ANGLES
+        from aerocapture.training.corridor import _SENTINEL_BANK_ANGLES
 
         section = "piecewise_constant"
         sentinel_overrides: list[dict[str, object]] = []
@@ -230,32 +230,32 @@ class TestPiecewiseSegmentResolution:
     """Resolve n_segments from TOML the same way Rust does."""
 
     def test_default_when_unspecified(self) -> None:
-        from aerocapture.training.train import _resolve_piecewise_n_segments
+        from aerocapture.training.training_config import _resolve_piecewise_n_segments
 
         assert _resolve_piecewise_n_segments({"guidance": {"piecewise_constant": {}}}) == 10
         assert _resolve_piecewise_n_segments({}) == 10
 
     def test_explicit_n_segments_wins(self) -> None:
-        from aerocapture.training.train import _resolve_piecewise_n_segments
+        from aerocapture.training.training_config import _resolve_piecewise_n_segments
 
         toml = {"guidance": {"piecewise_constant": {"n_segments": 7}}}
         assert _resolve_piecewise_n_segments(toml) == 7
 
     def test_derived_from_bank_angles_array(self) -> None:
-        from aerocapture.training.train import _resolve_piecewise_n_segments
+        from aerocapture.training.training_config import _resolve_piecewise_n_segments
 
         toml = {"guidance": {"piecewise_constant": {"bank_angles": [10.0, 20.0, 30.0, 40.0, 50.0]}}}
         assert _resolve_piecewise_n_segments(toml) == 5
 
     def test_derived_from_individual_keys(self) -> None:
-        from aerocapture.training.train import _resolve_piecewise_n_segments
+        from aerocapture.training.training_config import _resolve_piecewise_n_segments
 
         toml = {"guidance": {"piecewise_constant": {f"bank_angle_{i}": 65.0 for i in range(4)}}}
         assert _resolve_piecewise_n_segments(toml) == 4
 
     def test_rejects_zero_segments(self) -> None:
         import pytest
-        from aerocapture.training.train import _resolve_piecewise_n_segments
+        from aerocapture.training.training_config import _resolve_piecewise_n_segments
 
         with pytest.raises(ValueError, match="n_segments must be >= 1"):
             _resolve_piecewise_n_segments({"guidance": {"piecewise_constant": {"n_segments": 0}}})

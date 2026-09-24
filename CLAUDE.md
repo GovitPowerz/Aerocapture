@@ -142,7 +142,7 @@ on non-capture rows (ifinal != 3) -- captures are bit-identical.
 ### Resume: cross-gen training-cost incomparability
 
 On resume under adaptive/rotating seeds, the checkpointed `best_overall_cost` (training RMS at the gen it was promoted, under seed list A) is NOT comparable to the resumed population's cost snapshot
-(under the most recent seed list B). `train.py`'s initial-best-init block at the top of the training loop is gated on `best_overall_individual is None` (fresh start only) -- it must never swap the
+(under the most recent seed list B). `SingleAlgoTrainer.__init__`'s initial-best-init block is gated on `best_overall_individual is None` (fresh start only) -- it must never swap the
 checkpointed best via a `<` comparison, because that would silently promote an un-validated individual and corrupt the re-validation + `best_model.json` write. Regression test:
 `tests/test_train_interrupt.py::TestResumePreservesCheckpointedBest`.
 

@@ -209,7 +209,7 @@ shelved PPO/SAC trainer in `rl/` (which depends on it, never the reverse).
   ONLY (Jozefowicz, Zaremba & Sutskever 2015; `bias_hh` forget stays ~0 to avoid double-applying
   through the gate sum); Mamba per-individual `N(0, 0.01*bound_multiplier)` jitter around the
   shared centers (`_init_mamba_layer`; without it PSO init collapses on the non-zero-centered
-  slices); Window `continue`. `train.py::build_initial_population_for_v2` normalizes the result
+  slices); Window `continue`. `initial_population.py::build_initial_population_for_v2` normalizes the result
   to [0, 1] per ParamSpec. `compute_weight_stats` is skipped for v2.
 - `training/config.py` — `NetworkConfig.architecture: list[dict] | None`, `_layer_n_params`
   (dense `I*O + O`, gru `3HI + 3HH + 6H`, window 0, ...), `_layer_output_size` (window

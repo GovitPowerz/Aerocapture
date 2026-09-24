@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from aerocapture.training.train import build_training_config_from_toml
+from aerocapture.training.training_config import build_training_config_from_toml
 
 
 def test_builds_eqglide_config() -> None:

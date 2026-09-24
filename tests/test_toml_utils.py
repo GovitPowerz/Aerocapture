@@ -116,20 +116,20 @@ def test_non_tracking_training_configs_keep_legacy_reference(config: str) -> Non
 
 class TestCheckRefTrajectoryWiring:
     def test_matching_path_passes(self) -> None:
-        from aerocapture.training.train import check_ref_trajectory_wiring
+        from aerocapture.training.training_config import check_ref_trajectory_wiring
 
         toml_data = {"data": {"reference_trajectory": "training_output/mars/ref_trajectory.dat"}}
         check_ref_trajectory_wiring(toml_data, Path("training_output/mars/ref_trajectory.dat"))
 
     def test_legacy_path_exits(self) -> None:
-        from aerocapture.training.train import check_ref_trajectory_wiring
+        from aerocapture.training.training_config import check_ref_trajectory_wiring
 
         toml_data = {"data": {"reference_trajectory": "data/reference_trajectory/msr_aller.dat"}}
         with pytest.raises(SystemExit):
             check_ref_trajectory_wiring(toml_data, Path("training_output/mars/ref_trajectory.dat"))
 
     def test_missing_key_exits(self) -> None:
-        from aerocapture.training.train import check_ref_trajectory_wiring
+        from aerocapture.training.training_config import check_ref_trajectory_wiring
 
         with pytest.raises(SystemExit):
             check_ref_trajectory_wiring({}, Path("training_output/mars/ref_trajectory.dat"))

@@ -11,8 +11,8 @@ from typing import Any
 
 import numpy as np
 import pytest
+from aerocapture.training.optimizer import warm_start_algorithm
 from aerocapture.training.qpso import QPSO
-from aerocapture.training.train import warm_start_algorithm
 from pymoo.core.evaluator import Evaluator
 from pymoo.core.population import Population
 from pymoo.core.problem import Problem

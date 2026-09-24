@@ -78,14 +78,14 @@ def test_network_config_rejects_unknown_scaffolding() -> None:
 def test_live_appends_three_specs_no_ftc(monkeypatch: pytest.MonkeyPatch) -> None:
     """scaffolding='live' adds exactly 3 specs and never reads the FTC file."""
     import numpy as np
+    from aerocapture.training.initial_population import build_default_scaffolding_slab
     from aerocapture.training.param_spaces import active_scaffolding_specs
-    from aerocapture.training.train import build_default_scaffolding_slab
 
     # Guard: building the live slab must not touch the FTC seeding path.
     def _boom(*a: object, **k: object) -> None:
         raise AssertionError("live seeding must not read FTC best_params.json")
 
-    monkeypatch.setattr("aerocapture.training.train.build_scaffolding_initial_slab", _boom)
+    monkeypatch.setattr("aerocapture.training.initial_population.build_scaffolding_initial_slab", _boom)
 
     pack = active_scaffolding_specs("live")
     assert len(pack) == 3
@@ -95,7 +95,7 @@ def test_live_appends_three_specs_no_ftc(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_resume_with_shape_mismatch_fails_loud() -> None:
     import numpy as np
-    from aerocapture.training.train import _check_resume_chromosome_shape
+    from aerocapture.training.checkpoint import _check_resume_chromosome_shape
 
     saved_pop = np.zeros((4, 1266))
     try:
