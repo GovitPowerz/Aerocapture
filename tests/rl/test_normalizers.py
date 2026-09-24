@@ -30,6 +30,16 @@ class TestReturnNormalizer:
         out = norm.normalize(raw)
         assert abs(out[0] - (-200.0 / 100.0)) < 0.1
 
+    def test_done_step_reward_closes_its_own_episode(self) -> None:
+        """gamma=1, rewards 1, 2 (done), 3: the running returns seen by the stats are
+        1, 3, 3 (the done step's reward ends its episode; the next step starts fresh),
+        not 1, 2, 5 (zeroing before the add would seed the next episode with r_T)."""
+        norm = ReturnNormalizer(gamma=1.0, warmup_steps=0)
+        for r, d in [(1.0, False), (2.0, True), (3.0, False)]:
+            norm.update(np.array([r], dtype=np.float64), np.array([d], dtype=bool))
+        np.testing.assert_allclose(norm._mean[0], (1.0 + 3.0 + 3.0) / 3)
+        assert norm._returns is not None and norm._returns[0] == 3.0
+
     def test_checkpoint_roundtrip(self) -> None:
         norm = ReturnNormalizer(gamma=0.99, warmup_steps=2)
         for v in [-10.0, -20.0, -30.0]:

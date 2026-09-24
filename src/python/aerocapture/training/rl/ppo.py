@@ -25,6 +25,11 @@ class RolloutBuffer:
     ``ppo_update`` replays the *exact* point at which ``old_log_probs`` were
     evaluated. The scalar bank angle sent to the env is atan2(raw[0], raw[1]).
 
+    ``dones[t]``: the episode in that env column ended at step t (termination or
+    truncation), so step t+1 starts a new episode: it cuts the GAE trace and
+    zeroes the recurrent state in the BPTT replay. ``terminated[t]``: the subset
+    that ended in an absorbing state, where the V(s_{t+1}) bootstrap is masked.
+
     Hidden-state fields (Phase 1.5):
         h_initial: list[ndarray | None], one entry per layer. Dense layers have
                    entry == None; recurrent layers have shape (n_envs, H).
@@ -43,6 +48,7 @@ class RolloutBuffer:
     rewards: npt.NDArray[np.float32]
     values: npt.NDArray[np.float32]
     dones: npt.NDArray[np.bool_]
+    terminated: npt.NDArray[np.bool_]
     h_initial: list[npt.NDArray[np.float32] | None]
     h_final: list[npt.NDArray[np.float32] | None]
     states: list[npt.NDArray[np.float32] | None]
@@ -77,6 +83,7 @@ class RolloutBuffer:
             rewards=np.zeros((n_steps, n_envs), dtype=np.float32),
             values=np.zeros((n_steps, n_envs), dtype=np.float32),
             dones=np.zeros((n_steps, n_envs), dtype=np.bool_),
+            terminated=np.zeros((n_steps, n_envs), dtype=np.bool_),
             h_initial=h_initial,
             h_final=h_final,
             states=states,
@@ -87,25 +94,29 @@ def compute_gae(
     rewards: npt.NDArray[np.float32],
     values: npt.NDArray[np.float32],
     next_values: npt.NDArray[np.float32],
+    *,
+    terminated: npt.NDArray[np.bool_],
     dones: npt.NDArray[np.bool_],
     gamma: float,
     lam: float,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    """GAE-lambda with per-step next-value bootstrap.
+    """GAE-lambda with per-step next-value bootstrap. Axis 0 is time; any
+    trailing axes (the env columns of a rollout buffer) are independent.
 
-    `values[t]`: V(s_t). `next_values[t]`: V(s_{t+1}) -- caller supplies
-    V(terminal_obs) for truncated steps and V(reset_obs) for continuing
-    steps where the episode did not end. `dones[t]` should be True *only*
-    for true terminations; truncation sets `done=False` so the bootstrap
-    is kept.
+    `values[t]`: V(s_t). `next_values[t]`: V(s_{t+1}) -- the caller supplies
+    V(terminal_obs) when the episode ended at t (the column's next obs is
+    already the reset). `terminated[t]` masks that bootstrap (absorbing
+    state); a truncation keeps it. `dones[t]` (termination or truncation)
+    cuts the lambda-trace: gae_{t+1} belongs to the next episode.
     """
     n = rewards.shape[0]
     adv = np.zeros_like(rewards, dtype=np.float32)
-    gae = 0.0
+    gae = np.zeros(rewards.shape[1:], dtype=np.float32)
+    keep_bootstrap = (~np.asarray(terminated, dtype=np.bool_)).astype(np.float32)
+    keep_trace = (~np.asarray(dones, dtype=np.bool_)).astype(np.float32)
     for t in reversed(range(n)):
-        not_done = 1.0 - float(dones[t])
-        delta = rewards[t] + gamma * next_values[t] * not_done - values[t]
-        gae = delta + gamma * lam * not_done * gae
+        delta = rewards[t] + gamma * next_values[t] * keep_bootstrap[t] - values[t]
+        gae = delta + gamma * lam * keep_trace[t] * gae
         adv[t] = gae
     ret = adv + values
     return adv, ret

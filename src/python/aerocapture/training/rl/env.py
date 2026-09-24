@@ -1,8 +1,10 @@
 """Thin vectorized env wrapper over BatchedSimulation.
 
-API resembles Gymnasium's VecEnv contract (reset returns obs only, step
-returns (obs, reward, done, info)) but does not depend on gymnasium --
-the RL training loop consumes this object directly.
+API resembles Gymnasium's VecEnv contract (reset returns (obs, aux), step
+returns (obs, reward, done, info, aux); a done env's obs/aux rows are its new
+episode's s_0 and the ended episode's s_T is in info["terminal_observation"] /
+info["terminal_aux"]) but does not depend on gymnasium -- the RL training loop
+consumes this object directly.
 """
 
 from __future__ import annotations

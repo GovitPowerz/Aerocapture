@@ -185,21 +185,16 @@ def _linear_anneal(base: float, frac_done: float, anneal_start: float) -> float:
 def _compute_advantages_returns(
     buf: RolloutBuffer, next_values: npt.NDArray[np.float32], cfg: RLConfig
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    """Per-env GAE over the rollout buffer -> (advantages, returns)."""
-    advantages = np.zeros_like(buf.rewards)
-    returns = np.zeros_like(buf.rewards)
-    for e in range(cfg.n_envs):
-        adv, ret = compute_gae(
-            buf.rewards[:, e],
-            buf.values[:, e],
-            next_values[:, e],
-            buf.dones[:, e],
-            gamma=cfg.ppo.gamma,
-            lam=cfg.ppo.gae_lambda,
-        )
-        advantages[:, e] = adv
-        returns[:, e] = ret
-    return advantages, returns
+    """GAE over the rollout buffer, every env column at once -> (advantages, returns)."""
+    return compute_gae(
+        buf.rewards,
+        buf.values,
+        next_values,
+        terminated=buf.terminated,
+        dones=buf.dones,
+        gamma=cfg.ppo.gamma,
+        lam=cfg.ppo.gae_lambda,
+    )
 
 
 def _build_shaper_and_norms(
@@ -227,15 +222,6 @@ def _build_shaper_and_norms(
     return step_calc, ret_norm, obs_norm
 
 
-def _terminal_observations(info: list[dict[str, Any]], done: npt.NDArray[np.bool_], obs_dim: int) -> npt.NDArray[np.float32]:
-    """Extract per-env terminal observation from info dicts. Fallback: zeros."""
-    out = np.zeros((len(info), obs_dim), dtype=np.float32)
-    for i, d in enumerate(done):
-        if d and "terminal_observation" in info[i]:
-            out[i] = np.asarray(info[i]["terminal_observation"], dtype=np.float32)
-    return out
-
-
 def _shaped_rewards(
     step_calc: StepRewardCalculator,
     obs: npt.NDArray[np.float32],
@@ -248,15 +234,19 @@ def _shaped_rewards(
     """PBRS rewards of one vector step -> (shaped, next_obs_true, terminated).
 
     `next_obs_true` is s': a done env's pre-reset terminal obs (`next_obs`
-    already holds the reset). `terminated` is `done & ~truncated`: those steps
-    are absorbing (Phi(s') = 0, no bootstrap); truncations bootstrap from
-    `next_obs_true` and keep Phi(s').
+    already holds the reset, s_0 of its next episode, and so does `aux_next`:
+    Phi(s') reads the terminal aux from info). `terminated` is
+    `done & ~truncated`: those steps are absorbing (Phi(s') = 0, no bootstrap);
+    truncations bootstrap from `next_obs_true` and keep Phi(s').
     """
-    term_obs = _terminal_observations(info, done, obs.shape[1])
     truncated = np.array([bool(d.get("truncated", False)) for d in info], dtype=np.bool_)
-    next_obs_true = np.where(done[:, None], term_obs, next_obs)
+    next_obs_true = next_obs.copy()
+    aux_next_true = aux_next.copy()
+    for i in np.flatnonzero(done):
+        next_obs_true[i] = info[i]["terminal_observation"]
+        aux_next_true[i] = info[i]["terminal_aux"]
     terminated = done & ~truncated
-    shaped = step_calc.step_reward(obs, next_obs_true, aux_cur, aux_next, absorbing=terminated)
+    shaped = step_calc.step_reward(obs, next_obs_true, aux_cur, aux_next_true, absorbing=terminated)
     return shaped.astype(np.float32), next_obs_true, terminated
 
 
@@ -604,7 +594,8 @@ def collect_rollout(
         buf.log_probs[t] = log_prob.cpu().numpy()
         buf.rewards[t] = shaped
         buf.values[t] = v_pred.cpu().numpy()
-        buf.dones[t] = terminated
+        buf.dones[t] = done
+        buf.terminated[t] = terminated
         next_values[t] = nv
 
         # Advance hidden state; zero per-env on done (matches Rust auto-reset).

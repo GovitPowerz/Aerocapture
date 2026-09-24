@@ -29,7 +29,7 @@ src/rust/aerocapture-py/src/
   results.rs     — `BatchResults` pyclass with numpy getters (final_records (N,52), captured (N,), trajectories, dispersions (N,26)); no single-run type
   batch.rs       — Rayon parallel batch execution (`run_batch` / `run_mc` / `run_with_draws`)
   grid.rs        — `run_grid`: the (individuals x seeds) grid, one SimData per individual over Arc-shared tables
-  env.rs         — `BatchedSimulation`: N `SimState`s over one `Arc<SimData>`, Rayon-parallel ticks through `tick::act_tick` then the next `tick::sense_tick` (obs = the NN input deploy reads next tick; action = the NN output; `full_neural` only), `predicted_dv_for_state` for the aux channel
+  env.rs         — `BatchedSimulation`: N `SimState`s over one `Arc<SimData>`, Rayon-parallel ticks through `tick::act_tick` then the next `tick::sense_tick` (obs = the NN input deploy reads next tick; action = the NN output; `full_neural` only), `predicted_dv_for_state` for the aux channel; a done env's returned obs/aux rows are its new episode's s_0, the ended episode's in `info["terminal_observation"]` / `info["terminal_aux"]`
 ```
 
 ## Evaluate tier
