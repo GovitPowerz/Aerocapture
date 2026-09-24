@@ -28,22 +28,22 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
 
 `python -m aerocapture.training.train <config.toml>`:
 
-1. `build_training_config_from_toml` (train.py) resolves the TOML `base` chain
+1. `build_training_config_from_toml` (training_config.py) resolves the TOML `base` chain
    (`toml_utils.load_toml_with_bases`) into a `TrainingConfig`; `check_ref_trajectory_wiring`
    refuses a ref-tracking scheme that does not point at the mission's optimized reference.
-2. `_setup_param_specs` builds the chromosome: a `ParamSpec` per gene (NN weights from the
+2. `_setup_param_specs` (training_config.py) builds the chromosome: a `ParamSpec` per gene (NN weights from the
    `[[network.architecture]]` via `encoding.nn_param_specs_from_v2`, plus the scaffolding slab when
    `scaffolding != "off"`, plus `ref_bank` for joint-reference runs).
-3. `_build_initial_population` seeds the population (activation-aware init, or the warm-start
+3. `_build_initial_population` (initial_population.py, called from the adapter's `from_config`) seeds the population (activation-aware init, or the warm-start
    chromosome from `warm_start.build_warm_start_chromosome`).
 4. `AerocaptureProblem` (problem.py) is the pymoo problem: decode normalized genes, route them to
    TOML dot paths, and evaluate through `evaluate_population_per_seed` -> `_run_grid_records` ->
    `aerocapture_rs.run_grid`. Every training-side evaluation (population, curation, validation
    gate, final selection) is this one call.
-5. `warm_start_algorithm` hands the seeded population to the pymoo algorithm (GA / CMA-ES / DE /
+5. `warm_start_algorithm` (optimizer.py) hands the seeded population to the pymoo algorithm (GA / CMA-ES / DE /
    PSO / QPSO) without letting pymoo re-initialize it, and seeds pymoo's RNG from the training RNG.
-6. `train.train` runs the per-generation loop against one of two adapters from `trainer.py`,
-   `SingleAlgoTrainer` or `IslandsTrainer`; per generation:
+6. `trainer.run_loop` runs the per-generation loop against one of two adapters (the `Trainer`
+   Protocol), `SingleAlgoTrainer` or `IslandsTrainer`, each built by its `from_config`; per generation:
    `_apply_seed_strategy` (fixed / rotating / adaptive seeds, ADR-0001) -> `re_evaluate` if the
    seeds changed -> `advance` (one pymoo step) -> `observe` (the **validation gate**:
    `evaluate.run_validation_gate` re-scores a new argmin on the reserved validation pool and
@@ -122,8 +122,10 @@ producers, and the `FROZEN` block names the data files with no producer in the t
 
 - **Config and chromosome**: `config.py`, `toml_utils.py`, `param_spaces.py`, `encoding.py`,
   `initialization.py`, `initialization_v2.py`, `population.py`
-- **Loop and optimizers**: `train.py` (orchestration + CLI), `trainer.py` (loop contract, two
-  adapters), `optimizer.py`, `qpso.py`, `island_model.py`, `seed_curator.py`, `final_select.py`
+- **Loop and optimizers**: `train.py` (resolve -> build -> run + CLI), `trainer.py` (loop contract,
+  two adapters, the loop), `training_config.py`, `checkpoint.py`, `artifacts.py`,
+  `initial_population.py`, `optimizer.py`, `qpso.py`, `island_model.py`, `seed_curator.py`,
+  `final_select.py`
 - **Evaluation**: `problem.py` (`run_grid` chokepoint, training side), `cell_eval.py` (`evaluate_cell`
   chokepoint, deploy side), `evaluate.py` (validation gate, NN JSON writer), `cost.py`, `seeds.py`,
   `deploy_overrides.py`, `reference.py`, `make_reference.py`

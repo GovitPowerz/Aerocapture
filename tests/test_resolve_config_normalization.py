@@ -1,4 +1,4 @@
-"""Unit tests for `_resolve_config_normalization` (train.py).
+"""Unit tests for `_resolve_config_normalization` (training_config.py).
 
 These lock the dark exception branches that gate deployed-model correctness:
 a config-level `[network.normalization]` override must reach the deployed
@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from typing import cast
 
 from aerocapture.training.config import TrainingConfig
-from aerocapture.training.train import _resolve_config_normalization
+from aerocapture.training.training_config import _resolve_config_normalization
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

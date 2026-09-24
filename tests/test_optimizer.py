@@ -249,7 +249,7 @@ def _converging_cmaes(n_params: int = 6, n_gen: int = 5000) -> tuple[Any, Any]:
     `ftc_cmaes` cell. Returns (algorithm, problem); no Rust sims involved.
     """
     import numpy as np  # noqa: PLC0415
-    from aerocapture.training.train import warm_start_algorithm  # noqa: PLC0415
+    from aerocapture.training.optimizer import warm_start_algorithm  # noqa: PLC0415
     from pymoo.core.evaluator import Evaluator  # noqa: PLC0415
     from pymoo.core.population import Population  # noqa: PLC0415
     from pymoo.core.problem import Problem  # noqa: PLC0415
@@ -269,7 +269,7 @@ def _converging_cmaes(n_params: int = 6, n_gen: int = 5000) -> tuple[Any, Any]:
     prob = _Sphere()
     pop = Population.new("X", np.random.default_rng(0).random((cfg.n_pop, n_params)))
     Evaluator().eval(prob, pop)
-    warm_start_algorithm(algo, prob, pop)  # the exact seeding train.py uses
+    warm_start_algorithm(algo, prob, pop)  # the exact seeding both trainer adapters use
     return algo, prob
 
 
@@ -320,7 +320,7 @@ class TestCmaesInternalTermination:
         # silently early-stops these (violating the no-early-stopping policy;
         # this is the dense_p515_ga "terminated at gen 45" regression).
         import numpy as np  # noqa: PLC0415
-        from aerocapture.training.train import warm_start_algorithm  # noqa: PLC0415
+        from aerocapture.training.optimizer import warm_start_algorithm  # noqa: PLC0415
         from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # noqa: PLC0415
         from pymoo.core.evaluator import Evaluator  # noqa: PLC0415
         from pymoo.core.population import Population  # noqa: PLC0415

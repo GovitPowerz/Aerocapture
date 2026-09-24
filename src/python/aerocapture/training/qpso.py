@@ -8,7 +8,7 @@ contraction-expansion coefficient alpha anneals linearly from alpha_start
 to alpha_end over max_iter generations (theory bounds convergence at
 alpha < e^gamma ~ 1.781).
 
-State conventions mirror pymoo's PSO so train.py's warm_start_algorithm,
+State conventions mirror pymoo's PSO so optimizer.warm_start_algorithm,
 checkpointing (pop = pbest), and the manual .next() loop work untouched:
 - self.pop is the personal-best population (checkpointed, read by _set_optimum)
 - self.particles is the current swarm position population

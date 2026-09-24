@@ -14,11 +14,19 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.charts import bin_indices
+from aerocapture.training.encoding import decode_normalized
+from aerocapture.training.evaluate import _aero_rs
+from aerocapture.training.param_spaces import GUIDANCE_TOML_SECTIONS, ParamSpec
+
+if TYPE_CHECKING:
+    from aerocapture.training.config import TrainingConfig
+    from aerocapture.training.problem import AerocaptureProblem
 
 # Trajectory column indices (17-column trajectory contract; see run_mc docs)
 _TRAJ_COL_ENERGY = 8
@@ -265,3 +273,63 @@ def load_corridor(path: Path) -> dict[str, npt.NDArray[np.float64]] | None:
         return None
 
     return data
+
+
+# Constant bank angles for corridor boundary sentinels (degrees).
+# 0 = full lift-up (hyperbolic boundary), 180 = full lift-down (crash boundary).
+# Only magnitude affects energy-vs-pdyn corridor; sign only affects lateral track.
+_SENTINEL_BANK_ANGLES = [0, 18, 36, 54, 72, 90, 108, 126, 144, 162, 180]
+
+
+def _accumulate_corridor(
+    X: npt.NDArray[np.float64],
+    param_specs: list[ParamSpec],
+    config: TrainingConfig,
+    corridor_acc: CorridorAccumulator,
+    toml_path: str,
+    problem: AerocaptureProblem,
+) -> None:
+    """Run corridor accumulation for piecewise_constant training.
+
+    Overrides are routed by the problem (`route_param_path`: `shaping.*` ->
+    `[guidance.command_shaping]`, unprefixed -> `[guidance.<scheme>]`), the same
+    path the GA evaluates on.
+    """
+    section = GUIDANCE_TOML_SECTIONS[config.guidance_type]
+    pop_overrides: list[dict[str, object]] = []
+    for i in range(X.shape[0]):
+        params = decode_normalized(X[i], param_specs)
+        ovr = problem._build_overrides(params)
+        ovr["guidance.type"] = config.guidance_type
+        pop_overrides.append(ovr)
+
+    batch_results = _aero_rs.run_batch(  # type: ignore[union-attr]
+        toml_path=toml_path,
+        overrides_list=pop_overrides,
+        include_trajectories=True,
+        sim_timeout_secs=config.sim.sim_timeout_secs,
+    )
+    labels = classify_trajectories(batch_results.final_records, delta_za_low=corridor_acc.delta_za_low, delta_za_high=corridor_acc.delta_za_high)
+    corridor_acc.update(batch_results.trajectories, labels)
+
+    # Sentinel chromosomes: constant bank angles for corridor boundary resolution
+    n_segments = sum(1 for s in param_specs if s.name.startswith("bank_angle_"))
+    sentinel_overrides: list[dict[str, object]] = []
+    for bank in _SENTINEL_BANK_ANGLES:
+        ovr_s: dict[str, object] = {f"guidance.{section}.bank_angle_{i}": float(bank) for i in range(n_segments)}
+        ovr_s["guidance.type"] = config.guidance_type
+        ovr_s["simulation.n_sims"] = 1
+        sentinel_overrides.append(ovr_s)
+
+    sentinel_results = _aero_rs.run_batch(  # type: ignore[union-attr]
+        toml_path=toml_path,
+        overrides_list=sentinel_overrides,
+        include_trajectories=True,
+        sim_timeout_secs=config.sim.sim_timeout_secs,
+    )
+    sentinel_labels = classify_trajectories(
+        sentinel_results.final_records,
+        delta_za_low=corridor_acc.delta_za_low,
+        delta_za_high=corridor_acc.delta_za_high,
+    )
+    corridor_acc.update(sentinel_results.trajectories, sentinel_labels)

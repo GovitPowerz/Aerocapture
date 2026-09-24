@@ -93,7 +93,7 @@ feasibility gate (ADR-0005).
 The three table-reading training TOMLs (ftc, energy_controller, pred_guid) wire
 `data.reference_trajectory` to the mission-optimized `training_output/mars/ref_trajectory.dat`
 explicitly; `missions/mars.toml` points at the legacy `data/reference_trajectory/msr_aller.dat`,
-which the nominal/test configs and the goldens keep. `train.py::check_ref_trajectory_wiring`
+which the nominal/test configs and the goldens keep. `training_config.py::check_ref_trajectory_wiring`
 refuses a ref-tracking scheme whose resolved config does not point at the mission's optimized
 reference.
 
@@ -168,7 +168,7 @@ default), so a config can seed via `bank_angles = [...]` and still take GA per-e
 `n_segments` is validated against `bank_angles.len()` and the highest `bank_angle_N` index;
 mismatches fail at load. `bank_angles: Vec<f64>` on the Rust side, so any N>=1 is legal; Python
 `make_piecewise_constant_specs(N)` (`param_spaces.py`) and `_resolve_piecewise_n_segments(toml)`
-(`train.py`) mirror the resolver so the chromosome width matches (the default
+(`training_config.py`) mirror the resolver so the chromosome width matches (the default
 `PARAM_SPACES["piecewise_constant"]` stays 10-segment). `reference_only = true` writes the mission
 reference without clobbering `corridor_boundaries.npz`.
 

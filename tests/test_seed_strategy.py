@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from aerocapture.training.train import _draw_disjoint_seeds
+from aerocapture.training.seeds import _draw_disjoint_seeds
 
 
 def _rng(seed: int) -> np.random.Generator:
@@ -43,13 +43,13 @@ class _StubProblem:
 
 class TestFixedStrategySetup:
     def test_fixed_seeds_are_deterministic_range(self) -> None:
-        from aerocapture.training.train import _compute_fixed_seeds
+        from aerocapture.training.seeds import _compute_fixed_seeds
 
         seeds = _compute_fixed_seeds(base_mc_seed=100, n_sims=5, excluded=set())
         assert seeds == [100, 101, 102, 103, 104]
 
     def test_fixed_seeds_raise_on_overlap(self) -> None:
-        from aerocapture.training.train import _compute_fixed_seeds
+        from aerocapture.training.seeds import _compute_fixed_seeds
 
         with pytest.raises(ValueError, match="overlaps"):
             _compute_fixed_seeds(base_mc_seed=100, n_sims=5, excluded={102})

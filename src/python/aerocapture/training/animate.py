@@ -40,14 +40,14 @@ def _discover_checkpoints(training_dir: Path, every: int) -> list[dict]:
         List of dicts with keys: generation, best_cost, cost_history,
         json_path, npz_path, costs (population costs array).
     """
-    # Current trainer naming: checkpoint_g{NNNNN}.json (train.py save_checkpoint).
+    # Current trainer naming: checkpoint_g{NNNNN}.json (checkpoint.save_checkpoint).
     pattern = re.compile(r"checkpoint_g(\d+)\.json$")
     found: list[tuple[int, Path]] = []
     for p in training_dir.glob("checkpoint_g*.json"):
         m = pattern.search(p.name)
         if m:
             found.append((int(m.group(1)), p))
-    # Legacy fallback: checkpoint_r{R}_g{NNNNN}.json (matches train.py load_checkpoint).
+    # Legacy fallback: checkpoint_r{R}_g{NNNNN}.json (matches checkpoint.load_checkpoint).
     if not found:
         legacy = re.compile(r"checkpoint_r\d+_g(\d+)\.json$")
         for p in training_dir.glob("checkpoint_r*_g*.json"):

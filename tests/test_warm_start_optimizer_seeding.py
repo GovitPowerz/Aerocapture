@@ -3,7 +3,7 @@ CMA-ES seeds mean (no jitter)."""
 
 import numpy as np
 import pytest
-from aerocapture.training.train import _seed_initial_population
+from aerocapture.training.initial_population import _seed_initial_population
 
 
 def test_ga_replicate_and_jitter() -> None:

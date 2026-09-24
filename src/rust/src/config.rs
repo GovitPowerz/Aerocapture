@@ -542,7 +542,7 @@ pub struct TomlNetwork {
     pub(crate) normalization: Option<Vec<crate::data::neural::NormSpec>>,
     // Python-only from here down: never relayed to SimData. Mirrored on
     // training/config.py::NetworkConfig; populated from the TOML by
-    // train.py::build_training_config_from_toml (rl/train.py::_parse_network_config
+    // training_config.py::build_training_config_from_toml (rl/train.py::_parse_network_config
     // and animate.py::_decode_and_build_overrides read layer_sizes/activations directly).
     #[allow(dead_code)]
     #[serde(default)]
@@ -1401,7 +1401,7 @@ pub struct TomlNeuralNetworkParams {
     pub(crate) reset_state_every_tick: Option<bool>,
     // Python-only from here down: never relayed to SimData. Mirrored on
     // training/config.py::NetworkConfig (scaffolding, warm_start_from); populated
-    // by train.py::build_training_config_from_toml.
+    // by training_config.py::build_training_config_from_toml.
     #[allow(dead_code)]
     #[serde(default)]
     pub(crate) scaffolding: Option<String>,

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
+from typing import Any
 
 from pymoo.algorithms.soo.nonconvex.cmaes import CMAES
 from pymoo.algorithms.soo.nonconvex.de import DE
 from pymoo.algorithms.soo.nonconvex.ga import GA
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
+from pymoo.core.population import Population
 from pymoo.operators.crossover.sbx import SBX
 from pymoo.operators.mutation.pm import PM
 
@@ -216,3 +218,43 @@ def create_algorithm(config: OptimizerConfig, n_params: int) -> Algorithm:
         )
 
     raise ValueError(f"Unhandled algorithm: {algorithm}")  # unreachable
+
+
+def warm_start_algorithm(
+    algorithm: Any,
+    problem: Any,
+    pop: Population,
+    *,
+    seed: int | None = None,
+    n_iter: int = 1,
+) -> None:
+    """Seed a pymoo Algorithm with a pre-evaluated population.
+
+    pymoo's `algorithm.setup(problem, pop=init_pop)` writes the pop onto the
+    algorithm but does NOT prevent the first `algorithm.next()` from calling
+    `_initialize()` (which wipes `self.pop`) and `_initialize_infill()` (which
+    resamples via LHS). The seeded population is then silently discarded.
+
+    This helper does the work `Algorithm.advance(infills=…)` does on the
+    first call, but with our pre-evaluated pop instead of LHS infills:
+    sets `self.pop`, runs `_initialize_advance` (which for PSO initializes
+    velocity + sets `self.particles = self.pop`), flips `is_initialized`,
+    and computes `self.opt`.
+
+    Use this in place of `algorithm.setup(problem, pop=init_pop)` whenever
+    the seeded chromosomes must survive into gen 0.
+    """
+    import time as _time  # noqa: PLC0415
+
+    algorithm.setup(problem, seed=seed)
+    algorithm.pop = pop
+    algorithm.n_iter = n_iter
+    # pymoo's `_initialize()` is what normally stamps `start_time`. We
+    # bypass it here, so set it explicitly — otherwise `algorithm.result()`
+    # (called by `advance()` when internal termination fires) crashes with
+    # `unsupported operand type(s) for -: 'float' and 'NoneType'` on
+    # `res.end_time - res.start_time`.
+    algorithm.start_time = _time.time()
+    algorithm._initialize_advance(infills=pop)
+    algorithm.is_initialized = True
+    algorithm._set_optimum()

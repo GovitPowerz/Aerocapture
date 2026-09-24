@@ -20,7 +20,7 @@ import sys
 import pytest
 
 HARD_IMPORTERS = {
-    "aerocapture.training.warm_start_compare",  # raises a clear ImportError; imported lazily by train.py
+    "aerocapture.training.warm_start_compare",  # raises a clear ImportError; imported lazily by artifacts.py
     "aerocapture.training.rl.env",  # the RL environment IS the extension
     "aerocapture.training.rl.train",  # imports rl.env at module level
 }

@@ -366,3 +366,11 @@ def _mlstm_specs(layer: MlstmSpec, layer_idx: int, bound_multiplier: float) -> l
         else:  # b_q, b_k, b_v, b_o
             specs += _uniform(f"{name}{li}", shape, tight)
     return specs
+
+
+def _decode_nn_weights(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> npt.NDArray[np.float64]:
+    """Decode normalized [0,1] vector to NN weight values."""
+    weights = np.empty(len(specs), dtype=np.float64)
+    for i, s in enumerate(specs):
+        weights[i] = s.p_min + float(x[i]) * (s.p_max - s.p_min)
+    return weights

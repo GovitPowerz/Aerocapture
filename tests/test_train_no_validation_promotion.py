@@ -4,39 +4,36 @@ later generation's best, not freeze the gen-0 argmin (defect D1)."""
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
-import pytest
+import numpy.typing as npt
+from aerocapture.training.config import TrainingConfig
+from aerocapture.training.optimizer import OptimizerConfig
+from aerocapture.training.param_spaces import PARAM_SPACES
 
-pytest.importorskip("aerocapture_rs")
+from tests.fixtures.fake_problem import FakeProblem, run_trainer
 
-from aerocapture.training.config import TrainingConfig  # noqa: E402
-from aerocapture.training.optimizer import OptimizerConfig  # noqa: E402
-from aerocapture.training.problem import AerocaptureProblem  # noqa: E402
-from aerocapture.training.train import train  # noqa: E402
+GEN0_MIN = 1000.0
+
+
+class _ImprovingProblem(FakeProblem):
+    """Every batch evaluation is 100 cheaper than the previous one."""
+
+    def evaluate_population_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]:
+        self.n_evals += 1
+        base = max(GEN0_MIN - 100.0 * (self.n_evals - 1), 10.0)
+        return (base + np.arange(X.shape[0], dtype=np.float64))[:, None] * np.ones((1, len(seeds)))
 
 
 def test_no_validation_promotes_later_generation(tmp_path: Path) -> None:
-    (tmp_path / "data" / "neural_network").mkdir(parents=True)
-
-    cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"))
+    cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed"), guidance_type="equilibrium_glide")
     cfg.optimizer.n_gen = 4
     cfg.optimizer.n_pop = 4
     cfg.optimizer.validation_n_sims = 0  # validation gate OFF -> exercises the D1 path
     cfg.save_dir = str(tmp_path / "training_output")
 
-    gen0_min = 1000.0
-    call_count = 0
-
-    def mock_run_batch(self_prob, X):  # type: ignore[no-untyped-def]
-        nonlocal call_count
-        call_count += 1
-        base = max(gen0_min - 100.0 * (call_count - 1), 10.0)
-        return base + np.arange(X.shape[0], dtype=np.float64)
-
-    with patch.object(AerocaptureProblem, "_run_batch", mock_run_batch):
-        result = train(cfg, seed=42, cwd=str(tmp_path), verbose=False, no_tui=True)
+    problem = _ImprovingProblem(list(PARAM_SPACES[cfg.guidance_type]), seeds=[42])
+    _, result = run_trainer(cfg, problem, cwd=str(tmp_path))
 
     assert result["interrupted"] is False
-    assert result["best_cost"] < gen0_min - 100.0
+    assert result["best_cost"] < GEN0_MIN - 100.0

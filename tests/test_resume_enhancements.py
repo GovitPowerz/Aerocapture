@@ -3,10 +3,10 @@ import types
 from pathlib import Path
 
 import numpy as np
+from aerocapture.training.checkpoint import load_checkpoint, save_checkpoint
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.param_spaces import ParamSpec
-from aerocapture.training.train import load_checkpoint, save_checkpoint
 
 
 def _make_config() -> TrainingConfig:
@@ -164,8 +164,10 @@ def test_resize_populations_grows_each_island() -> None:
         def __init__(self) -> None:
             self.cost_kwargs = {"cost_transform": "linear"}
 
-        def _run_batch(self, X):  # type: ignore[no-untyped-def]
-            return np.arange(X.shape[0], dtype=np.float64)
+        seeds = [0]
+
+        def evaluate_population_per_seed(self, X, seeds):  # type: ignore[no-untyped-def]
+            return (np.arange(X.shape[0], dtype=np.float64))[:, None]
 
     rng = np.random.default_rng(0)
 
@@ -194,8 +196,10 @@ def test_resize_populations_noop_when_size_matches() -> None:
     class _P:
         cost_kwargs = {"cost_transform": "linear"}
 
-        def _run_batch(self, X):  # type: ignore[no-untyped-def]
-            return np.zeros(X.shape[0])
+        seeds = [0]
+
+        def evaluate_population_per_seed(self, X, seeds):  # type: ignore[no-untyped-def]
+            return (np.zeros(X.shape[0]))[:, None]
 
     rng = np.random.default_rng(0)
     pop = Population.new("X", rng.random((5, 1)))
@@ -219,8 +223,10 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
         def __init__(self) -> None:
             self.cost_kwargs = {"cost_transform": "linear"}
 
-        def _run_batch(self, X):  # type: ignore[no-untyped-def]
-            return np.linspace(1.0, 2.0, X.shape[0])
+        seeds = [0]
+
+        def evaluate_population_per_seed(self, X, seeds):  # type: ignore[no-untyped-def]
+            return (np.linspace(1.0, 2.0, X.shape[0]))[:, None]
 
         def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
             return np.full(len(seeds), 1.23, dtype=np.float64), [{} for _ in seeds]
@@ -289,8 +295,10 @@ def test_resize_populations_shrinks_each_island() -> None:
     class _P:
         cost_kwargs = {"cost_transform": "linear"}
 
-        def _run_batch(self, X):  # type: ignore[no-untyped-def]
-            return np.zeros(X.shape[0])
+        seeds = [0]
+
+        def evaluate_population_per_seed(self, X, seeds):  # type: ignore[no-untyped-def]
+            return (np.zeros(X.shape[0]))[:, None]
 
     rng = np.random.default_rng(0)
 
@@ -327,8 +335,10 @@ def test_islands_from_checkpoint_legacy_missing_cost_transform(tmp_path) -> None
     class _P:
         cost_kwargs = {"cost_transform": "linear"}
 
-        def _run_batch(self, X):  # type: ignore[no-untyped-def]
-            return np.linspace(1.0, 2.0, X.shape[0])
+        seeds = [0]
+
+        def evaluate_population_per_seed(self, X, seeds):  # type: ignore[no-untyped-def]
+            return (np.linspace(1.0, 2.0, X.shape[0]))[:, None]
 
         def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
             return np.full(len(seeds), 1.0, dtype=np.float64), [{} for _ in seeds]
