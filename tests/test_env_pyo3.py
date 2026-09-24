@@ -180,15 +180,18 @@ def test_step_obs_is_the_next_tick_navigation() -> None:
 
 
 def test_terminal_observation_and_aux_describe_a_finite_end_state() -> None:
-    """The terminal state (crash, exit, timeout) is sensed too: its obs and aux must stay finite."""
+    """The terminal state (crash, exit, timeout) is sensed too: its obs and aux (in info) must
+    stay finite, and so must the reset rows returned in their place."""
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)
     env.reset()
     n_done = 0
     while n_done < 4:
-        _, _, done, info, aux = env.step(np.zeros(4, dtype=np.float32))
+        obs, _, done, info, aux = env.step(np.zeros(4, dtype=np.float32))
         for i in np.flatnonzero(done):
             n_done += 1
             assert np.isfinite(info[i]["terminal_observation"]).all()
+            assert np.isfinite(info[i]["terminal_aux"]).all()
+            assert np.isfinite(obs[i]).all()
             assert np.isfinite(aux[i]).all()
     env.close()
 

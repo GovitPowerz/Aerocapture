@@ -100,8 +100,10 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
   next episode's reset obs.
 - `rewards.py` — `StepRewardCalculator` and `compute_terminal_cost` (below).
 - `normalizers.py` — `ReturnNormalizer` (Chan's parallel Welford over per-env discounted-return
-  streams; scales per-step rewards by return std after `norm_warmup_steps`; PPO applies it DURING
-  rollout collection so advantages see a stable scale at GAE time) and `ObsNormalizer`
+  streams, a done step's reward being the last one folded into its episode's return -- until
+  2026-09-24 it opened the next episode's; scales per-step rewards by return std after
+  `norm_warmup_steps`; PPO applies it DURING rollout collection so advantages see a stable scale
+  at GAE time) and `ObsNormalizer`
   (per-feature mean/std, baked into the first linear layer at export: `W_new = W/std`, `b_new =
   b - W@(mean/std)`, so the Rust runtime needs no change). Both checkpoint with the weights.
 - `train.py` — the CLI and outer loop (CleanRL-style): rollout collection threading per-env

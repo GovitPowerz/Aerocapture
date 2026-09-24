@@ -177,9 +177,11 @@ The auto-reset boundary is the same class of bug one level up: every per-step qu
 from one episode. `step()`'s arrays (`obs`, `aux`) are the new episode's s_0 and `info` carries the
 ended episode's s_T (`terminal_observation`, `terminal_aux`); the rollout keeps `terminated` (masks
 the bootstrap) apart from `dones` (cuts the GAE trace, resets recurrent state in the BPTT replay).
-Until 2026-09-24 the aux array was pre-reset and one `done & ~truncated` mask did all three jobs,
-so every first-step reward and every timeout leaked across episodes. Gates:
-`tests/rl/test_collect_rollout.py`, `tests/rl/test_ppo.py::test_gae_episode_end_cuts_the_trace`.
+Until 2026-09-24 the aux array was pre-reset, one `done & ~truncated` mask did all three jobs, and
+the return normalizer restarted its running return from the ended episode's terminal reward, so
+every first-step reward, every timeout and the reward scale leaked across episodes. Gates:
+`tests/rl/test_collect_rollout.py`, `tests/rl/test_ppo.py::test_gae_episode_end_cuts_the_trace`,
+`tests/rl/test_normalizers.py::TestReturnNormalizer::test_done_step_reward_closes_its_own_episode`.
 
 ### Noise regimes: per-draw is the default, legacy reproduces quoted numbers
 

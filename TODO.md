@@ -15,8 +15,9 @@
       (RL README "Environment" and "Reward structure"): the first shaped reward of every episode
       after an env's first read the previous episode's terminal aux, and on a timeout the GAE trace
       leaked the next episode's advantage into the ended one (a recurrent policy's BPTT replay also
-      kept the stale hidden state). A change in the re-quote cannot be attributed to any one of
-      these fixes alone.
+      kept the stale hidden state), and the return normalizer restarted its running return from
+      the ended episode's terminal reward instead of zero. A change in the re-quote cannot be
+      attributed to any one of these fixes alone.
 - [ ] Add neural counterparts for navigation and control: train neural counterparts for the
       density estimator (replacing the exponential filter) and the pilot model (replacing the
       first/second-order dynamics), compared against the classical algorithms on identical MC

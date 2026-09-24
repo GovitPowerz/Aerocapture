@@ -81,6 +81,23 @@ def test_gae_episode_end_cuts_the_trace(terminated_at_1: bool) -> None:
     np.testing.assert_allclose(ret, adv + values)
 
 
+def test_gae_over_env_columns_matches_per_column() -> None:
+    """A (T, N) call is exactly the N per-column calls (bit-identical, float32 chain kept)."""
+    rng = np.random.default_rng(3)
+    T, N = 12, 5
+    rewards = rng.standard_normal((T, N)).astype(np.float32)
+    values = rng.standard_normal((T, N)).astype(np.float32)
+    next_values = rng.standard_normal((T, N)).astype(np.float32)
+    dones = rng.random((T, N)) < 0.3
+    terminated = dones & (rng.random((T, N)) < 0.5)
+    adv, ret = compute_gae(rewards, values, next_values, terminated=terminated, dones=dones, gamma=0.99, lam=0.95)
+    assert adv.shape == ret.shape == (T, N)
+    for e in range(N):
+        adv_e, ret_e = compute_gae(rewards[:, e], values[:, e], next_values[:, e], terminated=terminated[:, e], dones=dones[:, e], gamma=0.99, lam=0.95)
+        np.testing.assert_array_equal(adv[:, e], adv_e)
+        np.testing.assert_array_equal(ret[:, e], ret_e)
+
+
 def test_rollout_buffer_create() -> None:
     buf = RolloutBuffer.create(n_steps=8, n_envs=4, obs_dim=16)
     assert buf.obs.shape == (8, 4, 16)

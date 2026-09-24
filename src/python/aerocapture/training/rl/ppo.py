@@ -100,7 +100,8 @@ def compute_gae(
     gamma: float,
     lam: float,
 ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
-    """GAE-lambda with per-step next-value bootstrap, over one env column.
+    """GAE-lambda with per-step next-value bootstrap. Axis 0 is time; any
+    trailing axes (the env columns of a rollout buffer) are independent.
 
     `values[t]`: V(s_t). `next_values[t]`: V(s_{t+1}) -- the caller supplies
     V(terminal_obs) when the episode ended at t (the column's next obs is
@@ -110,10 +111,12 @@ def compute_gae(
     """
     n = rewards.shape[0]
     adv = np.zeros_like(rewards, dtype=np.float32)
-    gae = 0.0
+    gae = np.zeros(rewards.shape[1:], dtype=np.float32)
+    keep_bootstrap = (~np.asarray(terminated, dtype=np.bool_)).astype(np.float32)
+    keep_trace = (~np.asarray(dones, dtype=np.bool_)).astype(np.float32)
     for t in reversed(range(n)):
-        delta = rewards[t] + gamma * next_values[t] * (1.0 - float(terminated[t])) - values[t]
-        gae = delta + gamma * lam * (1.0 - float(dones[t])) * gae
+        delta = rewards[t] + gamma * next_values[t] * keep_bootstrap[t] - values[t]
+        gae = delta + gamma * lam * keep_trace[t] * gae
         adv[t] = gae
     ret = adv + values
     return adv, ret

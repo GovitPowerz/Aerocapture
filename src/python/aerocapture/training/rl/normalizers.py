@@ -57,15 +57,18 @@ class ReturnNormalizer:
         return float(max(np.sqrt(self._m2[0] / self._count), self.epsilon))
 
     def update(self, rewards: npt.NDArray[np.float64], dones: npt.NDArray[np.bool_]) -> None:
-        """Update running return stats. `rewards`/`dones` are per-env for one step."""
+        """Update running return stats. `rewards`/`dones` are per-env for one step;
+        `dones[i]` marks the step that ends env i's episode, so its reward is the last
+        one folded into that episode's return and the next step starts from zero."""
         rewards = np.asarray(rewards, dtype=np.float64)
         dones = np.asarray(dones, dtype=np.bool_)
         n = rewards.shape[0]
         if self._returns is None or self._returns.shape[0] != n:
             self._returns = np.zeros(n, dtype=np.float64)
-        self._returns[:] = self.gamma * self._returns * (~dones).astype(np.float64) + rewards
+        self._returns[:] = self.gamma * self._returns + rewards
         batch = self._returns.reshape(-1, 1)
         self._mean, self._m2, self._count = _chan_update(self._mean, self._m2, self._count, batch)
+        self._returns[dones] = 0.0
 
     def normalize(self, rewards: npt.NDArray[np.float64], std: float | None = None) -> npt.NDArray[np.float64]:
         """Divide by running std. Pass an explicit `std` (e.g. a snapshot taken at
