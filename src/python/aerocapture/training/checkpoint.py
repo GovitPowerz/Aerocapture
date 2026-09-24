@@ -33,15 +33,20 @@ def _restore_seed_curator(state: dict, configured: SeedCurator, verbose: bool) -
     checkpoints lacking the keys would even reset trim/bucket to 0.0/'random'.
     A notice is printed when the checkpointed knobs differ (mirrors the
     cost_transform change notice). A checkpointed seed_list whose width differs
-    from the configured `n_bins` (= training_n_sims) is dropped, so the first
-    generation bootstraps a fresh n_sims-wide list and re-evaluates instead of
-    flying the old width until the next curation; `last_curation_gen` is kept.
+    from the configured `n_bins` (= training_n_sims) is dropped and the curation
+    clock reset to the fresh-start sentinel: the loop then treats the resume as
+    an adaptive fresh start (random n_sims-wide draw + re-eval every generation
+    while seed_list is None) and the periodic trigger, measured from -1, fires at
+    the first resumed generation once gen >= seed_pool_interval - 1. Keeping the
+    old clock would hold that rotation-plus-re-eval regime for up to
+    seed_pool_interval generations.
     """
     restored = SeedCurator.from_dict(state, excluded_seeds=configured.excluded_seeds, rng=configured.rng)
     if restored.seed_list is not None and len(restored.seed_list) != configured.n_bins:
         if verbose:
-            print(f"  seed-curator seed list from checkpoint dropped: {len(restored.seed_list)} seeds != training_n_sims {configured.n_bins}; bootstrapping")
+            print(f"  seed-curator seed list from checkpoint dropped: {len(restored.seed_list)} seeds != training_n_sims {configured.n_bins}; re-curating")
         restored.seed_list = None
+        restored.last_curation_gen = -1
     changed = [
         f"{name} {getattr(restored, name)!r} -> {getattr(configured, name)!r}"
         for name in ("sample_size", "n_bins", "trim_fraction", "bucket_selection")

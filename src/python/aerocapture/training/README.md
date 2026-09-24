@@ -110,8 +110,10 @@ the CDF tails by `curation_trim_fraction`), and picks one seed per bin per
 `curation_bucket_selection` (`random` / `min` / `max` / `middle`). On resume the curator restores
 STATE only (seed_list, last_curation_gen) via `_restore_seed_curator`; the knobs come from the
 current TOML, with a printed notice when the checkpointed values differ; a checkpointed seed_list
-whose width differs from `training_n_sims` is dropped (notice printed, `last_curation_gen` kept)
-so the first generation bootstraps a fresh `n_sims`-wide list and re-evaluates. `algorithm.pop` is
+whose width differs from `training_n_sims` is dropped and `last_curation_gen` reset to -1 (notice
+printed), so the resume behaves like an adaptive fresh start: a random `n_sims`-wide draw plus a
+re-eval every generation while `seed_list` is None, and the periodic trigger re-curates at the
+first resumed generation once `gen >= seed_pool_interval - 1`. `algorithm.pop` is
 re-evaluated pre-`algorithm.next()` only when the seeds actually changed; CMA-ES skips the re-eval
 entirely. `fixed` and `rotating` have no class (inline in `trainer.py`); `adaptive` is
 `seed_curator.SeedCurator` (`curate(problem, top_k_X)`, `to_dict()` / `from_dict()`). The single

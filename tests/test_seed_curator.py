@@ -197,13 +197,15 @@ class TestRestoreOnResume:
 
     def test_width_mismatched_seed_list_is_dropped(self, capsys: pytest.CaptureFixture[str]) -> None:
         """A checkpointed seed list narrower than the configured training_n_sims
-        (= n_bins) is dropped so the loop bootstraps a fresh list; the curation
-        clock (last_curation_gen) is kept."""
+        (= n_bins) is dropped and the curation clock reset to the fresh-start
+        sentinel, so the loop bootstraps a fresh list and re-curates at the
+        first resumed generation instead of rotating until the old clock's
+        next interval."""
         from aerocapture.training.checkpoint import _restore_seed_curator
 
         configured = SeedCurator(sample_size=500, n_bins=10, excluded_seeds=set(), rng=_rng(0))
         state = {"sample_size": 500, "n_bins": 10, "seed_list": [1, 2, 3], "last_curation_gen": 17}
         restored = _restore_seed_curator(state, configured, verbose=True)
         assert restored.seed_list is None
-        assert restored.last_curation_gen == 17
+        assert restored.last_curation_gen == -1
         assert "seed list from checkpoint dropped: 3 seeds != training_n_sims 10" in capsys.readouterr().out

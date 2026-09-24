@@ -109,8 +109,8 @@ def _apply_seed_strategy(
 ) -> bool:
     """Per-gen training-seed draw shared by the single-algorithm and islands loops.
 
-    `rotating` redraws a disjoint seed list every gen; `adaptive` draws a
-    one-time bootstrap list before the first curation has populated
+    `rotating` redraws a disjoint seed list every gen; `adaptive` does the same
+    (a per-gen bootstrap draw) until the first curation has populated
     `seed_curator.seed_list`. Returns `seeds_changed_this_gen` (OR'd with the
     incoming `pending_seed_change`); `fixed` changes nothing and just echoes it.
     """
