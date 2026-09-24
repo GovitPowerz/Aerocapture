@@ -123,6 +123,26 @@ def test_terminal_observation_in_info() -> None:
     pytest.fail("env did not terminate within 2000 steps")
 
 
+def test_done_env_returns_the_new_episode_aux_and_the_terminal_aux_in_info() -> None:
+    """A done env's returned obs/aux rows are its new episode's s_0 (what reset() gives
+    for the new seed); the ended episode's aux, s_T for PBRS, is in info["terminal_aux"]."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=1, seed_base=3_000_000)
+    env.reset()
+    for _ in range(2000):
+        obs, _, done, info, aux = env.step(np.zeros(1, dtype=np.float32))
+        if done[0]:
+            fresh = aerocapture_rs.BatchedSimulation(TOML, n_envs=1)
+            obs0, aux0 = fresh.reset(env.current_seeds().astype(np.int64))
+            np.testing.assert_array_equal(obs, obs0)
+            np.testing.assert_array_equal(aux, aux0)
+            term_aux = np.asarray(info[0]["terminal_aux"], dtype=np.float32)
+            assert term_aux.shape == (7,)
+            assert np.isfinite(term_aux).all()
+            assert term_aux[0] < aux0[0, 0]  # the ended episode dissipated energy
+            return
+    pytest.fail("env did not terminate within 2000 steps")
+
+
 def test_aux_carries_dv_components() -> None:
     """Aux columns 2-4 are the raw predicted-DV correction budget (finite, live)."""
     env = aerocapture_rs.BatchedSimulation(TOML, n_envs=4, seed_base=3_000_000)

@@ -186,9 +186,9 @@ def test_terminated_shaped_return_is_minus_phi0_for_any_trajectory() -> None:
 
 def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncation(default_calc: StepRewardCalculator) -> None:
     """The PPO and SAC loops share `_shaped_rewards`: a done env shapes against its pre-reset
-    terminal obs (not the reset obs `next_obs` carries), with Phi(s_T) = 0 when terminated and
-    Phi(s_T) kept when truncated. The phase-aware potential reads obs, so the substitution is
-    visible in the shaped value."""
+    terminal obs and aux (not the reset rows `next_obs` / `aux_next` carry), with Phi(s_T) = 0
+    when terminated and Phi(s_T) kept when truncated. The phase-aware potential reads obs and
+    the aux thermal fractions, so both substitutions are visible in the shaped value."""
     pytest.importorskip("aerocapture_rs")
     from aerocapture.training.rl.train import _shaped_rewards
 
@@ -197,17 +197,22 @@ def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncati
     next_obs = _make_obs(n=3, **{"15": -1.0, "19": 1.0})  # done envs: the post-reset obs
     term = _make_obs(n=1, **{"15": -1.0, "19": 2.0})[0]  # pre-reset terminal obs
     aux = np.zeros((3, 7), dtype=np.float32)
+    aux_next = aux.copy()
+    aux_next[:2, 5:7] = 0.9  # done envs: the post-reset aux
+    term_aux = np.zeros(7, dtype=np.float32)
+    term_aux[5:7] = 0.5  # pre-reset terminal aux (thermal fractions)
     done = np.array([True, True, False])
     info = [
-        {"truncated": False, "terminal_observation": term.tolist()},
-        {"truncated": True, "terminal_observation": term.tolist()},
+        {"truncated": False, "terminal_observation": term.tolist(), "terminal_aux": term_aux.tolist()},
+        {"truncated": True, "terminal_observation": term.tolist(), "terminal_aux": term_aux.tolist()},
         {},
     ]
-    shaped, next_obs_true, terminated = _shaped_rewards(calc, obs, next_obs, aux, aux, done, info)
+    shaped, next_obs_true, terminated = _shaped_rewards(calc, obs, next_obs, aux, aux_next, done, info)
     phi_cur = calc._potential(obs[:1], aux[:1])[0]
-    phi_term = calc._potential(term[None], aux[:1])[0]
+    phi_term = calc._potential(term[None], term_aux[None])[0]
     phi_reset = calc._potential(next_obs[:1], aux[:1])[0]
     assert len({phi_cur, phi_term, phi_reset, 0.0}) == 4  # every branch below is distinguishable
+    assert calc._potential(term[None], aux_next[1:2])[0] != phi_term  # so is the aux substitution
     assert shaped[0] == pytest.approx(-phi_cur)  # terminated: 0.99 * 0 - Phi(cur)
     assert shaped[1] == pytest.approx(0.99 * phi_term - phi_cur)  # truncated: bootstrapped, keeps Phi(s_T)
     assert shaped[2] == pytest.approx(0.99 * phi_reset - phi_cur)  # mid-episode: s' is next_obs

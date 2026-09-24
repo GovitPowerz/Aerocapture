@@ -193,7 +193,8 @@ def _compute_advantages_returns(
             buf.rewards[:, e],
             buf.values[:, e],
             next_values[:, e],
-            buf.dones[:, e],
+            terminated=buf.terminated[:, e],
+            dones=buf.dones[:, e],
             gamma=cfg.ppo.gamma,
             lam=cfg.ppo.gae_lambda,
         )
@@ -248,15 +249,19 @@ def _shaped_rewards(
     """PBRS rewards of one vector step -> (shaped, next_obs_true, terminated).
 
     `next_obs_true` is s': a done env's pre-reset terminal obs (`next_obs`
-    already holds the reset). `terminated` is `done & ~truncated`: those steps
-    are absorbing (Phi(s') = 0, no bootstrap); truncations bootstrap from
-    `next_obs_true` and keep Phi(s').
+    already holds the reset, s_0 of its next episode, and so does `aux_next`:
+    Phi(s') reads the terminal aux from info). `terminated` is
+    `done & ~truncated`: those steps are absorbing (Phi(s') = 0, no bootstrap);
+    truncations bootstrap from `next_obs_true` and keep Phi(s').
     """
     term_obs = _terminal_observations(info, done, obs.shape[1])
     truncated = np.array([bool(d.get("truncated", False)) for d in info], dtype=np.bool_)
     next_obs_true = np.where(done[:, None], term_obs, next_obs)
+    aux_next_true = aux_next.copy()
+    for i in np.flatnonzero(done):
+        aux_next_true[i] = info[i]["terminal_aux"]
     terminated = done & ~truncated
-    shaped = step_calc.step_reward(obs, next_obs_true, aux_cur, aux_next, absorbing=terminated)
+    shaped = step_calc.step_reward(obs, next_obs_true, aux_cur, aux_next_true, absorbing=terminated)
     return shaped.astype(np.float32), next_obs_true, terminated
 
 
@@ -604,7 +609,8 @@ def collect_rollout(
         buf.log_probs[t] = log_prob.cpu().numpy()
         buf.rewards[t] = shaped
         buf.values[t] = v_pred.cpu().numpy()
-        buf.dones[t] = terminated
+        buf.dones[t] = done
+        buf.terminated[t] = terminated
         next_values[t] = nv
 
         # Advance hidden state; zero per-env on done (matches Rust auto-reset).

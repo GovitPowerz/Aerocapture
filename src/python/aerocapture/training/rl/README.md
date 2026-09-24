@@ -47,11 +47,22 @@ the limit (the reward never inverts the model-dependent NN input normalization);
 `build_obs_for_env`'s orbit construction so they equal candidate inputs 32-34 pre-normalization.
 `env.py::AerocaptureVecEnv` wraps the pyclass.
 
+Episode boundaries: a done env's returned `obs` and `aux` rows are already its new episode's s_0;
+the ended episode's s_T is in `info["terminal_observation"]` / `info["terminal_aux"]`, the s' of
+the value bootstrap and, on a truncation, of the PBRS `Phi(s')` (a termination has `Phi(s') = 0`;
+`train.py::_shaped_rewards`, gate `tests/rl/test_collect_rollout.py`).
+Until 2026-09-24 (the Section 5 cells included), `aux` was captured before the auto-reset and
+`obs` after it, so the first shaped reward of every episode after an env's first read
+`Phi(reset obs, previous episode's terminal aux)`, under either potential (both read the aux
+thermal fractions; `potential = "dv"` also its predicted DV, about minus the previous terminal DV
+instead of minus the initial O(1e3) m/s). Independent of the episode's own actions, so no optimum
+shift, but a large spurious first-step reward and noise in V(s_0) and A(s_0, a_0).
+
 The env is the deployed NN's decision process, bit for bit (gate: `src/rust/tests/rl_env_parity.rs`,
 bias and EKF navigation, shaping and OU noise on). Two rules make it so. (1) Timing: `reset()`
 senses tick 0 and `step(a_k)` runs `act_tick(a_k)` then the next tick's `sense_tick`, so the obs
 it returns is nav(t_{k+1}), the input the deployed NN reads when it picks a_{k+1}; terminal states
-are sensed too (unless non-finite), so `terminal_observation` and the terminal aux describe the
+are sensed too (unless non-finite), so `terminal_observation` and `terminal_aux` describe the
 state the episode ended in. (2) Injection: the action replaces the NN forward pass inside
 `guidance_step` (its `policy_bank`), so it goes through the same activation gating and command
 shaping as a deployed NN output, and the NN telemetry inputs (21-24, 27-30) record the shaped
@@ -77,9 +88,9 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
 - `ppo.py` — `RolloutBuffer` (+ `h_initial`, `h_final`, `states`: per-layer `ndarray | None`,
   zero overhead for dense-only rollouts; `states[t]` is the state BEFORE step t, so chunk c+1
   reads `states[c * bptt_length]` as its detached seed), `compute_gae` (per-step `next_values`
-  bootstrap so truncated episodes use `V(terminal_obs)`), `ppo_update` (clipped surrogate + value
-  + entropy + optional `target_kl` early stop) and `ppo_update_bptt` (chunked truncated BPTT:
-  `rollout_steps // bptt_length` chunks, hidden state detached at chunk boundaries, minibatches
+  bootstrap so truncated episodes use `V(terminal_obs)`; two masks, see "Reward structure"),
+  `ppo_update` (clipped surrogate + value + entropy + optional `target_kl` early stop) and
+  `ppo_update_bptt` (chunked truncated BPTT: `rollout_steps // bptt_length` chunks, hidden state detached at chunk boundaries, minibatches
   partition the ENV axis, not time-flattened `(T*N)`; feedforward PPO runs through the same loop
   with `bptt_length = rollout_steps`; LSTM tuple state reconstructed at chunk boundaries when
   `ndim == 3`).
@@ -141,9 +152,17 @@ the dv-vs-thermal ratio, so raise `constraint_weight` (or lower `dv*_weight`) to
 term more authority. The terminal reward adds the raw `compute_terminal_cost` (DV + constraint
 penalties, with the TOML `[cost_function]` kwargs via `report.read_cost_kwargs`) on TERMINATED
 episodes only; truncated (`max_time` timeout, ifinal=2) episodes bootstrap `V(terminal_obs)` /
-`Q(terminal_obs)` instead (dones masked with `& ~truncated`), since adding the timeout virtual-DV
-cost on top would double-count the terminal state in the value target; `episodic_*` logging
-still records every outcome. All weights are TOML-configurable in `[rl.reward]`.
+`Q(terminal_obs)` instead (bootstrap mask `terminated = done & ~truncated`), since adding the
+timeout virtual-DV cost on top would double-count the terminal state in the value target;
+`episodic_*` logging still records every outcome. All weights are TOML-configurable in `[rl.reward]`.
+
+PPO keeps two masks per step in the `RolloutBuffer`: `terminated` masks the `V(s')` bootstrap in
+`compute_gae`, and `dones` (termination OR truncation) cuts the GAE lambda-trace and zeroes the
+recurrent state in the `ppo_update_bptt` replay, because step t+1 of that env column is the next
+episode. Until 2026-09-24 one mask (`done & ~truncated`) served all three, so on a
+truncated step the trace carried the next episode's first-step advantage into the ended one, and
+a recurrent policy's replay kept the stale hidden state the rollout had zeroed (log-probs
+re-evaluated off the sampling distribution).
 
 ## Configs and schemes
 

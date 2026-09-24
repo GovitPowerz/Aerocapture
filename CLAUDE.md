@@ -173,6 +173,14 @@ flies the model's own output through the env loop and requires a bit-identical t
 `step_one_tick(None)`. Any new env feature (a different action, a new observation channel) must
 keep that test green.
 
+The auto-reset boundary is the same class of bug one level up: every per-step quantity must come
+from one episode. `step()`'s arrays (`obs`, `aux`) are the new episode's s_0 and `info` carries the
+ended episode's s_T (`terminal_observation`, `terminal_aux`); the rollout keeps `terminated` (masks
+the bootstrap) apart from `dones` (cuts the GAE trace, resets recurrent state in the BPTT replay).
+Until 2026-09-24 the aux array was pre-reset and one `done & ~truncated` mask did all three jobs,
+so every first-step reward and every timeout leaked across episodes. Gates:
+`tests/rl/test_collect_rollout.py`, `tests/rl/test_ppo.py::test_gae_episode_end_cuts_the_trace`.
+
 ### Noise regimes: per-draw is the default, legacy reproduces quoted numbers
 
 `[monte_carlo] noise_seeding = "per_draw"` (ADR-0006) is the default: each dispersion draw gets its own OU-density / EKF-noise stream. `"legacy"` freezes ONE noise path across every

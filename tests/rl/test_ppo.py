@@ -31,20 +31,19 @@ def test_gae_known_values() -> None:
     values = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     next_values = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     dones = np.array([False, False, True], dtype=np.bool_)
-    adv, ret = compute_gae(rewards, values, next_values, dones, gamma=0.99, lam=0.95)
+    adv, ret = compute_gae(rewards, values, next_values, terminated=dones, dones=dones, gamma=0.99, lam=0.95)
     assert adv.shape == (3,)
     assert np.isfinite(adv).all()
     assert np.isfinite(ret).all()
 
 
 def test_gae_truncation_keeps_bootstrap() -> None:
-    """Truncation sets done=False + provides V(terminal_obs) in next_values so
-    the advantage uses r + gamma*V(term) - V(s) instead of masking to 0."""
+    """Truncation is done but not terminated + provides V(terminal_obs) in next_values
+    so the advantage uses r + gamma*V(term) - V(s) instead of masking to 0."""
     rewards = np.array([0.0], dtype=np.float32)
     values = np.array([5.0], dtype=np.float32)
     next_values = np.array([10.0], dtype=np.float32)  # V(terminal_obs)
-    dones = np.array([False], dtype=np.bool_)
-    adv, _ = compute_gae(rewards, values, next_values, dones, gamma=1.0, lam=1.0)
+    adv, _ = compute_gae(rewards, values, next_values, terminated=np.array([False]), dones=np.array([True]), gamma=1.0, lam=1.0)
     # delta = 0 + 1.0 * 10.0 - 5.0 = 5.0
     assert adv[0] == 5.0
 
@@ -56,8 +55,30 @@ def test_gae_true_termination_zeros_bootstrap() -> None:
     values = np.array([5.0], dtype=np.float32)
     next_values = np.array([10.0], dtype=np.float32)
     dones = np.array([True], dtype=np.bool_)
-    adv, _ = compute_gae(rewards, values, next_values, dones, gamma=1.0, lam=1.0)
+    adv, _ = compute_gae(rewards, values, next_values, terminated=dones, dones=dones, gamma=1.0, lam=1.0)
     assert adv[0] == -5.0
+
+
+@pytest.mark.parametrize("terminated_at_1", [False, True])
+def test_gae_episode_end_cuts_the_trace(terminated_at_1: bool) -> None:
+    """One env column: episode A ends at t=1 (truncated or terminated), episode B
+    starts at t=2. Step 1's advantage must not carry B's advantages, and A's
+    advantages must equal those of A's steps alone."""
+    rewards = np.array([1.0, 2.0, 100.0, 50.0], dtype=np.float32)
+    values = np.array([0.5, 1.0, -3.0, 4.0], dtype=np.float32)
+    next_values = np.array([1.0, 7.0, 4.0, 9.0], dtype=np.float32)  # t=1: V(terminal_obs of A)
+    terminated = np.array([False, terminated_at_1, False, False])
+    dones = np.array([False, True, False, False])
+    gamma, lam = 0.9, 0.8
+
+    adv, ret = compute_gae(rewards, values, next_values, terminated=terminated, dones=dones, gamma=gamma, lam=lam)
+
+    adv_a, _ = compute_gae(rewards[:2], values[:2], next_values[:2], terminated=terminated[:2], dones=dones[:2], gamma=gamma, lam=lam)
+    adv_b, _ = compute_gae(rewards[2:], values[2:], next_values[2:], terminated=terminated[2:], dones=dones[2:], gamma=gamma, lam=lam)
+    np.testing.assert_array_equal(adv, np.concatenate([adv_a, adv_b]))
+    bootstrap = 0.0 if terminated_at_1 else gamma * 7.0
+    assert adv[1] == pytest.approx(2.0 + bootstrap - 1.0)
+    np.testing.assert_allclose(ret, adv + values)
 
 
 def test_rollout_buffer_create() -> None:
@@ -68,6 +89,7 @@ def test_rollout_buffer_create() -> None:
     assert buf.rewards.shape == (8, 4)
     assert buf.values.shape == (8, 4)
     assert buf.dones.shape == (8, 4)
+    assert buf.terminated.shape == (8, 4)
 
 
 def _fill_buffer_random(buf: RolloutBuffer, rng: np.random.Generator) -> None:

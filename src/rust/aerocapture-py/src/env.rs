@@ -2,7 +2,9 @@
 //!
 //! Holds N independent SimStates sharing one Arc<SimData>. step() advances
 //! each env one outer guidance tick via Rayon, auto-resets on done, and
-//! returns the stacked (obs, reward, done, info) payload.
+//! returns the stacked (obs, reward, done, info, aux) payload. For an
+//! auto-reset env, obs and aux rows are the new episode's s_0; the ended
+//! episode's s_T is in info["terminal_observation"] / info["terminal_aux"].
 //!
 //! Observation timing matches deploy: every env is held at a tick's sense point
 //! (`tick::sense_tick` done, `last_nav` = nav(t_k)). step(a_k) runs
@@ -44,8 +46,9 @@ type StepReturn<'py> = PyResult<(
     Vec<Py<PyDict>>,
     Bound<'py, PyArray2<f32>>,
 )>;
+/// Per-env step result: (done, terminal payload, aux row).
+type StepOutcome = (bool, Option<TerminalOutcome>, [f64; AUX_WIDTH]);
 
-/// Vectorized step-based simulator for RL training.
 /// Width of the per-env auxiliary array returned by `reset` / `step`:
 /// `[energy_estimated, dynamic_pressure_estimated, predicted_dv1, predicted_dv2,
 /// predicted_dv3, heat_flux_fraction, heat_load_fraction]`. The thermal fractions
@@ -53,6 +56,7 @@ type StepReturn<'py> = PyResult<(
 /// to invert the NN input normalization (which is model-dependent).
 pub const AUX_WIDTH: usize = 7;
 
+/// Vectorized step-based simulator for RL training.
 #[pyclass(unsendable)]
 pub struct BatchedSimulation {
     #[pyo3(get)]
@@ -205,11 +209,11 @@ impl BatchedSimulation {
         let event_ctx = &self.event_ctx;
 
         // Advance all envs one tick in parallel; collect terminal info where done.
-        // Also capture (energy, pdyn) from nav output BEFORE auto-reset so PBRS
-        // gets the pre-reset values for terminal steps.
+        // The aux is captured BEFORE auto-reset: a done env's row is its terminal
+        // aux until the reset below replaces it.
         // Release the GIL during the Rayon block so other Python threads can run
         // and Ctrl-C is responsive.
-        let outcomes: Vec<(bool, Option<TerminalOutcome>, [f64; AUX_WIDTH])> = py.detach(|| {
+        let mut outcomes: Vec<StepOutcome> = py.detach(|| {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
@@ -232,21 +236,7 @@ impl BatchedSimulation {
                     if state.physics_state().iter().all(|x| x.is_finite()) {
                         tick::sense_tick(state, sim_input, sim_data, &sim_input.planet);
                     }
-                    // Capture aux (energy, pdyn, dv1, dv2, dv3, heat fractions) from
-                    // nav output before potential reset. The 3 DV components are the
-                    // raw m/s correction-budget signals the DV-reward potential
-                    // consumes; the two thermal fractions are raw (not normalized).
-                    let nav = state.last_nav_output();
-                    let dv = predicted_dv_for_state(state, sim_data, sim_input);
-                    let aux = [
-                        nav.energy_estimated,
-                        nav.dynamic_pressure_estimated,
-                        dv[0],
-                        dv[1],
-                        dv[2],
-                        nav.heat_flux_fraction,
-                        nav.heat_load_fraction,
-                    ];
+                    let aux = aux_for_env(state, sim_data, sim_input);
                     if state.term() != TermReason::None {
                         // Capture terminal obs BEFORE the env state is reset.
                         let terminal_obs = build_obs_for_env(state, sim_data, sim_input);
@@ -274,6 +264,7 @@ impl BatchedSimulation {
                             truncated,
                             final_record: fr,
                             terminal_obs,
+                            terminal_aux: aux,
                         };
                         (true, Some(term), aux)
                     } else {
@@ -283,14 +274,17 @@ impl BatchedSimulation {
                 .collect()
         });
 
-        // Auto-reset terminated envs with advancing seeds.
-        for (i, (done, _, _)) in outcomes.iter().enumerate() {
+        // Auto-reset terminated envs with advancing seeds. The returned aux must
+        // describe the returned obs, so a reset env's row becomes its new
+        // episode's s_0 aux; the terminal aux travels in info["terminal_aux"].
+        for (i, (done, _, aux)) in outcomes.iter_mut().enumerate() {
             if *done {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
                 self.envs[i] = fresh_env(&self.sim_input, &self.sim_data, seed);
                 self.episode_ids[i] = seed;
                 self.step_counts[i] = 0;
+                *aux = aux_for_env(&self.envs[i], &self.sim_data, &self.sim_input);
             } else {
                 self.step_counts[i] += 1;
             }
@@ -302,7 +296,7 @@ impl BatchedSimulation {
         let done_arr = PyArray1::<bool>::from_iter(py, outcomes.iter().map(|(d, _, _)| *d));
 
         // Aux array: (n_envs, AUX_WIDTH), see `AUX_WIDTH` for the column order.
-        // Values are from the pre-reset nav output (terminal steps get their final-tick values).
+        // Row i matches obs row i (a reset env's row is its new episode's s_0).
         let aux = PyArray2::<f32>::zeros(py, [self.n_envs, AUX_WIDTH], false);
         {
             let mut aux_view = unsafe { aux.as_array_mut() };
@@ -330,6 +324,9 @@ impl BatchedSimulation {
                 // Pre-reset obs of the terminated episode; PPO needs this for value bootstrap.
                 let term_obs: Vec<f32> = t.terminal_obs.iter().map(|&v| v as f32).collect();
                 dict.set_item("terminal_observation", term_obs)?;
+                // Pre-reset aux of the terminated episode; PBRS needs this for Phi(s_T).
+                let term_aux: Vec<f32> = t.terminal_aux.iter().map(|&v| v as f32).collect();
+                dict.set_item("terminal_aux", term_aux)?;
             }
             info_list.push(dict.unbind());
         }
@@ -368,18 +365,28 @@ impl BatchedSimulation {
         let arr = PyArray2::<f32>::zeros(py, [self.n_envs, AUX_WIDTH], false);
         let mut view = unsafe { arr.as_array_mut() };
         for (i, env) in self.envs.iter().enumerate() {
-            let nav = env.last_nav_output();
-            let dv = predicted_dv_for_state(env, &self.sim_data, &self.sim_input);
-            view[[i, 0]] = nav.energy_estimated as f32;
-            view[[i, 1]] = nav.dynamic_pressure_estimated as f32;
-            view[[i, 2]] = dv[0] as f32;
-            view[[i, 3]] = dv[1] as f32;
-            view[[i, 4]] = dv[2] as f32;
-            view[[i, 5]] = nav.heat_flux_fraction as f32;
-            view[[i, 6]] = nav.heat_load_fraction as f32;
+            let aux = aux_for_env(env, &self.sim_data, &self.sim_input);
+            for j in 0..AUX_WIDTH {
+                view[[i, j]] = aux[j] as f32;
+            }
         }
         arr
     }
+}
+
+/// One env's aux row from its current navigation, see `AUX_WIDTH` for the columns.
+fn aux_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> [f64; AUX_WIDTH] {
+    let nav = state.last_nav_output();
+    let dv = predicted_dv_for_state(state, data, config);
+    [
+        nav.energy_estimated,
+        nav.dynamic_pressure_estimated,
+        dv[0],
+        dv[1],
+        dv[2],
+        nav.heat_flux_fraction,
+        nav.heat_load_fraction,
+    ]
 }
 
 /// A new episode for `seed`, sensed at its first tick: `last_nav` = nav(t_0),
@@ -456,4 +463,6 @@ struct TerminalOutcome {
     final_record: [f64; FINAL_RECORD_LEN],
     /// Last observation of the terminated episode (pre-reset), for PPO value bootstrap.
     terminal_obs: Vec<f64>,
+    /// Aux row of `terminal_obs` (pre-reset), for the PBRS Phi(s_T).
+    terminal_aux: [f64; AUX_WIDTH],
 }
