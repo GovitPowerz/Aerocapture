@@ -180,7 +180,7 @@ pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script m
   `tests/fixtures/factories.py` (config/chromosome factories). `pytest --collect-only -q` is the inventory; every file under `tests/` runs in CI (no allowlist), so a new test file runs there.
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test
   infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx`, `rstest`, `proptest`, `tempfile`. Run with `cargo test` or `./check_all.sh`.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) - Rust (fmt, `clippy --workspace`, `test --workspace`: both crates), Python lint (ruff lint + ruff format over
+- **CI**: GitHub Actions (`.github/workflows/ci.yml`) - Rust (fmt, `clippy --workspace`, `test --workspace --all-targets`: both crates, benches once in criterion test mode), Python lint (ruff lint + ruff format over
   `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
   binary and the PyO3 extension, installs Typst 0.15.1 (so the report compile gate in `tests/test_report_render.py` runs instead of skipping) and runs every file under `tests/`, fast and
   slow (an import step before pytest proves the extension is present), and a pure-Python `paper` job (`make -C articles/paper -B figures` + `check` + `pdf` to /tmp, pinned Typst 0.15.1) that

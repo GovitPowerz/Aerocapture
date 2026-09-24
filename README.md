@@ -95,7 +95,7 @@ uv run python -m aerocapture.demo
 ./src/rust/target/release/aerocapture configs/nominal/msr_aller_ftc_nominal.toml
 
 # Tests (CI runs every test file on every PR and every push to main):
-cargo test --release --workspace --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --all-targets --manifest-path src/rust/Cargo.toml
 uv run pytest tests/
 ```
 
@@ -489,7 +489,7 @@ Gate: `uv run pytest tests/test_external_validation.py -q` against AMAT outputs 
 
 ```bash
 # Rust tests
-cargo test --release --workspace --manifest-path src/rust/Cargo.toml
+cargo test --release --workspace --all-targets --manifest-path src/rust/Cargo.toml
 
 # Python tests
 uv run pytest tests/
@@ -509,7 +509,7 @@ uv run pytest tests/
 
 GitHub Actions runs on every push to `main`, every PR to `main`, and manual dispatch:
 
-- **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace` (both crates: the simulator and the `aerocapture-py` seam)
+- **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace --all-targets` (both crates: the simulator and the `aerocapture-py` seam; the benches run once in criterion's test mode)
 - **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
 - **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and an import step before pytest proves the extension is present, so no `importorskip` can silently skip. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 

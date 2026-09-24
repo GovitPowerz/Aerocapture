@@ -237,9 +237,11 @@ rest.
 
 ## Benchmarks
 
-Two criterion benches under `benches/`; neither is a CI gate, since timings are noisy. `tick` is
-the per-scheme guidance cost: every guidance call of one nominal flight, replayed from its exact
-pre-call state, with the replay checked bit for bit against the flight before anything is timed.
+Two criterion benches under `benches/`; timings are not a gate, since they are noisy, but
+`cargo test --workspace --all-targets` (check_all.sh, CI) runs each bench once in criterion's test
+mode, so their setup assertions are. `tick` is the per-scheme guidance cost: every guidance call of
+one nominal flight, replayed from its exact pre-call state, with the replay checked bit for bit
+against the flight before anything is timed.
 `quant_forward` is the Mamba-962 forward pass in f64, f32 and quantized kernels. The numbers and
 how to read them are in [docs/performance.md](../../docs/performance.md).
 

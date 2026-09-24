@@ -123,18 +123,8 @@ def _grid_wall(toml: str, overrides: list[dict[str, object]], seeds: list[int], 
     return time.perf_counter() - t0
 
 
-def _batch_wall(toml: str, overrides: list[dict[str, object]]) -> float:
-    t0 = time.perf_counter()
-    aerocapture_rs.run_batch(toml, overrides, n_threads=1)
-    return time.perf_counter() - t0
-
-
 def _median(xs: list[float]) -> float:
     return float(statistics.median(xs))
-
-
-def _sim_time_col() -> int:
-    return int(aerocapture_rs.final_record_indices()["sim_time_s"])
 
 
 # --- scaling ---
@@ -174,7 +164,7 @@ def stage_scaling(args: argparse.Namespace) -> dict[str, object]:
                 "label": cell.label,
                 "toml": cell.toml,
                 "bundle": cell.bundle,
-                "mean_flight_s": round(float(records[0, :, _sim_time_col()].mean()), 1),
+                "mean_flight_s": round(float(records[0, :, int(aerocapture_rs.final_record_indices()["sim_time_s"])].mean()), 1),
                 "ms_per_sim_1_thread": round(1000 / base, 4),
                 "points": points,
             }
@@ -221,7 +211,9 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
             aerocapture_rs.run_grid(cell.toml, [ovr], seeds[:10], n_threads=1)
             for _ in range(args.repeats):
                 grid_w.append(_grid_wall(cell.toml, [ovr], seeds, 1))
-                batch_w.append(_batch_wall(cell.toml, batch))
+                t0 = time.perf_counter()
+                aerocapture_rs.run_batch(cell.toml, batch, n_threads=1)
+                batch_w.append(time.perf_counter() - t0)
                 wall, sim = _cli(cli_n)
                 assert sim is not None, f"{CLI.name} printed no 'Completed ... simulations' line"
                 cli_w.append(wall)
@@ -337,7 +329,7 @@ class _TimedTrainer:
     """Forwards to the real trainer, timing each loop-contract method as a phase.
     `finalize` (the once-per-run final selection) is skipped: not a generation cost."""
 
-    PHASES = {"re_evaluate": "reevaluation", "advance": "population", "observe": "validation", "emit": "log_display", "maybe_checkpoint": "checkpoint"}
+    PHASES = {"re_evaluate": "reevaluation", "observe": "validation", "emit": "log_display", "maybe_checkpoint": "checkpoint"}
 
     def __init__(self, inner: Any, clock: PhaseClock) -> None:
         self._inner = inner
@@ -540,6 +532,8 @@ def stage_benches(args: argparse.Namespace) -> dict[str, object]:
             }
         )
         print(f"  tick    {ident:24s} {calls:4d} calls  {rows[-1]['us_per_call']:>10} us/call")
+    missing = sorted(set(deployed) - {r["id"] for r in rows})
+    assert not missing, f"tick bench printed no '<id>: N guidance calls' line for {missing} (its stderr format and this regex must agree)"
     forward_ns = _criterion_ns("forward", "f64_model")
     print(f"  forward Mamba-962 f64 {forward_ns:.0f} ns/tick")
     return {
@@ -586,7 +580,7 @@ def _hotspots(profiler: cProfile.Profile, loop_s: float, k: int = 5) -> dict[str
                 return f"builtin, via {site[2]} at {_anchor(site[0], site[1])}"
         return "builtin"
 
-    ranked = sorted(((key, v) for key, v in stats.items() if "run_grid" not in key[2]), key=lambda kv: -kv[1][2])
+    ranked = sorted(((key, v) for key, v in stats.items() if not (key[0] == "~" and "run_grid" in key[2])), key=lambda kv: -kv[1][2])
     return {
         "loop_s_under_cprofile": round(loop_s, 3),
         "python_tottime_s": round(sum(v[2] for key, v in ranked if key[0] != "~"), 3),
