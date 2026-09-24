@@ -232,7 +232,7 @@ def run_mpc(
 ) -> tuple[list[wm_plant.Episode], dict[str, float]]:
     """Fly every seed closed loop: replan the bank magnitude every cfg.replan_every ticks, roll sign every tick.
 
-    The bank chosen after step k's observation is a_{k+1} (the seam's one-tick observation lag, both arms alike).
+    The bank chosen on step k's observation (nav at tick k + 1) is a_{k+1}, flown at tick k + 1 as deployed.
     """
     plant = wm_plant.Plant(toml, seeds, stub)
     if isinstance(arm, OracleArm):

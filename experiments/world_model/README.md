@@ -42,15 +42,16 @@ time for three training seeds per model. The planner's own flights are the third
   fractions. Two inputs never vary on this plant (`cos_bank_nominal`, `inclination_err_rate`), so
   the loss and every metric use the other 40. The density dispersion is not in the state: the
   plant is partially observed.
-- **One signed bank per 1 s guidance tick.** The command passes through the pilot model (rate
-  limit, biases). Lateral guidance, the exit-phase law, the thermal limiter and command shaping
-  are bypassed.
-- **A one-tick timing contract.** `step(a_k)` returns the navigation state at the start of tick
-  k together with the telemetry inputs of a_k, so a_k first moves the physics in step k + 1. The
-  model therefore predicts x_{k+1} from x_{<=k} and a_{k+1}. `tests/test_world_model.py` pins
-  this contract and the replay determinism that the oracle and the counterfactuals rest on:
-  re-flying a seed on a shared action prefix reproduces the prefix bit for bit, whatever its batch
-  neighbours.
+- **One signed bank per 1 s guidance tick.** The command replaces the deployed NN's output, so it
+  is gated and command-shaped like one (bank acceleration limit), then flown through the pilot
+  model (rate limit, biases). Lateral guidance, the exit-phase law and the thermal limiter are
+  bypassed, as for the deployed `full_neural` NN. The shaper is part of the plant the model learns.
+- **Deploy timing.** `step(a_k)` flies tick k and returns the navigation at tick k + 1 (#149), the
+  input a deployed NN reads when choosing a_{k+1}; the telemetry inputs record the shaped command.
+  Row k of a flight is that post-a_k observation, and the model predicts row k + 1 from rows <= k
+  and a_{k+1}. `tests/test_world_model.py` pins this contract and the replay determinism that the
+  oracle and the counterfactuals rest on: re-flying a seed on a shared action prefix reproduces
+  the prefix bit for bit, whatever its batch neighbours.
 
 ## Data
 

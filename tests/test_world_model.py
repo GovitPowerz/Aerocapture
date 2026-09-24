@@ -82,10 +82,10 @@ class TestPlantReplay:
         other = base.copy()
         other[t:] += np.deg2rad(10.0)
         a, b = wm_plant.fly(WM_MEDIUM, [7, 7], np.stack([base, other]), stub=stub)
-        # step k returns the nav state at the start of tick k, so a_t first moves the physics at k = t + 1
+        # step t flies a_t and returns the nav one tick later: rows before t match, row t already differs
         np.testing.assert_array_equal(a.obs[:t], b.obs[:t])
-        np.testing.assert_array_equal(a.aux[: t + 1], b.aux[: t + 1])
-        assert not np.array_equal(a.obs[t + 1, :22], b.obs[t + 1, :22])
+        np.testing.assert_array_equal(a.aux[:t], b.aux[:t])
+        assert not np.array_equal(a.obs[t, :22], b.obs[t, :22])
 
     def test_an_episode_does_not_depend_on_its_batch_neighbours(self, stub: Path) -> None:
         acts = np.stack([wm_plant.bank_schedule(s, 1500) for s in (1, 2, 3)])
@@ -94,11 +94,13 @@ class TestPlantReplay:
         np.testing.assert_array_equal(alone.obs, batched.obs)
         assert alone.dv_m_s == batched.dv_m_s
 
-    def test_the_prev_bank_input_carries_the_action_just_applied(self, stub: Path) -> None:
-        acts = wm_plant.bank_schedule(5, 1500)
-        ep = wm_plant.fly(WM_MEDIUM, [5], acts[None], stub=stub)[0]
+    def test_the_prev_bank_input_records_the_shaped_command(self, stub: Path) -> None:
+        # a constant -0.5 rad command from an entry bank near +1.2 rad: the shaper ramps toward it, then holds it
+        ep = wm_plant.fly(WM_MEDIUM, [5], np.full((1, 1500), -0.5), stub=stub)[0]
         prev_bank = wm_plant.raw_input(ep.obs[:, 22], wm_plant.load_normalization(stub)[22])
-        np.testing.assert_allclose(prev_bank, np.float32(acts[: len(ep)]), rtol=1e-5)
+        assert prev_bank[0] > 0.0
+        assert np.all(np.diff(prev_bank[:10]) <= 0.0)
+        np.testing.assert_allclose(prev_bank[10:], -0.5, atol=1e-6)
 
 
 class TestBankSchedule:

@@ -1,10 +1,11 @@
 """The aerocapture plant as the world model sees it (#113): BatchedSimulation with an injected bank.
 
-Timing contract of the seam (asserted in tests/test_world_model.py): `step(a_k)` returns the
-navigation state at the START of tick k (before a_k is integrated) together with the NN telemetry
-inputs updated from a_k (prev_bank_signed and its sin/cos). So a_k first moves the physical
-channels in step k + 1's observation; the world model therefore predicts obs[k + 1] from
-obs[<= k] and a_{k+1}.
+Contract of the seam (asserted in tests/test_world_model.py): the injected bank replaces the
+deployed NN's output, so it is gated and command-shaped like one, and the NN telemetry inputs
+(prev_bank_signed and its sin/cos) record the shaped command. `step(a_k)` flies tick k and returns
+the navigation at tick k + 1, the input a deployed NN reads when choosing a_{k+1}. Row k of an
+Episode is that post-a_k observation, so the world model predicts row k + 1 from rows <= k and
+a_{k+1}.
 """
 
 from __future__ import annotations
@@ -80,7 +81,7 @@ def raw_input(x: np.ndarray, spec: dict[str, object]) -> np.ndarray:
 
 @dataclass
 class Episode:
-    """One flight. Row k = step k's observation (nav at the start of tick k + a_k telemetry), aux and bank."""
+    """One flight. Row k = the observation and aux after flying bank a_k (nav at tick k + 1), and a_k."""
 
     seed: int
     obs: np.ndarray  # (T, 35) float32
@@ -117,7 +118,7 @@ class Plant:
         obs, _, done, info, aux = self.env.step(actions.astype(np.float32))
         live = ~self.done
         for i in np.flatnonzero(done & live):
-            obs[i] = info[i]["terminal_observation"]
+            obs[i], aux[i] = info[i]["terminal_observation"], info[i]["terminal_aux"]
             self._info[i] = info[i]
         if self._obs:
             obs[~live], aux[~live] = self._obs[-1][~live], self._aux[-1][~live]
