@@ -75,7 +75,7 @@ HEADLINE_TOML = "configs/training/sweep/mamba_p962.toml"
 HEADLINE_RUN = REPO / "training_output/mamba_p962_long"
 PAPER_N_POP, PAPER_N_SIMS = 512, 2  # experiments/paper/10b_arch_long_challengers.sh
 STAGES = ("scaling", "seams", "grid", "memory", "profile")
-# What a timing depends on: a dirty file here makes the stamped commit a lie.
+# What a timing depends on (docs excluded): a dirty file here makes the stamped commit a lie.
 _SOURCES = ("src", "configs", "data", "articles/paper/data/runs", "experiments/throughput/throughput.py")
 
 
@@ -122,7 +122,7 @@ def meta() -> dict[str, object]:
         "python": platform.python_version(),
         "build": "release (lto), f64",
         "commit": _sh("git", "rev-parse", "HEAD"),
-        "sources_clean": _sh("git", "status", "--porcelain", "--", *_SOURCES) == "",
+        "sources_clean": _sh("git", "status", "--porcelain", "--", *_SOURCES, ":(exclude)*.md") == "",
         "date": time.strftime("%Y-%m-%d"),
     }
 
@@ -239,7 +239,7 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
         def per_sim(xs: list[float]) -> float:
             return round(1000 * _median(xs) / n, 4)
 
-        row = {
+        row: dict[str, object] = {
             "label": cell.label,
             "run_grid_ms_per_sim": per_sim(grid_w),
             "run_batch_ms_per_sim": per_sim(batch_w),
@@ -247,8 +247,9 @@ def stage_seams(args: argparse.Namespace) -> dict[str, object]:
             "cli_sim_phase_ms_per_sim": per_sim(cli_sim),
             "cli_one_sim_process_s": round(_median(cli_one), 4),
         }
-        rows.append(row)
         print(f"  seams   {cell.label:13s} " + "  ".join(f"{k}={v}" for k, v in row.items() if k != "label"))
+        walls = {"run_grid": grid_w, "run_batch": batch_w, "cli": cli_w, "cli_sim_phase": cli_sim, "cli_one_sim": cli_one}
+        rows.append({**row, "wall_s": {k: [round(w, 4) for w in v] for k, v in walls.items()}})
     return {
         "meta": meta(),
         "threads": 1,
@@ -309,6 +310,7 @@ class PhaseClock:
         self.grid_records: dict[str, float] = defaultdict(float)
         self.cost: dict[str, float] = defaultdict(float)
         self.generations = 0
+        self.logged_gen_s: list[float] = []
         self.loop_s = 0.0
         self._loop_t0 = 0.0
         self.profiler = profiler
@@ -360,7 +362,7 @@ class _TimedTrainer:
     """Forwards to the real trainer, timing each loop-contract method as a phase.
     `finalize` (the once-per-run final selection) is skipped: not a generation cost."""
 
-    PHASES = {"re_evaluate": "population", "advance": "population", "observe": "validation", "emit": "log_display", "maybe_checkpoint": "checkpoint"}
+    PHASES = {"re_evaluate": "reevaluation", "advance": "population", "observe": "validation", "emit": "log_display", "maybe_checkpoint": "checkpoint"}
 
     def __init__(self, inner: Any, clock: PhaseClock) -> None:
         self._inner = inner
@@ -381,8 +383,13 @@ class _TimedTrainer:
         self._inner.prologue(*args)
         self._clock.start_loop()
 
-    def _finalize(self, *args: Any) -> dict[str, Any]:
+    def _finalize(self, logger: Any) -> dict[str, Any]:
         self._clock.stop_loop()
+        logger.close()
+        # The loop's own per-generation stamp (advance -> emit), comparable to a real run's JSONL.
+        for log in Path(self._inner.save_dir).glob("run_*.jsonl"):
+            records = [json.loads(line) for line in log.read_text().splitlines()]
+            self._clock.logged_gen_s += [r["gen_elapsed_s"] for r in records if r.get("gen_elapsed_s") is not None]
         return {}
 
 
@@ -538,12 +545,14 @@ def _hotspots(profiler: cProfile.Profile, loop_s: float, k: int = 5) -> dict[str
 
 def _breakdown(clock: PhaseClock) -> dict[str, float]:
     """Per-generation seconds. Prep = _run_grid_records minus the seam (decode, override
-    dicts, weight matrix); pymoo = population-phase wall outside the grid and the cost."""
+    dicts, weight matrix); pymoo = population-phase wall outside the grid and the cost;
+    re-evaluation = the parents re-scored after an adaptive-seed change."""
     g = max(clock.generations, 1)
     prep = sum(clock.grid_records.values()) - sum(clock.rust.values())
     cost = sum(clock.cost.values())
     parts = {
         "rust_population": clock.rust["population"],
+        "rust_reevaluation": clock.rust["reevaluation"],
         "rust_validation": clock.rust["validation"],
         "rust_curation": clock.rust["curation"],
         "python_decode_overrides": prep,
@@ -561,8 +570,16 @@ def stage_profile(args: argparse.Namespace) -> dict[str, object]:
     for n_sims in args.profile_sims:
         clock = _instrumented_generations(args.profile_gens, n_sims, None)
         per_gen = _breakdown(clock)
-        rows.append({"n_pop": PAPER_N_POP, "n_sims": n_sims, "generations": clock.generations, "per_generation_s": per_gen})
-        rust = per_gen["rust_population"] + per_gen["rust_validation"] + per_gen["rust_curation"]
+        rows.append(
+            {
+                "n_pop": PAPER_N_POP,
+                "n_sims": n_sims,
+                "generations": clock.generations,
+                "per_generation_s": per_gen,
+                "logged_gen_elapsed_s_median": round(_median(clock.logged_gen_s), 4),
+            }
+        )
+        rust = sum(v for k, v in per_gen.items() if k.startswith("rust_"))
         print(f"  profile {PAPER_N_POP} x {n_sims}: {per_gen['total']:.3f} s/gen, Rust {rust / per_gen['total']:.0%}")
     profiler = cProfile.Profile()
     clock = _instrumented_generations(args.profile_gens, PAPER_N_SIMS, profiler)
@@ -580,7 +597,7 @@ def stage_profile(args: argparse.Namespace) -> dict[str, object]:
 # ── figures ──────────────────────────────────────────────────────────────────
 
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]  # reference categorical order, validated
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300"]  # reference categorical order, validated
 OTHER = "#b4b3ad"
 
 
@@ -638,7 +655,8 @@ def plot_scaling(block: dict[str, Any]) -> None:
 
 def plot_profile(block: dict[str, Any]) -> None:
     segments = [
-        ("Rust: population eval", ["rust_population"]),
+        ("Rust: offspring eval", ["rust_population"]),
+        ("Rust: parent re-eval (seed change)", ["rust_reevaluation"]),
         ("Rust: validation + curation", ["rust_validation", "rust_curation"]),
         ("Python at the seam: decode, overrides, cost", ["python_decode_overrides", "python_cost"]),
         ("pymoo operators", ["pymoo_operators"]),
