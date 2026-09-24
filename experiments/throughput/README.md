@@ -15,7 +15,7 @@ CLI and the extension from the same commit first, and leave the machine otherwis
 uv run python experiments/throughput/throughput.py
 ```
 
-`--stages scaling seams grid memory profile fnpag_step` runs a subset (each stage rewrites only
+`--stages scaling seams grid memory profile fnpag_step benches` runs a subset (each stage rewrites only
 its own block of `throughput.json`) and `--plot-only` redraws the figures from the JSON. Every
 block records the machine, the commit, the date and `sources_clean`, which is false when `src/`,
 `configs/`, `data/`, the paper bundle, the Python lockfile or the driver differed from that
@@ -30,13 +30,15 @@ mixed here.
 | `memory` | peak RSS a `run_grid` call adds, a fresh process per grid shape | `run_grid` |
 | `profile` | wall time per generation of the real GA loop, split by loop phase and Rust vs Python, plus the cProfile top-5 hotspots | the training loop |
 | `fnpag_step` | FNPAG per-sim cost at its GA-tuned predictor step and at the 2.0 s default, 1 thread, n = 50 | `run_grid`, one individual |
+| `benches` | runs `cargo bench --bench tick` (its built-in rows plus the four deployed cells, whose TOMLs the driver writes with the Python deploy routing and passes through `AEROCAPTURE_TICK_CONFIGS`) and the Mamba f64 forward pass of `quant_forward`, and records criterion's estimates | Rust, one thread |
 
 The cells are the paper's deployed operating points from the committed bundle
 (`articles/paper/data/runs/`: FTC and FNPAG from `classical_baselines/`, dense-515 and
-Mamba-962 from `headline/`), so `scaling`, `seams`, `memory` and `fnpag_step` run on a fresh
-clone. `grid` and `profile` resume the headline run's last checkpoint from the local
-`training_output/mamba_p962_long/`, because the population sets the trajectory lengths and so the
-cost: a converged population flies the full ~700 s flights a long campaign pays for. The profile
+Mamba-962 from `headline/`), so `scaling`, `seams`, `memory`, `fnpag_step` and `benches` run on
+a fresh clone. `grid` and `profile` resume the headline run's last checkpoint from the local
+`training_output/mamba_p962_long/` and are skipped (their committed blocks kept) without it.
+They need it because the population sets the trajectory lengths and so the cost: a converged
+population flies the full ~700 s flights a long campaign pays for. The profile
 redirects every write, including the NN deploy copy `save_checkpoint` makes at `[data]
 neural_network`, into a scratch directory. The checkpoint carries a 2-seed curated list; an
 allocation with another `n_sims` clears it so the first generation bootstraps the right width.
@@ -44,7 +46,7 @@ The noise regime is the default `per_draw` (ADR-0006).
 
 Timings are not a CI gate because they are noisy. The deterministic companion is
 `tests/test_thread_invariance.py`: `run_grid` output is byte-identical at any thread count. The
-per-scheme guidance cost is a Rust microbenchmark:
+per-scheme guidance bench also runs on its own (built-in rows only):
 
 ```bash
 cargo bench --bench tick --manifest-path src/rust/Cargo.toml

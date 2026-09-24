@@ -90,7 +90,7 @@ The RL env (`aerocapture-py/src/env.rs`, `BatchedSimulation`) drives the same `s
 Rayon thread count per scheme, the three entry points' per-sim cost, a paper-allocation training
 generation split into Rust simulation and Python overhead (with the cProfile hotspots), the
 per-scheme guidance cost (`src/rust/benches/tick.rs`), memory, and a feasibility note on an
-accelerator port. The simulation is 83% of a generation at the paper allocation, and the Mamba
+accelerator port. The simulation is 84% of a generation at the paper allocation, and the Mamba
 policy, not the plant, is the larger half of a simulation. `tests/test_thread_invariance.py` gates
 `run_grid` output as byte-identical at any thread count.
 

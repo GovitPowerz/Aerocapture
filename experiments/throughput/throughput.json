@@ -605,12 +605,18 @@
       "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
       "python": "3.14.7",
       "build": "release (lto), f64",
-      "commit": "555c0005f53e7bbc6d7b5857bc91d339e046b5c1",
+      "commit": "b805cffdc11c54062a4f5f2314b0dcda31e243cd",
       "sources_clean": true,
       "date": "2026-09-24"
     },
     "config": "configs/training/sweep/mamba_p962.toml",
-    "algorithm": "ga (the headline optimizer), seed_strategy adaptive, validation + curation on",
+    "optimizer": {
+      "algorithm": "ga",
+      "seed_strategy": "adaptive",
+      "seed_pool_interval": 2,
+      "validation_n_sims": 1000,
+      "curation_sample_size": 1000
+    },
     "resumed_from": "mamba_p962_long last checkpoint",
     "display": "plain (no Rich TUI)",
     "allocations": [
@@ -619,81 +625,225 @@
         "n_sims": 2,
         "generations": 20,
         "per_generation_s": {
-          "total": 1.2337,
-          "rust_population": 0.3704,
-          "rust_reevaluation": 0.2027,
-          "rust_validation": 0.2594,
-          "rust_curation": 0.1883,
+          "total": 1.3456,
+          "rust_population": 0.4032,
+          "rust_reevaluation": 0.2219,
+          "rust_validation": 0.2879,
+          "rust_curation": 0.2144,
           "python_decode_overrides": 0.0022,
-          "python_cost": 0.0318,
-          "pymoo_operators": 0.1441,
-          "log_display": 0.0237,
-          "checkpoint": 0.0013,
-          "other": 0.0098
+          "python_cost": 0.0332,
+          "pymoo_operators": 0.1469,
+          "log_display": 0.0242,
+          "checkpoint": 0.0014,
+          "other": 0.0103
         },
-        "logged_gen_elapsed_s_median": 0.886
+        "logged_gen_elapsed_s_median": 1.0165
       },
       {
         "n_pop": 512,
         "n_sims": 10,
         "generations": 20,
         "per_generation_s": {
-          "total": 3.3493,
-          "rust_population": 1.5936,
-          "rust_reevaluation": 0.9763,
-          "rust_validation": 0.2816,
-          "rust_curation": 0.2118,
-          "python_decode_overrides": 0.0023,
-          "python_cost": 0.0972,
-          "pymoo_operators": 0.1493,
-          "log_display": 0.0241,
-          "checkpoint": 0.0012,
-          "other": 0.0118
+          "total": 4.2781,
+          "rust_population": 1.9806,
+          "rust_reevaluation": 1.3891,
+          "rust_validation": 0.3501,
+          "rust_curation": 0.2477,
+          "python_decode_overrides": 0.0025,
+          "python_cost": 0.1167,
+          "pymoo_operators": 0.152,
+          "log_display": 0.0245,
+          "checkpoint": 0.0013,
+          "other": 0.0136
         },
-        "logged_gen_elapsed_s_median": 2.343
+        "logged_gen_elapsed_s_median": 2.5815
       }
     ],
     "hotspots": {
-      "loop_s_under_cprofile": 25.249,
-      "python_tottime_s": 2.084,
-      "builtin_tottime_s_excl_run_grid": 2.88,
+      "loop_s_under_cprofile": 26.435,
+      "python_tottime_s": 2.096,
+      "builtin_tottime_s_excl_run_grid": 2.908,
       "top": [
         {
           "function": "<built-in method scipy.spatial._distance_pybind.cdist_euclidean>",
           "where": "builtin, via cdist at pymoo/util/misc.py:155",
           "calls": 157,
-          "tottime_s": 2.0465,
-          "cumtime_s": 2.0465
+          "tottime_s": 2.0444,
+          "cumtime_s": 2.0444
         },
         {
           "function": "<built-in method scipy.spatial._distance_pybind.pdist_euclidean>",
           "where": "builtin, via population_diversity at src/python/aerocapture/training/metrics.py:33",
           "calls": 20,
-          "tottime_s": 0.4723,
-          "cumtime_s": 0.4723
+          "tottime_s": 0.4714,
+          "cumtime_s": 0.4714
         },
         {
           "function": "compute_cost",
           "where": "src/python/aerocapture/training/cost.py:98",
           "calls": 72744,
-          "tottime_s": 0.3663,
-          "cumtime_s": 0.9869
-        },
-        {
-          "function": "cross_sbx",
-          "where": "pymoo/operators/crossover/sbx.py:14",
-          "calls": 59,
-          "tottime_s": 0.273,
-          "cumtime_s": 0.5164
+          "tottime_s": 0.3748,
+          "cumtime_s": 1.0088
         },
         {
           "function": "_softplus",
           "where": "src/python/aerocapture/training/cost.py:62",
           "calls": 290976,
-          "tottime_s": 0.2626,
-          "cumtime_s": 0.2626
+          "tottime_s": 0.271,
+          "cumtime_s": 0.271
+        },
+        {
+          "function": "cross_sbx",
+          "where": "pymoo/operators/crossover/sbx.py:14",
+          "calls": 59,
+          "tottime_s": 0.2703,
+          "cumtime_s": 0.5106
         }
       ]
     }
+  },
+  "fnpag_step": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "b805cffdc11c54062a4f5f2314b0dcda31e243cd",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "cell": "FNPAG",
+    "threads": 1,
+    "n": 50,
+    "repeats": 3,
+    "points": [
+      {
+        "prediction_dt_s": 3.7641,
+        "wall_s": [
+          4.5506,
+          4.469,
+          4.3927
+        ],
+        "ms_per_sim": 89.38
+      },
+      {
+        "prediction_dt_s": 2.0,
+        "wall_s": [
+          8.3446,
+          8.1969,
+          8.088
+        ],
+        "ms_per_sim": 163.94
+      }
+    ]
+  },
+  "benches": {
+    "meta": {
+      "cpu": "Apple M4 Pro",
+      "cores_performance": 10,
+      "cores_efficiency": 4,
+      "logical_cpus": 14,
+      "memory_gib": 48,
+      "os": "macOS 26.6.2",
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "python": "3.14.7",
+      "build": "release (lto), f64",
+      "commit": "b805cffdc11c54062a4f5f2314b0dcda31e243cd",
+      "sources_clean": true,
+      "date": "2026-09-24"
+    },
+    "harness": "criterion, one thread; tick: 20 samples of whole-flight guidance replays of one nominal flight per config; forward: 100 samples",
+    "tick": [
+      {
+        "id": "ftc",
+        "config": "configs/test/test_ftc_golden.toml",
+        "calls": 534,
+        "us_per_flight": 321.38,
+        "us_per_call": 0.6018
+      },
+      {
+        "id": "equilibrium_glide",
+        "config": "configs/test/test_eqglide_golden.toml",
+        "calls": 266,
+        "us_per_flight": 40.74,
+        "us_per_call": 0.1532
+      },
+      {
+        "id": "energy_controller",
+        "config": "configs/test/test_energy_ctrl_golden.toml",
+        "calls": 428,
+        "us_per_flight": 91.09,
+        "us_per_call": 0.2128
+      },
+      {
+        "id": "pred_guid",
+        "config": "configs/test/test_pred_guid_golden.toml",
+        "calls": 437,
+        "us_per_flight": 83.89,
+        "us_per_call": 0.192
+      },
+      {
+        "id": "fnpag",
+        "config": "configs/test/test_fnpag_golden.toml",
+        "calls": 460,
+        "us_per_flight": 131601.27,
+        "us_per_call": 286.0897
+      },
+      {
+        "id": "piecewise_constant",
+        "config": "configs/training/msr_aller_piecewise_constant_train.toml",
+        "calls": 526,
+        "us_per_flight": 62.29,
+        "us_per_call": 0.1184
+      },
+      {
+        "id": "nn_dense_515",
+        "config": "configs/training/msr_aller_nn_atan2_best_paper.toml",
+        "calls": 781,
+        "us_per_flight": 824.24,
+        "us_per_call": 1.0554
+      },
+      {
+        "id": "nn_mamba_962",
+        "config": "configs/training/sweep/mamba_p962.toml",
+        "calls": 731,
+        "us_per_flight": 1968.75,
+        "us_per_call": 2.6932
+      },
+      {
+        "id": "ftc_deployed",
+        "config": "configs/training/msr_aller_ftc_train.toml + articles/paper/data/runs/classical_baselines/ftc",
+        "calls": 488,
+        "us_per_flight": 144.56,
+        "us_per_call": 0.2962
+      },
+      {
+        "id": "fnpag_deployed",
+        "config": "configs/training/msr_aller_fnpag_train.toml + articles/paper/data/runs/classical_baselines/fnpag",
+        "calls": 651,
+        "us_per_flight": 80982.32,
+        "us_per_call": 124.3968
+      },
+      {
+        "id": "dense_p515_deployed",
+        "config": "configs/training/msr_aller_nn_atan2_best_paper.toml + articles/paper/data/runs/headline/dense_p515",
+        "calls": 777,
+        "us_per_flight": 834.43,
+        "us_per_call": 1.0739
+      },
+      {
+        "id": "mamba_p962_deployed",
+        "config": "configs/training/sweep/mamba_p962.toml + articles/paper/data/runs/headline/mamba_p962",
+        "calls": 730,
+        "us_per_flight": 1958.0,
+        "us_per_call": 2.6822
+      }
+    ],
+    "mamba_forward_f64_ns_per_tick": 2005.0
   }
 }
