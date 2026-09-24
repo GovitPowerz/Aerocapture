@@ -11,6 +11,7 @@ from aerocapture.training.checkpoint import save_checkpoint
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.param_spaces import PARAM_SPACES
+from aerocapture.training.seed_curator import SeedCurator
 
 from tests.fixtures.fake_problem import FakeProblem, run_trainer
 
@@ -142,6 +143,65 @@ class TestResumeGrowsPopulation:
         # Checkpointed best is preserved (validation off, None-gate stays closed).
         assert result["best_individual"] is not None
         assert np.array_equal(result["best_individual"], checkpointed_best)
+        assert not result.get("interrupted", False)
+
+
+class TestResumeSeedListWidth:
+    """Regression: a checkpointed adaptive seed list narrower/wider than the
+    resumed `training_n_sims` must be dropped at restore, so the first
+    generation flies an n_sims-wide bootstrap list instead of the old width
+    until the next curation refresh. `last_curation_gen` survives the drop."""
+
+    def test_resume_with_changed_n_sims_bootstraps_n_sims_wide_seeds(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+        save_dir = tmp_path / "training_output"
+        save_dir.mkdir(parents=True)
+        cfg = _cfg(save_dir, strategy="adaptive")
+        cfg.optimizer.n_pop = 4
+        cfg.optimizer.n_gen = 1  # +resumed_gen(2) -> runs exactly gen 2
+        cfg.optimizer.training_n_sims = 10  # checkpoint below carries a 2-seed list
+        cfg.optimizer.validation_n_sims = 0  # no promotion-triggered curation
+        cfg.optimizer.seed_pool_interval = 1000  # no interval-triggered curation
+
+        param_specs = PARAM_SPACES[SCHEME]
+        rng_ck = np.random.default_rng(0)
+        population = rng_ck.random((4, len(param_specs)))
+        checkpointed_curator = SeedCurator(sample_size=cfg.optimizer.curation_sample_size, n_bins=10, excluded_seeds=set(), rng=rng_ck)
+        checkpointed_curator.seed_list = [7, 11]
+        checkpointed_curator.last_curation_gen = 1
+        save_checkpoint(
+            save_dir,
+            generation=2,
+            population=population,
+            costs=np.full(4, 42.0),
+            best_cost=42.0,
+            best_individual=population[0].copy(),
+            cost_history=[42.0],
+            rng=rng_ck,
+            config=cfg,
+            cwd=None,
+            param_specs=param_specs,
+            seed_curator=checkpointed_curator,
+        )
+
+        seen_widths: list[int] = []
+        problem = FakeProblem(list(param_specs), seeds=[7, 11], constant_cost=1000.0)
+        original = problem.evaluate_population_per_seed
+
+        def recording(X: np.ndarray, seeds: list[int]) -> np.ndarray:
+            seen_widths.append(len(seeds))
+            return original(X, seeds)
+
+        problem.evaluate_population_per_seed = recording  # type: ignore[method-assign]
+        trainer, result = run_trainer(cfg, problem, cwd=str(tmp_path), resume_dir=save_dir, verbose=True)
+
+        assert len(problem.seeds) == 10
+        assert set(problem.seeds) != {7, 11}
+        out = capsys.readouterr().out
+        assert "seed list from checkpoint dropped: 2 seeds != training_n_sims 10" in out, f"width notice did not fire; stdout was:\n{out}"
+        # The generation's evaluations (re-eval after the bootstrap + pymoo's step) all fly 10 seeds.
+        assert seen_widths and all(w == 10 for w in seen_widths[-2:]), seen_widths
+        assert trainer.seed_curator is not None
+        assert trainer.seed_curator.last_curation_gen == 1
         assert not result.get("interrupted", False)
 
 

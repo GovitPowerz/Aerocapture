@@ -32,9 +32,16 @@ def _restore_seed_curator(state: dict, configured: SeedCurator, verbose: bool) -
     the checkpoint would silently discard a knob edited between runs — legacy
     checkpoints lacking the keys would even reset trim/bucket to 0.0/'random'.
     A notice is printed when the checkpointed knobs differ (mirrors the
-    cost_transform change notice).
+    cost_transform change notice). A checkpointed seed_list whose width differs
+    from the configured `n_bins` (= training_n_sims) is dropped, so the first
+    generation bootstraps a fresh n_sims-wide list and re-evaluates instead of
+    flying the old width until the next curation; `last_curation_gen` is kept.
     """
     restored = SeedCurator.from_dict(state, excluded_seeds=configured.excluded_seeds, rng=configured.rng)
+    if restored.seed_list is not None and len(restored.seed_list) != configured.n_bins:
+        if verbose:
+            print(f"  seed-curator seed list from checkpoint dropped: {len(restored.seed_list)} seeds != training_n_sims {configured.n_bins}; bootstrapping")
+        restored.seed_list = None
     changed = [
         f"{name} {getattr(restored, name)!r} -> {getattr(configured, name)!r}"
         for name in ("sample_size", "n_bins", "trim_fraction", "bucket_selection")

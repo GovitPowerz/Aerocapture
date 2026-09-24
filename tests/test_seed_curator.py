@@ -185,12 +185,25 @@ class TestRestoreOnResume:
             trim_fraction=0.2,
             bucket_selection="middle",
         )
-        legacy_state = {"sample_size": 1000, "n_bins": 20, "seed_list": [1, 2, 3], "last_curation_gen": 17}
+        legacy_state = {"sample_size": 1000, "n_bins": 20, "seed_list": list(range(1, 11)), "last_curation_gen": 17}
         restored = _restore_seed_curator(legacy_state, configured, verbose=False)
-        assert restored.seed_list == [1, 2, 3]
+        assert restored.seed_list == list(range(1, 11))
         assert restored.last_curation_gen == 17
         assert restored.trim_fraction == 0.2
         assert restored.bucket_selection == "middle"
         assert restored.sample_size == 500
         assert restored.n_bins == 10
         assert restored.excluded_seeds == {7}
+
+    def test_width_mismatched_seed_list_is_dropped(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """A checkpointed seed list narrower than the configured training_n_sims
+        (= n_bins) is dropped so the loop bootstraps a fresh list; the curation
+        clock (last_curation_gen) is kept."""
+        from aerocapture.training.checkpoint import _restore_seed_curator
+
+        configured = SeedCurator(sample_size=500, n_bins=10, excluded_seeds=set(), rng=_rng(0))
+        state = {"sample_size": 500, "n_bins": 10, "seed_list": [1, 2, 3], "last_curation_gen": 17}
+        restored = _restore_seed_curator(state, configured, verbose=True)
+        assert restored.seed_list is None
+        assert restored.last_curation_gen == 17
+        assert "seed list from checkpoint dropped: 3 seeds != training_n_sims 10" in capsys.readouterr().out
