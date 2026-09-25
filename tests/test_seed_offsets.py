@@ -15,6 +15,7 @@ from aerocapture.training.seeds import (
     SWEEP_EVAL_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
     WARM_START_SEED_OFFSET,
+    WORLD_MODEL_SEED_OFFSET,
 )
 
 
@@ -30,9 +31,23 @@ def test_offsets_distinct_and_documented() -> None:
         "headline_requote": HEADLINE_REQUOTE_SEED_OFFSET,
         "stress_eval": STRESS_EVAL_SEED_OFFSET,
         "probe_eval": PROBE_EVAL_SEED_OFFSET,
+        "world_model": WORLD_MODEL_SEED_OFFSET,
         "confirm_eval": CONFIRM_EVAL_SEED_OFFSET,
     }
-    assert list(offsets.values()) == [1_000_000, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000, 9_000_000, 10_000_000, 20_000_000]
+    assert list(offsets.values()) == [
+        1_000_000,
+        2_000_000,
+        3_000_000,
+        4_000_000,
+        5_000_000,
+        6_000_000,
+        7_000_000,
+        8_000_000,
+        9_000_000,
+        10_000_000,
+        11_000_000,
+        20_000_000,
+    ]
     assert len(set(offsets.values())) == len(offsets)  # all disjoint
     assert MAMBA3_EVAL_SEED_OFFSET == PROBE_EVAL_SEED_OFFSET  # legacy alias
 

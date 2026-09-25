@@ -37,6 +37,8 @@ lessons, conventions).
   `aerocapture.physics_crosscheck`), its tolerances and findings, the published corridor; background in `docs/research/2026-09-23-amat-capabilities.md`.
 - `docs/performance.md` — throughput and scaling on one machine (driver `experiments/throughput/throughput.py`, results `throughput.json`), the
   per-generation profile, the per-scheme guidance bench (`src/rust/benches/tick.rs`), memory, the accelerator-port feasibility note.
+- `experiments/world_model/README.md`: the learned-dynamics experiment (#113), the seam's timing contract, the six evaluations, where the model
+  fails (driver `world_model.py`, results `world_model.json`).
 
 ## Build & Development Commands
 

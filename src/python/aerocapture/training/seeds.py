@@ -2,7 +2,7 @@
 
 Every purpose (training, validation, final eval, RL training, warm-start collection,
 NN input report, calibration, sweep scoring, headline requote, stress, probes,
-confirmatory sizing) draws its seeds from its own RNG stream, keyed by an offset
+world model, confirmatory sizing) draws its seeds from its own RNG stream, keyed by an offset
 registered here, so no two pools share seeds by construction. Add a new pool by
 registering its offset in this file; never hard-code a seed base elsewhere.
 """
@@ -37,6 +37,9 @@ STRESS_EVAL_SEED_OFFSET = 9_000_000
 PROBE_EVAL_SEED_OFFSET = 10_000_000
 # Legacy alias (mamba3_962_compare.py imports this name).
 MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
+# World-model experiment (experiments/world_model/, #113): the train / validation / test flights
+# its dynamics models learn from and its planning pool, consecutive slices of one stream.
+WORLD_MODEL_SEED_OFFSET = 11_000_000
 
 
 def base_mc_seed_from_toml(toml: dict) -> int:
