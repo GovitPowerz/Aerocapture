@@ -528,7 +528,7 @@ Note: `pymoo` is ceiling-pinned `<0.6.2` — pymoo 0.6.2 routes IGD through the 
 
 ## Roadmap
 
-Open work is tracked in GitHub Issues; the 2026-09-16 portfolio review's index, ranking and dependencies are issue [#115](https://github.com/GovitPowerz/Aerocapture/issues/115). [TODO.md](TODO.md) holds the research backlog: neural counterparts for navigation and control, ESR and skip-entry mission profiles, and a regime-matched objective schedule.
+Open work is tracked in GitHub Issues. [TODO.md](TODO.md) holds the research backlog: neural counterparts for navigation and control, ESR and skip-entry mission profiles, and a regime-matched objective schedule.
 
 ## Author
 
