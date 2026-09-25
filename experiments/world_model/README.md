@@ -128,8 +128,13 @@ channels, in units of the training pool's per-channel standard deviation, median
    predictions per replan, FNPAG's deployed bank limits and apoapsis tolerance), roll sign from a
    port of the lateral reversal law at FNPAG's deployed gains. The predictor is a learned model
    (six arms) or a replay of the true plant from t = 0 on the same seed (the oracle, which sees
-   the flight's future noise). The fourth panel is the planner's first query: the exit apoapsis
-   of a constant bank flown from tick 0, model vs plant, 200 flights.
+   the flight's future noise). A model rollout ends at a predicted exit or impact like the plant,
+   and also at a post-bounce dip back into the atmosphere, which it scores as a crash (the plant
+   and fnpag.rs keep integrating). That rule is not what removes the capture region: without it,
+   four of the six models still predict a crash at every bank of the sweep, and the other two
+   (GRU s2, MLP s0) leave the atmosphere around tick 180 in a state with no usable apoapsis. The
+   fourth panel is the planner's first query: the exit apoapsis of a constant bank flown from
+   tick 0, model vs plant, 200 flights.
 
 ## Results
 
@@ -320,6 +325,6 @@ cached models and flights, `--stages plot` only redraws the figures from `world_
 - `wm_plant.py`: the seam as the model sees it: behavior policy, stub model, lockstep plant, open-loop fly.
 - `wm_model.py`: features, the GRU and MLP dynamics models, training, rollouts.
 - `wm_planner.py`: the lateral port, FNPAG's bisection, the readouts, the two predictor arms, the MPC loop.
-- `wm_metrics.py`: CRPS (closed form and ensemble), central-interval coverage, rank AUC.
+- `wm_metrics.py`: ensemble CRPS, central-interval coverage, rank AUC (the closed-form Gaussian CRPS that checks it lives in `tests/test_world_model.py`).
 - `configs/wm_medium.toml`, `configs/wm_high.toml`: the two plants.
 - `world_model.json`: every number above, per model and seed.

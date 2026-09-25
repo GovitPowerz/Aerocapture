@@ -77,13 +77,15 @@ class Dynamics(nn.Module):
         self.head = nn.Sequential(nn.Linear(head_in, HEAD), nn.SiLU(), nn.Linear(HEAD, HEAD), nn.SiLU(), nn.Linear(HEAD, 2 * N_X))
 
     def forward(self, x: torch.Tensor, a: torch.Tensor, h: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        """(B, T, 42) standardized states + (B, T, 2) actions -> mean and log-std of the standardized increment."""
+        """(B, T, 42) standardized states + (B, T, 2) actions -> mean and log-std of the standardized increment,
+        and the GRU state after every step (B, T, HIDDEN) or None for the MLP; h is the state before step 0, (1, B, HIDDEN)."""
         inp = torch.cat([x, a], dim=-1)
+        z = None
         if self.gru is not None:
-            z, h = self.gru(inp, h)
+            z, _ = self.gru(inp, h)
             inp = torch.cat([z, inp], dim=-1)
         mean, raw = self.head(inp).chunk(2, dim=-1)
-        return mean, LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * torch.sigmoid(raw), h
+        return mean, LOG_STD_MIN + (LOG_STD_MAX - LOG_STD_MIN) * torch.sigmoid(raw), z
 
 
 def _batch(seqs: Sequences, idx: np.ndarray, norm: Normalizer) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -129,7 +131,7 @@ def fit(kind: str, train: Sequences, val: Sequences, seed: int, epochs: int) -> 
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, n_steps, eta_min=LR / 10)
     active = torch.from_numpy(norm.active)
     val_batches = [_batch(val, idx, norm) for idx in _length_batches(val, 256, np.random.default_rng(0))]
-    best, best_state, history = np.inf, model.state_dict(), []
+    best, best_state, history = np.inf, {k: v.clone() for k, v in model.state_dict().items()}, []
     for epoch in range(epochs):
         t0 = time.perf_counter()
         model.train()
@@ -188,14 +190,10 @@ class Predictor:
         x (T, 42), a_next (T - 1, 2). Returns mean (T - 1, 42), std (T - 1, 42), h (T - 1, HIDDEN) or None.
         h[k] is the state that has consumed (x_0, a_1) .. (x_k, a_{k+1}).
         """
-        mean, log_std, _ = self.model(self._std(x[:-1])[None], torch.from_numpy(a_next)[None])
+        mean, log_std, z = self.model(self._std(x[:-1])[None], torch.from_numpy(a_next)[None])
         mu = x[:-1] + self.norm.mu_d + self.norm.sd_d * mean[0].numpy()
         sd = self.norm.sd_d * np.exp(log_std[0].numpy())
-        h = None
-        if self.model.gru is not None:
-            z, _ = self.model.gru(torch.cat([self._std(x[:-1])[None], torch.from_numpy(a_next)[None]], dim=-1))
-            h = z[0].numpy()
-        return mu, sd, h
+        return mu, sd, (None if z is None else z[0].numpy())
 
     @torch.no_grad()
     def step(self, h: np.ndarray | None, x: np.ndarray, bank: np.ndarray, rng: np.random.Generator | None = None) -> tuple[np.ndarray | None, np.ndarray]:
@@ -204,12 +202,12 @@ class Predictor:
         The MLP ignores h and returns None for it.
         """
         ht = None if h is None or self.model.gru is None else torch.from_numpy(h.astype(np.float32))[None]
-        mean, log_std, h_new = self.model(self._std(x)[:, None], torch.from_numpy(action_features(bank))[:, None], ht)
+        mean, log_std, z = self.model(self._std(x)[:, None], torch.from_numpy(action_features(bank))[:, None], ht)
         d = mean[:, 0].numpy()
         if rng is not None:
             d = d + np.exp(log_std[:, 0].numpy()) * rng.standard_normal(d.shape).astype(np.float32)
         x_next = x + self.norm.mu_d + self.norm.sd_d * d
-        return (None if h_new is None else h_new[0].numpy()), x_next.astype(np.float32)
+        return (None if z is None else z[:, 0].numpy()), x_next.astype(np.float32)
 
     def free_run(
         self,

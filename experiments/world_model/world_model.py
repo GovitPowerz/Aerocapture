@@ -273,7 +273,7 @@ def stage_plan(args: argparse.Namespace) -> dict[str, object]:
     if not fnpag.exists() or args.force:
         t0 = time.perf_counter()
         ovr = overrides_from_params(json.loads(FNPAG_PARAMS.read_text()), "fnpag")
-        np.save(fnpag, aerocapture_rs.run_grid(FNPAG_TOML, [ovr], seeds)[0])
+        np.save(fnpag, aerocapture_rs.run_grid(str(REPO / FNPAG_TOML), [ovr], seeds)[0])
         fnpag.with_suffix(".json").write_text(json.dumps({"total_wall_s": time.perf_counter() - t0}) + "\n")
     idx = aerocapture_rs.final_record_indices()
     fr = np.load(fnpag)
@@ -653,6 +653,9 @@ def _perturbed(actions: np.ndarray, t_p: int, sign: float) -> np.ndarray:
 
 def stage_eval(args: argparse.Namespace) -> dict[str, object]:
     t0 = time.perf_counter()
+    for name in ("test_id", "closed_loop"):  # the tail, sweep and counterfactual evals need these two
+        if not (WORK / EVAL_POOLS[name]).exists():
+            raise FileNotFoundError(f"eval needs {EVAL_POOLS[name]}: run the data and plan stages first")
     preds = {m: predictor(m) for m in MODELS}
     ref = preds["gru_s0"].norm
     ro = readout()

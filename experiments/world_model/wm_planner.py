@@ -31,14 +31,14 @@ class LateralParams:
 
     @classmethod
     def from_params(cls, p: dict[str, float]) -> LateralParams:
-        """From a best_params.json's `lateral.*` genes (TOML units: deg, MJ/kg; max_reversals floors like the deploy path)."""
+        """From a best_params.json's `lateral.*` genes (TOML units: deg, MJ/kg; max_reversals rounds like deploy_overrides)."""
         return cls(
             tau=p["lateral.tau"],
             threshold=np.deg2rad(p["lateral.threshold"]),
             min_reversal_interval=p["lateral.min_reversal_interval"],
             activation=p["lateral.lateral_activation"] * 1e6,
             inhibition=p["lateral.lateral_inhibition"] * 1e6,
-            max_reversals=int(p["lateral.max_reversals"]),
+            max_reversals=int(round(p["lateral.max_reversals"])),
         )
 
 
@@ -79,26 +79,33 @@ class Lateral:
         return True
 
 
-def bisect_bank(residual: Callable[[np.ndarray], np.ndarray], lo: np.ndarray, hi: np.ndarray, tol: float) -> np.ndarray:
+def bisect_bank(residual: Callable[[np.ndarray, np.ndarray], np.ndarray], lo: np.ndarray, hi: np.ndarray, tol: float) -> np.ndarray:
     """FNPAG's corrector, vectorized over flights: the bank in [lo, hi] zeroing residual = apoapsis - target.
 
-    Apoapsis falls with bank, so a non-positive residual at `lo` commands `lo` (least dissipation)
-    and a non-negative one at `hi` commands `hi`; otherwise 8 halvings, stopping early per flight
-    once |residual| < tol. Every call of `residual` is one batched prediction.
+    `residual(rows, banks)` predicts for the flights `rows` only. Apoapsis falls with bank, so a
+    non-positive residual at `lo` commands `lo` (least dissipation) and a non-negative one at `hi`
+    commands `hi`; otherwise 8 halvings, stopping early per flight once |residual| < tol. Like
+    fnpag.rs, the midpoint is only predicted for flights whose bracket straddles the target.
     """
-    f_lo, f_hi = residual(lo), residual(hi)
+    n = len(lo)
+    every = np.arange(n)
+    f_lo, f_hi = residual(every, lo), residual(every, hi)
     a, b = lo.copy(), hi.copy()
     mid = 0.5 * (a + b)
-    f_mid = residual(mid)
     active = (f_lo > 0.0) & (f_hi < 0.0)
+    f_mid = np.full(n, np.nan)
+    rows = np.flatnonzero(active)
+    if len(rows):
+        f_mid[rows] = residual(rows, mid[rows])
     for _ in range(N_BISECT_STEPS):
         active &= np.abs(f_mid) >= tol
-        if not active.any():
+        rows = np.flatnonzero(active)
+        if not len(rows):
             break
-        a = np.where(active & (f_mid > 0.0), mid, a)
-        b = np.where(active & (f_mid <= 0.0), mid, b)
-        mid = np.where(active, 0.5 * (a + b), mid)
-        f_mid = np.where(active, residual(mid), f_mid)
+        a[rows] = np.where(f_mid[rows] > 0.0, mid[rows], a[rows])
+        b[rows] = np.where(f_mid[rows] <= 0.0, mid[rows], b[rows])
+        mid[rows] = 0.5 * (a[rows] + b[rows])
+        f_mid[rows] = residual(rows, mid[rows])
     return np.where(f_lo <= 0.0, lo, np.where(f_hi >= 0.0, hi, mid))
 
 
@@ -111,7 +118,12 @@ ROLLOUT_CAP = 1000  # ticks a model rollout may take to reach a predicted exit o
 
 
 class Readout:
-    """Termination and outcome of predicted trajectories, mirroring the plant's own checks (tick.rs)."""
+    """Termination and outcome of predicted trajectories.
+
+    Exit and impact mirror the plant's events (events.rs). The re-descent clause of `crashed` does
+    not: the plant and fnpag.rs keep integrating a post-bounce dip, this readout ends the rollout
+    there and scores it as a crash.
+    """
 
     def __init__(self, norm: list[dict[str, object]], exit_alt_km: float) -> None:
         self.norm, self.exit_alt_km = norm, exit_alt_km
@@ -138,9 +150,13 @@ class Readout:
         return step, self.crashed(last), last
 
     def apoapsis(self, traj: np.ndarray) -> np.ndarray:
-        """Predicted exit apoapsis altitude (m): 0 on a crash, UNBOUND_APOAPSIS_M on an unbound orbit."""
+        """Predicted exit apoapsis altitude (m): 0 on a crash, UNBOUND_APOAPSIS_M on an unbound orbit or a diverged (non-finite) rollout.
+
+        fnpag.rs's osc_apoapsis_radius reads a nan / infinite apoapsis as unbound, so the corrector adds bank.
+        """
         _, crashed, last = self.terminal(traj)
-        apo = np.where(last[:, ENERGY] >= 0.0, UNBOUND_APOAPSIS_M, self.raw(last, APO))
+        raw = self.raw(last, APO)
+        apo = np.where((last[:, ENERGY] >= 0.0) | ~np.isfinite(raw), UNBOUND_APOAPSIS_M, raw)
         return np.asarray(np.where(crashed, 0.0, apo))
 
     def dv(self, traj: np.ndarray) -> np.ndarray:
@@ -253,8 +269,8 @@ def run_mpc(
             t0 = time.perf_counter()
             sign = np.array([lateral[i].sign for i in live])
 
-            def residual(b: np.ndarray, live: np.ndarray = live, sign: np.ndarray = sign) -> np.ndarray:
-                return arm.apoapsis(live, sign * b) - cfg.target_apoapsis_m
+            def residual(rows: np.ndarray, b: np.ndarray, live: np.ndarray = live, sign: np.ndarray = sign) -> np.ndarray:
+                return arm.apoapsis(live[rows], sign[rows] * b) - cfg.target_apoapsis_m
 
             mag[live] = bisect_bank(residual, np.full(len(live), cfg.bank_min), hi[live], cfg.tol_m)
             plan_s += time.perf_counter() - t0

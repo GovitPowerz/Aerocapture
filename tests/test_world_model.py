@@ -14,7 +14,9 @@ aerocapture_rs = pytest.importorskip("aerocapture_rs")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments/world_model"))
 
+import torch  # noqa: E402
 import wm_metrics  # noqa: E402
+import wm_model  # noqa: E402
 import wm_planner  # noqa: E402
 import wm_plant  # noqa: E402
 
@@ -156,15 +158,57 @@ class TestBisection:
         # apoapsis decreases with bank; the target sits at 1.1 rad in flight 0 and 0.4 rad in flight 1
         root = np.array([1.1, 0.4])
 
-        def residual(bank: np.ndarray) -> np.ndarray:
-            return np.asarray(3.0e5 * (root - bank))
+        def residual(rows: np.ndarray, bank: np.ndarray) -> np.ndarray:
+            return np.asarray(3.0e5 * (root[rows] - bank))
 
         bank = wm_planner.bisect_bank(residual, np.array([0.3, 0.3]), np.array([1.9, 1.9]), tol=1.0)
         np.testing.assert_allclose(bank, root, atol=(1.9 - 0.3) / 2**9)
 
     def test_bisection_saturates_when_the_target_is_out_of_reach(self) -> None:
         # flight 0 over-dissipates even at the least bank, flight 1 still escapes at the most bank
-        def residual(bank: np.ndarray) -> np.ndarray:
-            return np.array([-1.0e5, 1.0e5])
+        def residual(rows: np.ndarray, bank: np.ndarray) -> np.ndarray:
+            return np.asarray(np.array([-1.0e5, 1.0e5])[rows])
 
         np.testing.assert_array_equal(wm_planner.bisect_bank(residual, np.array([0.3, 0.3]), np.array([1.9, 1.9]), tol=1.0), [0.3, 1.9])
+
+    def test_bisection_predicts_only_for_flights_still_bracketed(self) -> None:
+        # flight 0 saturates at lo, flight 1 is within tol at the first midpoint, flight 2 (a non-dyadic root) needs all
+        # 8 halvings: fnpag.rs predicts the endpoints for all, the midpoint and the halvings only where the bracket straddles
+        calls: list[np.ndarray] = []
+
+        def residual(rows: np.ndarray, bank: np.ndarray) -> np.ndarray:
+            calls.append(rows.copy())
+            return np.asarray(np.where(rows == 0, -1.0, 3.0e5 * (np.array([0.0, 1.1, 0.5123])[rows] - bank)))
+
+        wm_planner.bisect_bank(residual, np.full(3, 0.3), np.full(3, 1.9), tol=1.0)
+        assert [c.tolist() for c in calls[:3]] == [[0, 1, 2], [0, 1, 2], [1, 2]]
+        assert all(c.tolist() == [2] for c in calls[3:])
+        assert len(calls) == 3 + wm_planner.N_BISECT_STEPS
+
+    def test_a_non_finite_prediction_reads_as_unbound_like_fnpag_rs(self, stub: Path) -> None:
+        ro = wm_planner.Readout(wm_plant.load_normalization(stub), 120.0)
+        diverged = np.full((1, 3, wm_model.N_X), np.nan, np.float32)
+        assert ro.apoapsis(diverged).tolist() == [wm_planner.UNBOUND_APOAPSIS_M]
+        assert ro.dv(diverged).tolist() == [np.inf]
+
+
+class TestPredictorTiming:
+    def test_step_from_the_filtered_state_reproduces_the_teacher_forced_prediction(self) -> None:
+        # h[k] has consumed (x_0, a_1) .. (x_k, a_{k+1}); a planner at row t0 holds h[t0 - 1] and steps (x_t0, a_{t0+1})
+        torch.manual_seed(0)
+        rng = np.random.default_rng(0)
+        norm = wm_model.Normalizer(rng.normal(size=wm_model.N_X), rng.uniform(0.5, 2.0, wm_model.N_X), np.zeros(wm_model.N_X), np.ones(wm_model.N_X))
+        x = rng.normal(size=(12, wm_model.N_X)).astype(np.float32)
+        banks = rng.uniform(-np.pi, np.pi, 12)
+        for kind in ("gru", "mlp"):
+            pred = wm_model.Predictor(wm_model.Dynamics(kind), norm)
+            mu, _, hs = pred.teacher_forced(x, wm_model.action_features(banks[1:]))
+            for t0 in (0, 5, 10):
+                h0 = None if hs is None else hs[t0 - 1][None] if t0 > 0 else np.zeros((1, wm_model.HIDDEN), np.float32)
+                h1, x1 = pred.step(h0, x[t0][None], banks[t0 + 1 : t0 + 2])
+                np.testing.assert_allclose(x1[0], mu[t0], rtol=1e-5, atol=1e-5)
+                if hs is not None:
+                    assert h1 is not None
+                    np.testing.assert_allclose(h1[0], hs[t0], rtol=1e-5, atol=1e-5)
+                free = pred.free_run(h0, x[t0][None], banks[None, t0 + 1 : t0 + 2])
+                np.testing.assert_allclose(free[0, 0], x1[0])
