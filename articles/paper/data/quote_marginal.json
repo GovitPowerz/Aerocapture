@@ -1,0 +1,201 @@
+{
+ "source": "experiments/ou_marginal/quote_results.json",
+ "n_sims": 1000,
+ "regimes": {
+  "frozen": {
+   "noise_seeding": "legacy",
+   "per_seed_override": null
+  },
+  "marginal": {
+   "noise_seeding": "legacy",
+   "per_seed_override": "simulation.random_seed = 1000 + 7 i"
+  }
+ },
+ "cells": {
+  "mamba_p962/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 115.93,
+   "heat_load_viol_pct": 0.0
+  },
+  "mamba_p962/marginal": {
+   "capture_pct": 98.0,
+   "dv_cvar95": 194.42,
+   "heat_load_viol_pct": 1.2
+  },
+  "lstm_p1082/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 116.32,
+   "heat_load_viol_pct": 14.6
+  },
+  "lstm_p1082/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 170.42,
+   "heat_load_viol_pct": 17.0
+  },
+  "gru_p1014/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 119.29,
+   "heat_load_viol_pct": 0.0
+  },
+  "gru_p1014/marginal": {
+   "capture_pct": 98.0,
+   "dv_cvar95": 198.12,
+   "heat_load_viol_pct": 1.5
+  },
+  "dense_p972/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 121.33,
+   "heat_load_viol_pct": 0.0
+  },
+  "dense_p972/marginal": {
+   "capture_pct": 99.3,
+   "dv_cvar95": 194.87,
+   "heat_load_viol_pct": 0.5
+  },
+  "dense_p515/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 126.18,
+   "heat_load_viol_pct": 0.0
+  },
+  "dense_p515/marginal": {
+   "capture_pct": 98.4,
+   "dv_cvar95": 228.04,
+   "heat_load_viol_pct": 0.8
+  },
+  "fnpag/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 143.31,
+   "heat_load_viol_pct": 0.0
+  },
+  "fnpag/marginal": {
+   "capture_pct": 99.4,
+   "dv_cvar95": 154.33,
+   "heat_load_viol_pct": 0.0
+  },
+  "pred_guid/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 221.34,
+   "heat_load_viol_pct": 0.0
+  },
+  "pred_guid/marginal": {
+   "capture_pct": 99.9,
+   "dv_cvar95": 243.58,
+   "heat_load_viol_pct": 0.0
+  },
+  "ftc/frozen": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 230.77,
+   "heat_load_viol_pct": 0.0
+  },
+  "ftc/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 261.32,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_mamba_p962/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 146.88,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_mamba_p962_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 149.97,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_mamba_p962_s3/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 147.58,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_gru_p1014/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 147.26,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_gru_p1014_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 146.63,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_gru_p1014_s3/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 156.8,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p972/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 149.45,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p972_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 157.95,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p972_s3/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 143.88,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_lstm_p1082/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 145.9,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_lstm_p1082_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 168.45,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_lstm_p1082_s3/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 146.96,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p515/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 155.22,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p515_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 157.96,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_dense_p515_s3/marginal": {
+   "capture_pct": 99.9,
+   "dv_cvar95": 162.77,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_mamba_p962/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 138.59,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_gru_p1014/marginal": {
+   "capture_pct": 99.8,
+   "dv_cvar95": 153.41,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_dense_p972/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 145.15,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_lstm_p1082/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 128.28,
+   "heat_load_viol_pct": 10.8
+  },
+  "ou_ft_dense_p515/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 129.81,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_pilot_mamba/marginal": {
+   "capture_pct": 100.0,
+   "dv_cvar95": 138.33,
+   "heat_load_viol_pct": 0.0
+  }
+ }
+}

@@ -123,9 +123,10 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 `best_params.json`, flown by `cell_eval.evaluate_cell`, the one deploy-side evaluation path that
 the demo, the reports and `compare_guidance` also take) on the pools above and write
 `articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_eval.json`, the
-quantization finalists and `confirmatory_marginal.json` (the per-scenario far-tail confirmatory,
-extracted from `experiments/ou_marginal/`) at compile time for the headline tables and the
-per-scenario headline quotes, the colophon reads `provenance.json`, `appendix.typ` reads
+quantization finalists, `confirmatory_marginal.json` (the per-scenario far-tail confirmatory) and
+`quote_marginal.json` (the paired n = 1000 both-regime scoring), both extracted from
+`experiments/ou_marginal/`, at compile time for the headline tables, the per-scenario headline
+quotes and Appendix E's tables and prose, the colophon reads `provenance.json`, `appendix.typ` reads
 `figures/appendix/<scheme>/stats.json` (the other prose numbers are still transcribed from the
 data files). `make -C articles/paper paper`
 is the one command from the committed bundle to the PDF (`articles/paper/Makefile`: results.json,

@@ -49,9 +49,10 @@ pred_guid) is training.
   `12_collect_results.sh`; the preserved legacy dirs land under
   `runs/legacy/<dir>/`. Tables/figures reproduce from the bundle WITHOUT
   re-training: `make -C articles/paper paper` (fetch-logs -> results.json ->
-  confirmatory_marginal.json -> figures -> provenance -> pdf; `make -C
-  articles/paper check` verifies the checksums, the per-draw extract and the
-  figures; the opt-in `mc-*` targets re-fly cells). After a re-collect, `make
+  confirmatory_marginal.json -> quote_marginal.json -> figures -> provenance ->
+  pdf; `make -C articles/paper check` verifies the checksums, the two
+  per-scenario extracts and the figures; the opt-in `mc-*` targets re-fly
+  cells). After a re-collect, `make
   -C articles/paper sums` refreshes `data/SHA256SUMS`.
   Discipline: any retro `final_select` re-selection must be
   followed by `report.py` on that dir (regenerates `final_eval.parquet`)

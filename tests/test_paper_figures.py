@@ -189,3 +189,40 @@ def test_aggregate_fails_without_logs(tmp_path: Path, monkeypatch: pytest.Monkey
     with pytest.raises(SystemExit, match="No run.jsonl.gz"):
         agg.main()
     assert not (tmp_path / "results.json").exists()
+
+
+def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make check`'s n = 1000 per-scenario extract gate (issue #157): current on the committed
+    pair, a failure once the source moves, the prescribed regeneration, a missing cell named."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import extract_quote_marginal as eqm  # type: ignore[import-not-found]
+
+    src = tmp_path / "experiments/ou_marginal/quote_results.json"
+    out = tmp_path / "articles/paper/data/quote_marginal.json"
+    src.parent.mkdir(parents=True)
+    out.parent.mkdir(parents=True)
+    shutil.copy(eqm.SRC, src)
+    shutil.copy(eqm.OUT, out)
+    monkeypatch.setattr(eqm, "REPO", tmp_path)
+    monkeypatch.setattr(eqm, "SRC", src)
+    monkeypatch.setattr(eqm, "OUT", out)
+    monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py", "--check"])
+    eqm.main()
+
+    d = json.loads(src.read_text())
+    d["cells"]["fnpag/marginal"]["dv_cvar95"] += 1.0
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="is not what"):
+        eqm.main()
+
+    before = out.read_text()
+    monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py"])
+    eqm.main()
+    assert out.read_text() != before
+    monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py", "--check"])
+    eqm.main()
+
+    del d["cells"]["fnpag/marginal"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag/marginal"):
+        eqm.main()
