@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -200,3 +202,65 @@ def test_terminal_observation_and_aux_describe_a_finite_end_state() -> None:
 def test_rejects_configs_where_the_action_is_not_the_nn_output(override: dict[str, str]) -> None:
     with pytest.raises(ValueError, match="full_neural"):
         aerocapture_rs.BatchedSimulation(TOML, n_envs=1, overrides=override)
+
+
+def _fly_until_done(env: Any, n: int, bank: float) -> list[tuple[np.ndarray, np.ndarray, list[dict[str, object]], np.ndarray]]:
+    """env.step's (obs, done, info, aux), reward dropped, per step until every slot is done (an auto-reset slot never is)."""
+    out = []
+    for _ in range(2000):
+        obs, _, done, info, aux = env.step(np.full(n, bank, dtype=np.float32))
+        out.append((obs, done, info, aux))
+        if done.all():
+            return out
+    pytest.fail("env did not terminate within 2000 steps")
+
+
+def test_auto_reset_false_freezes_a_done_slot_at_its_terminal_state() -> None:
+    """Without auto-reset a finished slot is not re-seeded: its obs/aux rows are the terminal
+    state (the info payload's), `done` stays True, `info` is empty after the ending step, and the
+    slot's seed is untouched until an explicit reset."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=1, seed_base=3_000_000, auto_reset=False)
+    env.reset()
+    seed = env.current_seeds().copy()
+    steps = _fly_until_done(env, 1, 0.0)
+    obs_t, done_t, info_t, aux_t = steps[-1]
+    assert "final_record" in info_t[0]
+    np.testing.assert_array_equal(obs_t[0], np.asarray(info_t[0]["terminal_observation"], dtype=np.float32))
+    np.testing.assert_array_equal(aux_t[0], np.asarray(info_t[0]["terminal_aux"], dtype=np.float32))
+    np.testing.assert_array_equal(env.current_seeds(), seed)
+
+    obs_f, _, done_f, info_f, aux_f = env.step(np.zeros(1, dtype=np.float32))
+    assert done_f[0]
+    assert info_f[0] == {}
+    np.testing.assert_array_equal(obs_f, obs_t)
+    np.testing.assert_array_equal(aux_f, aux_t)
+    np.testing.assert_array_equal(env.current_seeds(), seed)
+
+    obs_0, _ = env.reset(seed.astype(np.int64))
+    obs_1, _, done_1, _, _ = env.step(np.zeros(1, dtype=np.float32))
+    assert not done_1[0]
+    assert not np.array_equal(obs_1, obs_0)
+    np.testing.assert_array_equal(obs_1, steps[0][0])
+    env.close()
+
+
+def test_a_frozen_neighbour_leaves_a_live_slot_bit_identical() -> None:
+    """Seed 3_000_000 skips out at tick 316 at zero bank and 3_000_001 at 336: the second slot
+    flies 20 ticks next to a frozen one and must match its solo flight bit for bit."""
+    env = aerocapture_rs.BatchedSimulation(TOML, n_envs=2, seed_base=3_000_000, auto_reset=False)
+    env.reset()
+    pair = _fly_until_done(env, 2, 0.0)
+    first_done = [next(k for k, (_, done, _, _) in enumerate(pair) if done[i]) for i in range(2)]
+    assert first_done[0] < first_done[1], f"slot 0 must freeze before slot 1 ends for the test to mean anything: {first_done}"
+    assert first_done[1] == len(pair) - 1
+
+    solo = aerocapture_rs.BatchedSimulation(TOML, n_envs=1, seed_base=3_000_001, auto_reset=False)
+    solo.reset()
+    alone = _fly_until_done(solo, 1, 0.0)
+    assert len(alone) == len(pair)
+    for (obs_p, _, _, aux_p), (obs_s, _, _, aux_s) in zip(pair, alone, strict=True):
+        np.testing.assert_array_equal(obs_p[1], obs_s[0])
+        np.testing.assert_array_equal(aux_p[1], aux_s[0])
+    np.testing.assert_array_equal(pair[-1][2][1]["final_record"], alone[-1][2][0]["final_record"])
+    env.close()
+    solo.close()
