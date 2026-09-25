@@ -142062,6 +142062,7 @@
    "fig_planning.svg",
    "fig_rollout_error.svg",
    "fig_tail.svg"
-  ]
+  ],
+  "wall_s": 1.4
  }
 }

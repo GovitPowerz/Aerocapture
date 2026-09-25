@@ -14,8 +14,10 @@ the skipped physics (Rayon-parallel, under 0.1 us per slot-tick amortized) but t
 observation build, serial at about 1 us per slot: a frozen slot's rows are copied from its cached
 terminal state, so a 1,000-slot step falls from 1.2 ms to 0.2 ms once the slots are done and a
 1,000-flight lockstep batch from 1.2 s to 0.7 s. The #155 rerun on the frozen plant reproduces every
-model and planner number in `world_model.json`; the change shows only in the wall-clock numbers (the
-Compute table, the train-time and ms-per-replan columns, the planning figure's cost panel).
+model and planner number in `world_model.json`; the change shows only in the wall-clock numbers,
+and there only where the plant dominates: the data stage and the clairvoyant replay (its ms per
+flight-replan and the planning figure's cost panel with it). The train times and the learned
+planners' ms per replan moved within run noise.
 
 ## Result in one paragraph
 
@@ -300,15 +302,17 @@ around the plant's seven physical states is the heavier third option.
 
 ## Compute
 
-One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, 56 minutes end to end
-(stage `meta` fields and per-stage wall times in `world_model.json`):
+One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, 56 minutes summed over the stages
+(stage `meta` fields and per-stage wall times in `world_model.json`; the #155 rerun was resumed
+once from its cached pools and models after a machine sleep, so the stages did not run on one
+continuous clock):
 
 | stage | wall time |
 |---|---|
 | data: 13,000 flights, 5.1 M steps, 340,000 to 352,000 env-ticks/s | 15 s |
 | train: 3 GRU at 12 min (18 s per epoch), 3 MLP at 2.1 min | 42 min |
 | plan: clairvoyant replay 3.5 min, learned models 12 to 49 s each, FNPAG 8 s | 6.2 min |
-| eval + plot | 7.4 min |
+| eval 7.4 min, plot 1 s | 7.4 min |
 
 The estimate before starting was 4 to 5 hours. `BatchedSimulation` and small CPU models made it an
 hour; freezing the finished slots (#153) then took the data stage from 24 s to 15 s and the
