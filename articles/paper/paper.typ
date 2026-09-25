@@ -3,9 +3,9 @@
 // Compile: make -C articles/paper pdf (runs typst from the repo ROOT so figure paths resolve,
 // and passes the git head the colophon prints).
 // Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
-// tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), the per-scenario headline quotes and the
-// colophon read them at compile time through results.typ; the rest of the prose still quotes
-// transcribed numbers. Rebuild everything:
+// tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), Appendix E's tables (tbl-ou-regimes,
+// tbl-ou-retrain), the per-scenario quotes and the colophon read them at compile time through
+// results.typ; the rest of the prose still quotes transcribed numbers. Rebuild everything:
 // make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
 // result. dense_515 carried as a full efficiency-reference row throughout.
@@ -55,7 +55,7 @@
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
 
 // Bundle accessors (results.json, confirmatory_eval.json, quant/finalists_results.json,
-// confirmatory_marginal.json).
+// confirmatory_marginal.json, quote_marginal.json).
 #import "results.typ" as R
 // The per-scenario far-tail headline (data/confirmatory_marginal.json): the deployed fine-tune
 // seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG, the three-seed
@@ -1995,11 +1995,12 @@ feasibility validation (@tbl-ou-retrain).
 #block(width: 100%, stroke: (top: 0.35pt), inset: (top: 6pt))[
   #set text(size: 8.5pt)
   #set par(justify: false)
-  *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists and
-  @tbl-ou-confirmatory, and the per-scenario headline figures of the abstract, Section 9 and the
-  conclusion, are read at compile time from `data/results.json`, `data/confirmatory_eval.json`,
-  `data/quant/finalists_results.json` and `data/confirmatory_marginal.json` through `results.typ`
-  (the Viol. column of @tbl-perf is transcribed: the bundle carries no violation field). Paper inputs digest (SHA-256 over every
+  *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists, @tbl-ou-regimes,
+  @tbl-ou-retrain and @tbl-ou-confirmatory, and the per-scenario quotes of the abstract, Section 9,
+  the conclusion and Appendix E, are read at compile time from `data/results.json`,
+  `data/confirmatory_eval.json`, `data/quant/finalists_results.json`, `data/confirmatory_marginal.json`
+  and `data/quote_marginal.json` through `results.typ` (the Viol. column of @tbl-perf is transcribed:
+  `results.json` carries no violation field). Paper inputs digest (SHA-256 over every
   tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release
   #raw(prov.release_tag). Simulator crate #prov.simulator_crate_version, Typst #prov.typst_version,
   matplotlib #prov.matplotlib_version. Noise regime: #prov.noise_regime. Compiled at git

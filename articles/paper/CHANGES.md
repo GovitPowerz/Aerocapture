@@ -91,8 +91,9 @@ last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
   and of the networks (11--31, 54--102: table prose and conclusion), FNPAG's 154.3, the two
   fine-tune CVaR95 (129.8, 138.6) and their 16--25 margin, the scratch retrains' 17--69 margin, the
   3 m/s compression of the three close scratch means, the +-1.6 against +-5.7--12.7 consistency
-  quote, the pilot's 138.3, the LSTM fine-tune's 10.8% violation. No value moved: every page
-  renders pixel-identical to the #154 build before the colophon's provenance digest changes.
-  No number the paper quotes is transcribed from outside `data/` any more; the "2--4 times" ratio of
+  quote, the pilot's 138.3, the LSTM fine-tune's 10.8% violation. The colophon lists the two
+  tables, Appendix E and the new file among those read at compile time. No value moved: every page
+  but the colophon's renders pixel-identical to the #154 build.
+  No number the paper quotes from `experiments/ou_marginal/` is transcribed any more; the "2--4 times" ratio of
   network to classical tail loss (abstract, Section 1, the table caption) stays a rounded prose
   characterization of those two ranges, not a bundle value.

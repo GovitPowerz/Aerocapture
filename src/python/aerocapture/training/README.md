@@ -742,8 +742,8 @@ validation_n_sims` sims each).
   (legacy regime, `legacy_regime()`), `confirmatory_marginal.json` (per_draw, asserted at load)
   and `quote_marginal.json` (its frozen / marginal regime pair asserted at load) that fill every
   cell of the performance, paired-comparison, quantization-finalists, per-scenario far-tail,
-  shared-path-versus-per-scenario and retraining tables (the Viol. column excepted: the bundle
-  carries no violation field) and the per-scenario quotes of the abstract, Section 9, the
+  shared-path-versus-per-scenario and retraining tables (the Viol. column of the performance table
+  excepted: `results.json` carries no violation field) and the per-scenario quotes of the abstract, Section 9, the
   conclusion and Appendix E, and the colophon reads `provenance.json`; the shared-path prose
   numbers are still transcribed from the bundle files. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
