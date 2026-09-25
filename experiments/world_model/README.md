@@ -161,16 +161,16 @@ Planning on the 1,000-seed planning pool (`per_draw` noise):
 
 | planner | capture | delta-v p50 | p95 | CVaR95 (95% CI) | abs apoapsis error p50 / p95, km | periapsis p50, km | first 150 ticks at bank_min | ms per flight-replan |
 |---|---|---|---|---|---|---|---|---|
-| clairvoyant plant replay | 100% | 137 | 171 | 175 (174-177) | 13 / 31 | -23 | 0% | 6.7 |
-| GRU s0 | 100% | 946 | 1256 | 1342 (1314-1365) | 9,844 / 32,979 | 36 | 99.3% | 2.0 |
-| GRU s1 | 100% | 963 | 1269 | 1342 (1318-1363) | 9,991 / 33,900 | 31 | 99.3% | 2.0 |
-| GRU s2 | 100% | 859 | 1253 | 1342 (1313-1365) | 7,803 / 31,650 | 42 | 99.0% | 2.0 |
-| MLP s0 | 100% | 772 | 937 | 977 (963-990) | 5,747 / 9,165 | 33 | 86.5% | 1.1 |
-| MLP s1 | 100% | 938 | 1256 | 1342 (1314-1365) | 9,736 / 31,944 | 38 | 99.3% | 0.8 |
-| MLP s2 | 100% | 823 | 1253 | 1342 (1313-1365) | 7,414 / 31,650 | 43 | 98.1% | 0.5 |
+| clairvoyant plant replay | 100% | 137 | 171 | 175 (174-177) | 13 / 31 | -23 | 0% | 6.2 |
+| GRU s0 | 100% | 946 | 1256 | 1342 (1314-1365) | 9,844 / 32,979 | 36 | 99.3% | 0.9 |
+| GRU s1 | 100% | 963 | 1269 | 1342 (1318-1363) | 9,991 / 33,900 | 31 | 99.3% | 1.3 |
+| GRU s2 | 100% | 859 | 1253 | 1342 (1313-1365) | 7,803 / 31,650 | 42 | 99.0% | 0.7 |
+| MLP s0 | 100% | 772 | 937 | 977 (963-990) | 5,745 / 9,165 | 33 | 86.5% | 0.4 |
+| MLP s1 | 100% | 938 | 1256 | 1342 (1314-1365) | 9,736 / 31,944 | 38 | 99.3% | 0.4 |
+| MLP s2 | 100% | 823 | 1253 | 1342 (1313-1365) | 7,414 / 31,650 | 43 | 98.1% | 0.3 |
 | FNPAG deployed cell (context) | 99.5% | 122 | 140 | 150 (145-155) | 20 / 74 | 8 | | |
 
-Paired on the same seeds, every learned planner costs 635 to 829 m/s more than the clairvoyant one
+Paired on the same seeds, every learned planner costs 634 to 829 m/s more than the clairvoyant one
 on average and wins on no flight (`vs_oracle` in the JSON).
 Delta-v statistics are over captured flights (`paper_stats.run_stats`). Planning cost is wall time
 per flight and replan, batched over the 1,000 flights on this machine: the replay re-flies each
@@ -292,15 +292,15 @@ around the plant's seven physical states is the heavier third option.
 
 ## Compute
 
-One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, about 65 minutes end to end
+One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, about an hour end to end
 (stage `meta` and `wall_s` fields in `world_model.json`):
 
 | stage | wall time |
 |---|---|
 | data: 13,000 flights, 5.1 M steps, 207,000 to 227,000 env-ticks/s | 24 s |
 | train: 3 GRU at 12 to 13 min (18 s per epoch), 3 MLP at 2.0 to 2.1 min | 43 min |
-| plan: clairvoyant replay 6.4 min, learned models 0.4 to 1.2 min each, FNPAG 8 s | 12 min |
-| eval + plot | 8.5 min |
+| plan: clairvoyant replay 5.9 min, learned models 11 to 45 s each, FNPAG 9 s | 8.5 min |
+| eval + plot | 7.3 min |
 
 The estimate before starting was 4 to 5 hours. `BatchedSimulation` and small CPU models made it an
 hour.
