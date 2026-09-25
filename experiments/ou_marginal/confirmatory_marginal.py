@@ -74,6 +74,7 @@ def main() -> None:
             continue
         print(f"== {label} ({toml})", flush=True)
         by_label[label] = ce._eval_cell(label, toml, pools, None, {}, scaffolding_from=None, sim_timeout=5.0, noise_seeding="per_draw")
+        by_label[label]["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
         OUT.write_text(
             json.dumps(
                 {

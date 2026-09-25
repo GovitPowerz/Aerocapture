@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-23 with #137); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-25 with #154); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -60,3 +60,16 @@ last on 2026-09-23 with #137); the arxiv-v3 build is the `arxiv-v3` tag.
   renders pixel-identical to the #134 build. Still transcribed: "near 237" (abstract, conclusion)
   and the n = 1000 per-scenario quotes, whose source `experiments/ou_marginal/quote_results.json`
   is still outside the bundle.
+- 2026-09-25 (#154): the four Section 5 PPO cells are retrained on the parity environment.
+  The 2026-09-22 cells had trained against a one-tick observation lag and an action injected
+  past the command shaper (fixed 2026-09-24, gate `src/rust/tests/rl_env_parity.rs`), a shaping
+  potential kept at terminations, and three episode-boundary leaks (#150, #151); their bundled
+  `rl/*` artifacts, `results.json` rows and 10^6 confirmatory-marginal rows are replaced. The
+  Section 5 sentence now reads: scratch 180 / 284 (dense, 99.9% capture, 0.6% heat-flux) and
+  382 / 412 (GRU, 100%, 0.8%), paired +67 / +257 m/s, both still improving at the budget; the
+  dense warm start deploys the champion (+1.1 paired) then walks off it (validation capture 83%
+  by 17M steps); the GRU warm start is off the champion at its first gate and plateaus at +11
+  paired. Superseded: 237 / 316 (4.8% heat-flux), 284 / 435 (47% heat-flux + 31% g-load), warm
+  +0.3 / +3.4 then capture 2% / 91%. The change is not attributable to any one of the fixes.
+  The two champions' 2M-pool parquets were regenerated on the same build (only the #141 time
+  columns and one non-capture virtual DV moved; every quoted statistic is unchanged).
