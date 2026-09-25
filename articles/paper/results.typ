@@ -5,16 +5,24 @@
 //   conf(label)   -> a confirmatory_eval.json cell (10 x 100 000 frozen pool)
 //   finalist(l)   -> a quant/finalists_results.json row (re-quote pool, n = 1000)
 //   marg(label)   -> a confirmatory_marginal.json cell (10 x 100 000, per-scenario noise)
+//   ou(label)     -> a quote_marginal.json cell (paired n = 1000; regime: "marginal" = one noise
+//                    path per scenario, "frozen" = the shared path)
 // Every run and confirmatory cell of results.json / confirmatory_eval.json used by the headline
 // tables was flown under the legacy (shared-path) noise regime; legacy_regime() asserts it so a
 // re-quoted run cannot enter a table whose caption states that regime. confirmatory_marginal.json
-// is per_draw throughout, asserted at load (ADR-0003 / ADR-0006, issue #137).
+// is per_draw throughout, asserted at load (ADR-0003 / ADR-0006, issue #137). quote_marginal.json
+// (issue #157) pins legacy seeding for both of its regimes and reaches the per-scenario one through
+// a per-seed override of simulation.random_seed, asserted at load.
 
 #let results = json("data/results.json")
 #let confirmatory = json("data/confirmatory_eval.json")
 #let finalists = json("data/quant/finalists_results.json").finalists
 #let marginal = json("data/confirmatory_marginal.json")
 #assert(marginal.noise_seeding == "per_draw", message: "confirmatory_marginal.json is not the per_draw regime")
+#let quotes = json("data/quote_marginal.json")
+#assert(quotes.regimes.keys() == ("frozen", "marginal") and quotes.regimes.values().all(r => r.noise_seeding == "legacy")
+  and quotes.regimes.frozen.per_seed_override == none and quotes.regimes.marginal.per_seed_override != none,
+  message: "quote_marginal.json does not carry the frozen / marginal pair of legacy-seeded regimes")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)
@@ -40,6 +48,15 @@
   assert(p.n == marginal.n_replicates * marginal.n_per_replicate, message: label + " does not cover the full confirmatory pool")
   (n: p.n, capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
     cvar999_se: cell.replicate_stats.cvar999.se, max: p.max, viol_pct: p.viol_pct)
+}
+// A paired n = 1000 cell of the OU-marginal campaign: capture %, CVaR95 of the correction DV over
+// captured scenarios, heat-load violation %, under the per-scenario ("marginal") or the
+// shared-path ("frozen") regime.
+#let ou(label, regime: "marginal") = {
+  let key = label + "/" + regime
+  assert(key in quotes.cells, message: "quote_marginal.json has no cell " + key)
+  let c = quotes.cells.at(key)
+  (capture_pct: c.capture_pct, cvar95: c.dv_cvar95, viol_pct: c.heat_load_viol_pct)
 }
 // Mean and sample sd (n - 1) of a list of numbers.
 #let mean_sd(xs) = {

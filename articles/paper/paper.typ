@@ -79,6 +79,35 @@
 #let ou_loss_rates = ou_seeds.map(c => c.lost / c.n)
 #let ou_below(x) = calc.ceil(x) - 1
 #let ou_margin(x) = ou_below(ou_rival999 - x)
+// The integer the dense fine-tune and FNPAG "sit near" at CVaR99.9: both within 1 m/s of it.
+#let ou_near = int(calc.round(calc.max(ou_dense.cvar999, ou_fnpag.cvar999)))
+#assert((ou_dense, ou_fnpag).all(c => calc.abs(c.cvar999 - ou_near) < 1), message: "the dense fine-tune and FNPAG do not both sit within 1 m/s of " + str(ou_near))
+// The n = 1000 paired quotes of Appendix E (data/quote_marginal.json): the five shared-path-trained
+// champions and three classical laws scored under both regimes (ou_shift = per-scenario minus
+// shared-path CVaR95), then the three scratch repeats and the fine-tune of each retrained cell under
+// per-scenario noise. ou_span prints a min--max range; ou_clean is 100% capture at zero violation.
+#assert(R.quotes.n_sims == 1000, message: "the per-scenario quotes state a paired n = 1000 pool")
+#let ou_nets = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515")
+#let ou_laws = ("fnpag", "pred_guid", "ftc")
+#let ou_shift(label) = R.ou(label).cvar95 - R.ou(label, regime: "frozen").cvar95
+#let ou_span(xs, d: 0, f: R.fixed) = [$#f(calc.min(..xs), d: d)$--$#f(calc.max(..xs), d: d)$]
+#let ou_fnpag1k = R.ou("fnpag")
+#assert(ou_fnpag1k.viol_pct == 0, message: "the prose states clean constraints for the deployed FNPAG under per-scenario noise")
+#let ou_cells = ("mamba_p962", "gru_p1014", "dense_p972", "lstm_p1082", "dense_p515")
+#let ou_scratch(label) = ("", "_s2", "_s3").map(s => R.ou("ou_" + label + s))
+#let ou_scratch3(label) = R.mean_sd(ou_scratch(label).map(c => c.cvar95))
+#let ou_ft1k(label) = R.ou("ou_ft_" + label)
+#let ou_clean(c) = c.capture_pct == 100 and c.viol_pct == 0
+#let ou_scratch_all = ou_cells.map(ou_scratch).flatten()
+#assert(ou_scratch_all.len() == 15 and ou_scratch_all.filter(ou_clean).len() == 14 and ou_cells.map(ou_ft1k).filter(ou_clean).len() == 3,
+  message: "the prose counts fourteen of fifteen clean scratch repeats and three of five clean fine-tunes")
+#let ou_odd = ou_scratch("dense_p515").filter(c => not ou_clean(c))
+#assert(ou_odd.len() == 1 and ou_odd.first().viol_pct == 0 and calc.round(R.quotes.n_sims * (100 - ou_odd.first().capture_pct) / 100) == 1,
+  message: "the prose states that the one unclean scratch repeat is a dense-515 seed losing one scenario")
+#assert(ou_ft1k("gru_p1014").cvar95 > ou_scratch3("gru_p1014").mean, message: "the retraining table states that the GRU fine-tune regresses")
+// The three scratch means the prose calls compressed, and the three other cells' spread of sd.
+#let ou_close = ("mamba_p962", "gru_p1014", "dense_p972").map(l => ou_scratch3(l).mean)
+#let ou_other_sd = ("gru_p1014", "dense_p972", "lstm_p1082").map(l => ou_scratch3(l).sd)
 
 #v(0.15in)
 #align(center)[
@@ -111,7 +140,7 @@
   confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
   #box[$#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s] (both three-fine-tune-seed means, the $plus.minus$ one seed
   standard deviation; the deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$) -- $#ou_margin(ou_ft3.mean)$ m/s below both the best
-  classical scheme (FNPAG) and the best dense network, which sit near $237$ -- at #box[$3.1$ ms] per
+  classical scheme (FNPAG) and the best dense network, which sit near $#ou_near$ -- at #box[$3.1$ ms] per
   simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of this
   paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
   path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more than the
@@ -1300,14 +1329,14 @@ others. The historical pipeline conditioned every scenario on one sample path of
 density noise. In that regime the shared-path champion reached $"CVaR"_(99.9) = 123.3 plus.minus 0.1$
 m/s at $100%$ capture, beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at $"CVaR"_95$
 on every one of a thousand paired scenarios -- the numbers the main body of this paper still
-quotes; under per-scenario noise the shared-path-trained networks lose $54$--$102$ m/s of
-$"CVaR"_95$ where the classical schemes lose $11$--$31$ (Appendix E). Retraining under the repaired
+quotes; under per-scenario noise the shared-path-trained networks lose #ou_span(ou_nets.map(ou_shift)) m/s of
+$"CVaR"_95$ where the classical schemes lose #ou_span(ou_laws.map(ou_shift)) (Appendix E). Retraining under the repaired
 seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
 whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
-fine-tune takes the shallow tail ($129.8$ m/s against FNPAG's $154.3$); on the $10^6$-scenario far
+fine-tune takes the shallow tail ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ m/s against FNPAG's $#R.fixed(ou_fnpag1k.cvar95)$); on the $10^6$-scenario far
 tail the fine-tuned recurrent policy holds $#R.fixed(ou_ft3.mean)$ (three-seed mean) while the dense fine-tune and
-FNPAG both sit near $237$. The internal state earns its keep exactly where the shared-path study
+FNPAG both sit near $#ou_near$. The internal state earns its keep exactly where the shared-path study
 said it did -- on the extreme tail that sizes the tanks -- and that claim now stands on the marginal
 distribution, not on one noise path.
 
@@ -1796,6 +1825,17 @@ regimes: the historical shared path, and a marginal regime in which each scenari
 realization. All values are $"CVaR"_95$ of the correction $Delta v$ in m/s; capture and the
 heat-load feasibility of Section 6.2 are noted where they move.
 
+// One tbl-ou-regimes row from data/quote_marginal.json: shared-path CVaR95, per-scenario CVaR95
+// (with `note`, a function of that cell, where the prose discusses what else it gives up), and
+// their difference. The PredGuid / FTC row spans the two laws.
+#let ou_regime_row(policy, label, note: none) = {
+  let m = R.ou(label)
+  let per_scenario = if note == none { [$#R.fixed(m.cvar95)$] } else { [$#R.fixed(m.cvar95)$ #note(m)] }
+  let shift = ou_shift(label)
+  assert(shift > 0, message: label + " does not lose tail under per-scenario noise: the table sets every delta with a math plus")
+  (policy, [$#R.fixed(R.ou(label, regime: "frozen").cvar95)$], per_scenario, [$+#R.fixed(shift)$])
+}
+#let ou_pgftc = ("pred_guid", "ftc")
 #figure(
   table(
     columns: (auto, auto, auto, auto),
@@ -1803,14 +1843,15 @@ heat-load feasibility of Section 6.2 are noted where they move.
     table.hline(stroke: 0.7pt),
     table.header([Deployed policy], [Shared path], [Per-scenario], [$Delta$]),
     table.hline(stroke: 0.4pt),
-    [Mamba $962$ (headline)], [$115.9$], [$194.4$ #text(size: 8pt)[($98.0%$ capture)]], [$+78.5$],
-    [LSTM $1082$], [$116.3$], [$170.4$ #text(size: 8pt)[($17%$ heat-load viol.)]], [$+54.1$],
-    [GRU $1014$], [$119.3$], [$198.1$], [$+78.8$],
-    [Dense $972$], [$121.3$], [$194.9$], [$+73.5$],
-    [Dense $515$], [$126.2$], [$228.0$], [$+101.9$],
+    ..ou_regime_row([Mamba $962$ (headline)], "mamba_p962", note: c => text(size: 8pt)[($#R.fixed(c.capture_pct)%$ capture)]),
+    ..ou_regime_row([LSTM $1082$], "lstm_p1082", note: c => text(size: 8pt)[($#R.fixed(c.viol_pct, d: 0)%$ heat-load viol.)]),
+    ..ou_regime_row([GRU $1014$], "gru_p1014"),
+    ..ou_regime_row([Dense $972$], "dense_p972"),
+    ..ou_regime_row([Dense $515$], "dense_p515"),
     table.hline(stroke: 0.4pt),
-    [FNPAG], [$143.3$], [$154.3$], [$+11.0$],
-    [PredGuid / FTC], [$221$--$231$], [$244$--$261$], [$+22$--$+31$],
+    ..ou_regime_row([FNPAG], "fnpag"),
+    [PredGuid / FTC], ou_span(ou_pgftc.map(l => R.ou(l, regime: "frozen").cvar95)), ou_span(ou_pgftc.map(l => R.ou(l).cvar95)),
+    ou_span(ou_pgftc.map(ou_shift), f: R.signed),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Shared-path versus per-scenario $"CVaR"_95$ (m/s, paired $n = 1000$) for the deployed
@@ -1819,10 +1860,10 @@ heat-load feasibility of Section 6.2 are noted where they move.
   network.],
 ) <tbl-ou-regimes>
 
-The asymmetry is the finding: the analytic laws lose $11$--$31$ m/s -- ordinary distribution
-widening -- while the networks lose $54$--$102$ and shed capture or feasibility. A policy with
+The asymmetry is the finding: the analytic laws lose #ou_span(ou_laws.map(ou_shift)) m/s -- ordinary distribution
+widening -- while the networks lose #ou_span(ou_nets.map(ou_shift)) and shed capture or feasibility. A policy with
 internal state can fit the one density history it ever sees, and did. On the per-scenario tail the
-deployed FNPAG ($154.3$ m/s, clean constraints) beats every shared-path-trained network, inverting the
+deployed FNPAG ($#R.fixed(ou_fnpag1k.cvar95)$ m/s, clean constraints) beats every shared-path-trained network, inverting the
 Section 7 margin.
 
 == The repair, and retraining under it
@@ -1841,10 +1882,16 @@ showed the genetic algorithm to be population-sensitive, the scratch rows of @tb
 repaired seeding at a smaller population than the headline, and part of their compressed architecture
 separation may be allocation rather than noise; the fine-tunes and the far-tail confirmatory start from
 the headline-allocation champions. Fourteen of the fifteen scratch
-repeats (the fifteenth, a dense-515 seed, loses one scenario in $1000$) and three of the five
+repeats (the fifteenth, a dense-515 seed, loses one scenario in $#R.quotes.n_sims$) and three of the five
 fine-tunes restore $100%$ capture with zero constraint violations on the per-scenario pool; notably, scratch retraining fixes the LSTM cell whose shared-path champion
 had been heat-load infeasible.
 
+// One tbl-ou-retrain row from data/quote_marginal.json: the three scratch repeats' CVaR95 mean
+// and sd, the fine-tune's CVaR95, the note.
+#let ou_retrain_row(cell, label, note) = {
+  let s = ou_scratch3(label)
+  (cell, [$#R.fixed(s.mean) plus.minus #R.fixed(s.sd)$], [$#R.fixed(ou_ft1k(label).cvar95)$], note)
+}
 #figure(
   table(
     columns: (auto, auto, auto, auto),
@@ -1852,11 +1899,11 @@ had been heat-load infeasible.
     table.hline(stroke: 0.7pt),
     table.header([Cell], [Scratch, $3$ seeds (mean $plus.minus sigma_"run"$)], [Fine-tune], [Note]),
     table.hline(stroke: 0.4pt),
-    [Mamba $962$], [$148.1 plus.minus 1.6$], [$138.6$], [fine-tune replicates its pilot ($138.3$)],
-    [GRU $1014$], [$150.2 plus.minus 5.7$], [$153.4$], [fine-tune *regresses*],
-    [Dense $972$], [$150.4 plus.minus 7.1$], [$145.2$], [],
-    [LSTM $1082$], [$153.8 plus.minus 12.7$], [$128.3$], [fine-tune inherits $10.8%$ heat-load viol.],
-    [Dense $515$], [$158.7 plus.minus 3.8$], [$129.8$], [best $"CVaR"_95$; far tail says otherwise, see @tbl-ou-confirmatory],
+    ..ou_retrain_row([Mamba $962$], "mamba_p962", [fine-tune replicates its pilot ($#R.fixed(R.ou("ou_pilot_mamba").cvar95)$)]),
+    ..ou_retrain_row([GRU $1014$], "gru_p1014", [fine-tune *regresses*]),
+    ..ou_retrain_row([Dense $972$], "dense_p972", []),
+    ..ou_retrain_row([LSTM $1082$], "lstm_p1082", [fine-tune inherits $#R.fixed(ou_ft1k("lstm_p1082").viol_pct)%$ heat-load viol.]),
+    ..ou_retrain_row([Dense $515$], "dense_p515", [best $"CVaR"_95$; far tail says otherwise, see @tbl-ou-confirmatory]),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Per-scenario $"CVaR"_95$ (m/s, $n = 1000$) after retraining under the repaired seeding.
@@ -1866,16 +1913,16 @@ had been heat-load infeasible.
 ) <tbl-ou-retrain>
 
 Three conclusions. First, training on the right distribution repairs the damage: the scratch
-retrains beat the shared-path-trained networks by $17$--$69$ m/s on the marginal tail and edge FNPAG's
-$154.3$ by roughly one $sigma_"run"$ -- a real but modest margin. The decisive margin comes from
+retrains beat the shared-path-trained networks by #ou_span(ou_cells.map(l => R.ou(l).cvar95 - ou_scratch3(l).mean)) m/s on the marginal tail and edge FNPAG's
+$#R.fixed(ou_fnpag1k.cvar95)$ by roughly one $sigma_"run"$ -- a real but modest margin. The decisive margin comes from
 the fine-tune recipe: continuing a shared-path champion briefly under per-scenario noise yields the
-two best feasible policies of the study ($129.8$ and $138.6$ m/s, $16$--$25$ below FNPAG), though
+two best feasible policies of the study ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ and $#R.fixed(ou_ft1k("mamba_p962").cvar95)$ m/s, #ou_span(("dense_p515", "mamba_p962").map(l => ou_fnpag1k.cvar95 - ou_ft1k(l).cvar95)) below FNPAG), though
 the recipe is not universal -- the GRU regresses and the LSTM fine-tune inherits its parent's
 infeasibility, so it must be validated per cell. Second, the inter-architecture ordering of
-Section 6 compresses: the Mamba, GRU, and dense-$972$ scratch means sit within $3$ m/s of one
+Section 6 compresses: the Mamba, GRU, and dense-$972$ scratch means sit within $#int(calc.ceil(calc.max(..ou_close) - calc.min(..ou_close)))$ m/s of one
 another, inside $sigma_"run"$, and only the dense-$515$ cell is significantly worse. What survives
-for the recurrent cell at three repeats is *consistency* -- $plus.minus 1.6$ m/s against
-$plus.minus 5.7$--$12.7$ -- which is suggestive, not conclusive. Third, the scope of the main-body
+for the recurrent cell at three repeats is *consistency* -- $plus.minus #R.fixed(ou_scratch3("mamba_p962").sd)$ m/s against
+$plus.minus #R.fixed(calc.min(..ou_other_sd))$--$#R.fixed(calc.max(..ou_other_sd))$ -- which is suggestive, not conclusive. Third, the scope of the main-body
 claims: the methodology results of Sections 4--5 (seed strategy, cost transform, optimizer
 ordering) compare like against like under identical conditioning and are unaffected in kind; the
 absolute $Delta v$ magnitudes and the Section 6 architecture margins are shared-path quantities and

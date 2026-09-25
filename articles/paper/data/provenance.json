@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "c39c936efbe86198c00e3ffaedeefb10a36d54aa07e177164ae3ecb613c4a2c6",
+  "paper_inputs_sha256": "403d0aff2400f8786b014fa75c6d5c583a982c0fc09be2c1fcaa1d5327e0f7b0",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -13,7 +13,7 @@
   ],
   "release_tag": "arxiv-v2",
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v2/paper_run_logs.tar",
-  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006)",
+  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006); quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157)",
   "simulator_crate_version": "1.0.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",

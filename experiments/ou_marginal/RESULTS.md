@@ -2,7 +2,10 @@
 
 Protocol: paired n=1000 pool (rng 987654321), marginal regime = per-scenario
 `simulation.random_seed = 1000 + 7*i`; raw data `quote_results.json`
-(regenerate with `quote_marginal.py`). All numbers below are the MARGINAL
+(regenerate with `quote_marginal.py`; the paper reads its quoted cells through
+`articles/paper/data/quote_marginal.json`: after a re-run, `make -C articles/paper
+quote-marginal sums provenance`, commit, then `make -C articles/paper pdf` from the
+clean HEAD, `make check` fails until then). All numbers below are the MARGINAL
 regime, DV CVaR95 in m/s; every listed run is 100% capture and heat-load
 feasible unless flagged.
 

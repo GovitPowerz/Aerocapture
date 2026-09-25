@@ -57,9 +57,9 @@ last on 2026-09-25 with #154); the arxiv-v3 build is the `arxiv-v3` tag.
   paragraph with its loss rates, and the per-scenario quotes of the abstract, Section 9 and the
   conclusion (99.996%, 99.9995%, 163.2 +- 1.3, 163.0 +- 0.3, the 73 m/s margin, "past 236"). The
   colophon names the new file and its regime. No value moved: every page except the colophon
-  renders pixel-identical to the #134 build. Still transcribed: "near 237" (abstract, conclusion)
-  and the n = 1000 per-scenario quotes, whose source `experiments/ou_marginal/quote_results.json`
-  is still outside the bundle.
+  renders pixel-identical to the #134 build. Left transcribed at the time: "near 237" (abstract,
+  conclusion) and the n = 1000 per-scenario quotes, whose source
+  `experiments/ou_marginal/quote_results.json` was outside the bundle (brought in by #157 below).
 - 2026-09-25 (#154): the four Section 5 PPO cells are retrained on the parity environment.
   The 2026-09-22 cells had trained against a one-tick observation lag and an action injected
   past the command shaper (fixed 2026-09-24, gate `src/rust/tests/rl_env_parity.rs`), a shaping
@@ -73,3 +73,24 @@ last on 2026-09-25 with #154); the arxiv-v3 build is the `arxiv-v3` tag.
   +0.3 / +3.4 then capture 2% / 91%. The change is not attributable to any one of the fixes.
   The two champions' 2M-pool parquets were regenerated on the same build (only the #141 time
   columns and one non-capture virtual DV moved; every quoted statistic is unchanged).
+- 2026-09-25 (#157): the last transcribed numbers read the bundle. `data/quote_marginal.json`
+  holds the cells and fields Appendix E quotes from `experiments/ou_marginal/quote_results.json`
+  (the paired n = 1000 pool scored under both regimes: "frozen" pins the shared noise path,
+  "marginal" re-seeds `simulation.random_seed` per scenario, both under legacy seeding): written
+  by `scripts/extract_quote_marginal.py` (`make quote-marginal`, also a step of `make paper`),
+  checked against its source by `make check`, covered by `data/SHA256SUMS` and the provenance
+  digest. `results.typ` gains `ou()` (capture %, CVaR95, heat-load violation % of one cell under
+  one regime; the regime pair is asserted at load) and `paper.typ` asserts the n = 1000 pool, the
+  counts its prose states (fourteen of fifteen clean scratch repeats, three of five clean
+  fine-tunes, the one unclean repeat a dense-515 seed losing one scenario, clean constraints for
+  the deployed FNPAG, the GRU fine-tune regressing) and that the dense fine-tune and FNPAG both sit
+  within 1 m/s of the "near 237" the abstract and conclusion quote (now the rounded larger of the
+  two CVaR99.9). Now accessor calls: every cell of the shared-path-versus-per-scenario table and of
+  the retraining table (the scratch mean +- sd computed from the three repeats; the PredGuid / FTC
+  row's ranges and every "a--b" range in prose derived as min--max), the tail losses of the laws
+  and of the networks (11--31, 54--102: table prose and conclusion), FNPAG's 154.3, the two
+  fine-tune CVaR95 (129.8, 138.6) and their 16--25 margin, the scratch retrains' 17--69 margin, the
+  3 m/s compression of the three close scratch means, the +-1.6 against +-5.7--12.7 consistency
+  quote, the pilot's 138.3, the LSTM fine-tune's 10.8% violation. No value moved: every page
+  renders pixel-identical to the #154 build before the colophon's provenance digest changes.
+  Nothing the paper quotes is transcribed from outside `data/` any more.

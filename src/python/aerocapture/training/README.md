@@ -735,17 +735,21 @@ validation_n_sims` sims each).
   the committed PDF alone); `confirmatory-marginal` writes `data/confirmatory_marginal.json`, the
   cells and fields the paper quotes from the per_draw far-tail confirmatory
   `experiments/ou_marginal/confirmatory_marginal.json` (`extract_confirmatory_marginal.py`, issue
-  #137). `articles/paper/results.typ` is the compile-time seam: accessors over `results.json` /
-  `confirmatory_eval.json` / `quant/finalists_results.json` (legacy regime, `legacy_regime()`) and
-  `confirmatory_marginal.json` (per_draw, asserted at load) that fill every cell of the performance,
-  paired-comparison, quantization-finalists and per-scenario far-tail tables (the Viol. column
-  excepted: the bundle carries no violation field) and the per-scenario headline quotes of the
-  abstract, Section 9 and the conclusion, and the colophon reads `provenance.json`; other prose
-  numbers are still transcribed. `paper` chains them; `check` =
+  #137); `quote-marginal` writes `data/quote_marginal.json`, the cells and fields Appendix E
+  quotes from the paired n = 1000 both-regime scoring `experiments/ou_marginal/quote_results.json`
+  (`extract_quote_marginal.py`, issue #157). `articles/paper/results.typ` is the compile-time
+  seam: accessors over `results.json` / `confirmatory_eval.json` / `quant/finalists_results.json`
+  (legacy regime, `legacy_regime()`), `confirmatory_marginal.json` (per_draw, asserted at load)
+  and `quote_marginal.json` (its frozen / marginal regime pair asserted at load) that fill every
+  cell of the performance, paired-comparison, quantization-finalists, per-scenario far-tail,
+  shared-path-versus-per-scenario and retraining tables (the Viol. column excepted: the bundle
+  carries no violation field) and the per-scenario quotes of the abstract, Section 9, the
+  conclusion and Appendix E, and the colophon reads `provenance.json`; the shared-path prose
+  numbers are still transcribed from the bundle files. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
   regenerates it + `SHA256SUMS.runlogs`, the latter only when no fewer run logs are present than it
   lists) + `check_results_schema.py` +
-  `extract_confirmatory_marginal.py --check` + `write_provenance.py
+  `extract_confirmatory_marginal.py --check` + `extract_quote_marginal.py --check` + `write_provenance.py
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets
   re-fly cells (never default, never CI). Figures are byte-reproducible across macOS and Linux:
