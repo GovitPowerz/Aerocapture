@@ -5,13 +5,13 @@
    "logical_cpus": 14,
    "memory_gib": 48,
    "torch_threads": 10,
-   "commit": "58e9dd5ce9db8e185121c08a5b1d6c4444689da4",
-   "date": "2026-09-24"
+   "commit": "e7d2727d49d6e9ddc294baa1249455d1aecfd6f7",
+   "date": "2026-09-25"
   },
   "train": {
    "config": "experiments/world_model/configs/wm_medium.toml",
-   "wall_s": 18.6,
-   "env_ticks_per_s": 211371,
+   "wall_s": 11.5,
+   "env_ticks_per_s": 340758,
    "n_flights": 10000,
    "n_steps": 3922048,
    "length_p5_p50_p95": [
@@ -25,8 +25,8 @@
   },
   "val": {
    "config": "experiments/world_model/configs/wm_medium.toml",
-   "wall_s": 1.8,
-   "env_ticks_per_s": 219998,
+   "wall_s": 1.1,
+   "env_ticks_per_s": 351751,
    "n_flights": 1000,
    "n_steps": 390822,
    "length_p5_p50_p95": [
@@ -40,8 +40,8 @@
   },
   "test_id": {
    "config": "experiments/world_model/configs/wm_medium.toml",
-   "wall_s": 1.7,
-   "env_ticks_per_s": 227092,
+   "wall_s": 1.1,
+   "env_ticks_per_s": 349459,
    "n_flights": 1000,
    "n_steps": 393359,
    "length_p5_p50_p95": [
@@ -55,8 +55,8 @@
   },
   "test_ood": {
    "config": "experiments/world_model/configs/wm_high.toml",
-   "wall_s": 1.8,
-   "env_ticks_per_s": 207044,
+   "wall_s": 1.1,
+   "env_ticks_per_s": 341998,
    "n_flights": 1000,
    "n_steps": 382842,
    "length_p5_p50_p95": [
@@ -75,8 +75,8 @@
    "logical_cpus": 14,
    "memory_gib": 48,
    "torch_threads": 10,
-   "commit": "58e9dd5ce9db8e185121c08a5b1d6c4444689da4",
-   "date": "2026-09-24"
+   "commit": "e7d2727d49d6e9ddc294baa1249455d1aecfd6f7",
+   "date": "2026-09-25"
   },
   "epochs": 40,
   "batch_flights": 64,
@@ -86,8 +86,8 @@
    "params": 198484,
    "best_epoch": 24,
    "best_val_nll": -2.9725,
-   "train_wall_min": 12.0,
-   "epoch_wall_s_p50": 18.0,
+   "train_wall_min": 11.8,
+   "epoch_wall_s_p50": 17.7,
    "val_nll_by_epoch": [
     -1.4912,
     -1.6552,
@@ -135,8 +135,8 @@
    "params": 198484,
    "best_epoch": 23,
    "best_val_nll": -2.9054,
-   "train_wall_min": 13.0,
-   "epoch_wall_s_p50": 18.2,
+   "train_wall_min": 11.9,
+   "epoch_wall_s_p50": 17.8,
    "val_nll_by_epoch": [
     -1.4919,
     -1.7406,
@@ -184,8 +184,8 @@
    "params": 198484,
    "best_epoch": 25,
    "best_val_nll": -2.9727,
-   "train_wall_min": 12.0,
-   "epoch_wall_s_p50": 18.0,
+   "train_wall_min": 11.8,
+   "epoch_wall_s_p50": 17.8,
    "val_nll_by_epoch": [
     -1.447,
     -1.6642,
@@ -234,7 +234,7 @@
    "best_epoch": 38,
    "best_val_nll": -3.1055,
    "train_wall_min": 2.1,
-   "epoch_wall_s_p50": 3.2,
+   "epoch_wall_s_p50": 3.1,
    "val_nll_by_epoch": [
     -1.3858,
     -1.5978,
@@ -282,8 +282,8 @@
    "params": 98900,
    "best_epoch": 39,
    "best_val_nll": -3.122,
-   "train_wall_min": 2.0,
-   "epoch_wall_s_p50": 2.9,
+   "train_wall_min": 2.1,
+   "epoch_wall_s_p50": 3.2,
    "val_nll_by_epoch": [
     -1.4145,
     -1.625,
@@ -332,7 +332,7 @@
    "best_epoch": 39,
    "best_val_nll": -3.1074,
    "train_wall_min": 2.1,
-   "epoch_wall_s_p50": 3.0,
+   "epoch_wall_s_p50": 3.2,
    "val_nll_by_epoch": [
     -1.4245,
     -1.6073,
@@ -383,7 +383,7 @@
    "logical_cpus": 14,
    "memory_gib": 48,
    "torch_threads": 10,
-   "commit": "124d6055c539bd922b6680c6302830d4f8a19fef",
+   "commit": "e7d2727d49d6e9ddc294baa1249455d1aecfd6f7",
    "date": "2026-09-25"
   },
   "pool": "1000 seeds after the model pools in the WORLD_MODEL_SEED_OFFSET stream (base MC seed 42)",
@@ -395,7 +395,7 @@
   "runs": {
    "fnpag_deployed": {
     "config": "configs/training/msr_aller_fnpag_train.toml",
-    "total_wall_s": 8.6,
+    "total_wall_s": 8.1,
     "n": 1000,
     "capture_pct": 99.5,
     "dv_p50": 122.17,
@@ -2420,9 +2420,9 @@
     "apoapsis_err_km_p95_abs": 30.55,
     "periapsis_alt_km_p50": -23.38,
     "dv1_ms_p50": 121.55,
-    "ms_per_flight_replan": 6.16,
-    "plan_wall_s": 352.5,
-    "total_wall_s": 354.3,
+    "ms_per_flight_replan": 3.61,
+    "plan_wall_s": 206.5,
+    "total_wall_s": 207.9,
     "at_bank_min_pct_ticks_0_150": 0.0,
     "dv_sorted": [
      118.51,
@@ -4444,9 +4444,9 @@
     "apoapsis_err_km_p95_abs": 32979.05,
     "periapsis_alt_km_p50": 36.02,
     "dv1_ms_p50": 57.48,
-    "ms_per_flight_replan": 0.87,
-    "plan_wall_s": 30.4,
-    "total_wall_s": 31.9,
+    "ms_per_flight_replan": 0.92,
+    "plan_wall_s": 32.2,
+    "total_wall_s": 33.6,
     "at_bank_min_pct_ticks_0_150": 99.3,
     "dv_sorted": [
      342.74,
@@ -6478,9 +6478,9 @@
     "apoapsis_err_km_p95_abs": 33899.91,
     "periapsis_alt_km_p50": 30.58,
     "dv1_ms_p50": 57.74,
-    "ms_per_flight_replan": 1.27,
-    "plan_wall_s": 43.5,
-    "total_wall_s": 44.9,
+    "ms_per_flight_replan": 1.39,
+    "plan_wall_s": 47.5,
+    "total_wall_s": 48.9,
     "at_bank_min_pct_ticks_0_150": 99.3,
     "dv_sorted": [
      342.71,
@@ -8512,9 +8512,9 @@
     "apoapsis_err_km_p95_abs": 31649.63,
     "periapsis_alt_km_p50": 41.69,
     "dv1_ms_p50": 62.7,
-    "ms_per_flight_replan": 0.7,
-    "plan_wall_s": 25.6,
-    "total_wall_s": 27.1,
+    "ms_per_flight_replan": 0.75,
+    "plan_wall_s": 27.5,
+    "total_wall_s": 29.0,
     "at_bank_min_pct_ticks_0_150": 99.0,
     "dv_sorted": [
      335.52,
@@ -10546,9 +10546,9 @@
     "apoapsis_err_km_p95_abs": 9165.23,
     "periapsis_alt_km_p50": 33.01,
     "dv1_ms_p50": 72.5,
-    "ms_per_flight_replan": 0.42,
-    "plan_wall_s": 15.7,
-    "total_wall_s": 16.7,
+    "ms_per_flight_replan": 0.44,
+    "plan_wall_s": 16.6,
+    "total_wall_s": 17.5,
     "at_bank_min_pct_ticks_0_150": 86.5,
     "dv_sorted": [
      330.9,
@@ -12580,9 +12580,9 @@
     "apoapsis_err_km_p95_abs": 31944.39,
     "periapsis_alt_km_p50": 37.83,
     "dv1_ms_p50": 57.53,
-    "ms_per_flight_replan": 0.42,
-    "plan_wall_s": 15.0,
-    "total_wall_s": 15.8,
+    "ms_per_flight_replan": 0.43,
+    "plan_wall_s": 15.1,
+    "total_wall_s": 15.9,
     "at_bank_min_pct_ticks_0_150": 99.3,
     "dv_sorted": [
      331.47,
@@ -14614,9 +14614,9 @@
     "apoapsis_err_km_p95_abs": 31649.63,
     "periapsis_alt_km_p50": 42.98,
     "dv1_ms_p50": 63.81,
-    "ms_per_flight_replan": 0.27,
-    "plan_wall_s": 10.3,
-    "total_wall_s": 11.2,
+    "ms_per_flight_replan": 0.3,
+    "plan_wall_s": 11.2,
+    "total_wall_s": 12.0,
     "at_bank_min_pct_ticks_0_150": 98.1,
     "dv_sorted": [
      276.79,
@@ -16641,7 +16641,7 @@
    "logical_cpus": 14,
    "memory_gib": 48,
    "torch_threads": 10,
-   "commit": "124d6055c539bd922b6680c6302830d4f8a19fef",
+   "commit": "e7d2727d49d6e9ddc294baa1249455d1aecfd6f7",
    "date": "2026-09-25"
   },
   "horizon": 200,
@@ -142052,7 +142052,7 @@
     }
    }
   },
-  "wall_s": 431.1
+  "wall_s": 441.4
  },
  "plot": {
   "figures": [
