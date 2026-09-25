@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-25 with #154); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
