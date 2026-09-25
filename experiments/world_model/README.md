@@ -13,9 +13,9 @@ auto-resetting on a fresh seed and being integrated until the whole batch ends. 
 the skipped physics (Rayon-parallel, under 0.1 us per slot-tick amortized) but the skipped
 observation build, serial at about 1 us per slot: a frozen slot's rows are copied from its cached
 terminal state, so a 1,000-slot step falls from 1.2 ms to 0.2 ms once the slots are done and a
-1,000-flight lockstep batch from 1.2 s to 0.7 s. Re-run end to end on the frozen plant (#155), the
-experiment reproduces every model and planner number in `world_model.json`; the change shows only
-in the Compute table.
+1,000-flight lockstep batch from 1.2 s to 0.7 s. The #155 rerun on the frozen plant reproduces every
+model and planner number in `world_model.json`; the change shows only in the wall-clock numbers (the
+Compute table, the train-time and ms-per-replan columns, the planning figure's cost panel).
 
 ## Result in one paragraph
 
@@ -301,7 +301,7 @@ around the plant's seven physical states is the heavier third option.
 ## Compute
 
 One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, 56 minutes end to end
-(stage `meta` and `wall_s` fields in `world_model.json`):
+(stage `meta` fields and per-stage wall times in `world_model.json`):
 
 | stage | wall time |
 |---|---|
