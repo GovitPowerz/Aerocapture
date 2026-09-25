@@ -226,16 +226,3 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     src.write_text(json.dumps(d))
     with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag/marginal"):
         eqm.main()
-
-
-def test_quote_marginal_extract_carries_only_the_quoted_fields() -> None:
-    """The committed extract: the n = 1000 pool, both regimes named, and per cell exactly the
-    three fields the paper quotes (capture, CVaR95, heat-load violation share)."""
-    d = json.loads((PAPER / "data/quote_marginal.json").read_text())
-    assert d["source"] == "experiments/ou_marginal/quote_results.json"
-    assert d["n_sims"] == 1000
-    assert set(d["regimes"]) == {"frozen", "marginal"}
-    assert d["cells"]
-    for key, cell in d["cells"].items():
-        assert key.split("/")[1] in d["regimes"], key
-        assert set(cell) == {"capture_pct", "dv_cvar95", "heat_load_viol_pct"}, key

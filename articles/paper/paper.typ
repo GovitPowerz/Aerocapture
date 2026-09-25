@@ -84,22 +84,22 @@
 #assert((ou_dense, ou_fnpag).all(c => calc.abs(c.cvar999 - ou_near) < 1), message: "the dense fine-tune and FNPAG do not both sit within 1 m/s of " + str(ou_near))
 // The n = 1000 paired quotes of Appendix E (data/quote_marginal.json): the five shared-path-trained
 // champions and three classical laws scored under both regimes (ou_shift = per-scenario minus
-// shared-path CVaR95), then the three scratch repeats and the fine-tune of each retrained cell under
-// per-scenario noise. ou_span prints a min--max range; ou_clean is 100% capture at zero violation.
+// shared-path CVaR95), then the three scratch repeats and the fine-tune of each of the same five
+// cells under per-scenario noise. ou_span prints a min--max range of whole m/s; ou_clean is 100%
+// capture at zero violation.
 #assert(R.quotes.n_sims == 1000, message: "the per-scenario quotes state a paired n = 1000 pool")
 #let ou_nets = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515")
 #let ou_laws = ("fnpag", "pred_guid", "ftc")
 #let ou_shift(label) = R.ou(label).cvar95 - R.ou(label, regime: "frozen").cvar95
-#let ou_span(xs, d: 0, f: R.fixed) = [$#f(calc.min(..xs), d: d)$--$#f(calc.max(..xs), d: d)$]
+#let ou_span(xs, f: R.fixed) = [$#f(calc.min(..xs), d: 0)$--$#f(calc.max(..xs), d: 0)$]
 #let ou_fnpag1k = R.ou("fnpag")
 #assert(ou_fnpag1k.viol_pct == 0, message: "the prose states clean constraints for the deployed FNPAG under per-scenario noise")
-#let ou_cells = ("mamba_p962", "gru_p1014", "dense_p972", "lstm_p1082", "dense_p515")
 #let ou_scratch(label) = ("", "_s2", "_s3").map(s => R.ou("ou_" + label + s))
 #let ou_scratch3(label) = R.mean_sd(ou_scratch(label).map(c => c.cvar95))
 #let ou_ft1k(label) = R.ou("ou_ft_" + label)
 #let ou_clean(c) = c.capture_pct == 100 and c.viol_pct == 0
-#let ou_scratch_all = ou_cells.map(ou_scratch).flatten()
-#assert(ou_scratch_all.len() == 15 and ou_scratch_all.filter(ou_clean).len() == 14 and ou_cells.map(ou_ft1k).filter(ou_clean).len() == 3,
+#let ou_scratch_all = ou_nets.map(ou_scratch).flatten()
+#assert(ou_scratch_all.len() == 15 and ou_scratch_all.filter(ou_clean).len() == 14 and ou_nets.map(ou_ft1k).filter(ou_clean).len() == 3,
   message: "the prose counts fourteen of fifteen clean scratch repeats and three of five clean fine-tunes")
 #let ou_odd = ou_scratch("dense_p515").filter(c => not ou_clean(c))
 #assert(ou_odd.len() == 1 and ou_odd.first().viol_pct == 0 and calc.round(R.quotes.n_sims * (100 - ou_odd.first().capture_pct) / 100) == 1,
@@ -1888,9 +1888,9 @@ had been heat-load infeasible.
 
 // One tbl-ou-retrain row from data/quote_marginal.json: the three scratch repeats' CVaR95 mean
 // and sd, the fine-tune's CVaR95, the note.
-#let ou_retrain_row(cell, label, note) = {
+#let ou_retrain_row(policy, label, note) = {
   let s = ou_scratch3(label)
-  (cell, [$#R.fixed(s.mean) plus.minus #R.fixed(s.sd)$], [$#R.fixed(ou_ft1k(label).cvar95)$], note)
+  (policy, [$#R.fixed(s.mean) plus.minus #R.fixed(s.sd)$], [$#R.fixed(ou_ft1k(label).cvar95)$], note)
 }
 #figure(
   table(
@@ -1913,7 +1913,7 @@ had been heat-load infeasible.
 ) <tbl-ou-retrain>
 
 Three conclusions. First, training on the right distribution repairs the damage: the scratch
-retrains beat the shared-path-trained networks by #ou_span(ou_cells.map(l => R.ou(l).cvar95 - ou_scratch3(l).mean)) m/s on the marginal tail and edge FNPAG's
+retrains beat the shared-path-trained networks by #ou_span(ou_nets.map(l => R.ou(l).cvar95 - ou_scratch3(l).mean)) m/s on the marginal tail and edge FNPAG's
 $#R.fixed(ou_fnpag1k.cvar95)$ by roughly one $sigma_"run"$ -- a real but modest margin. The decisive margin comes from
 the fine-tune recipe: continuing a shared-path champion briefly under per-scenario noise yields the
 two best feasible policies of the study ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ and $#R.fixed(ou_ft1k("mamba_p962").cvar95)$ m/s, #ou_span(("dense_p515", "mamba_p962").map(l => ou_fnpag1k.cvar95 - ou_ft1k(l).cvar95)) below FNPAG), though

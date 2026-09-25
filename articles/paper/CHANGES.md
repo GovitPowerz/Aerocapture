@@ -93,4 +93,6 @@ last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
   3 m/s compression of the three close scratch means, the +-1.6 against +-5.7--12.7 consistency
   quote, the pilot's 138.3, the LSTM fine-tune's 10.8% violation. No value moved: every page
   renders pixel-identical to the #154 build before the colophon's provenance digest changes.
-  Nothing the paper quotes is transcribed from outside `data/` any more.
+  No number the paper quotes is transcribed from outside `data/` any more; the "2--4 times" ratio of
+  network to classical tail loss (abstract, Section 1, the table caption) stays a rounded prose
+  characterization of those two ranges, not a bundle value.
