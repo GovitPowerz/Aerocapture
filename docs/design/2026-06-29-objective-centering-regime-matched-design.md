@@ -150,3 +150,41 @@ centering closes the joint-FTC off-nominal gap (a bonus, not the methodology goa
 
 After implementation, invoke the `smart-commit` skill, telling it to take the whole git branch into
 account.
+
+## 12. Results at sizing depth (2026-09-25, #156)
+
+`articles/paper/scripts/centered_depth_eval.py` (`make -C articles/paper mc-centered-depth`) scores
+the three centered-Mamba trainer seeds (`objective_centering/mamba_centered`,
+`sigma_extras/mamba_centered_s2`, `_s3`) and the two joint-FTC references on the 9M stress pool at
+n = 10,000 (the n = 1000 pool is its first 1000 seeds), paired on scenario, bootstrap 95% CIs,
+under both noise regimes, into `articles/paper/data/centered_depth.json`. CVaR95 is over captured
+scenarios; the delta column is the seed minus the joint-FTC retrained on the regime.
+
+Shared noise path (the regime the cells trained under and the figure's regime):
+
+| Cell | Capture % | CVaR95 (m/s) | Delta CVaR95 vs retrained joint-FTC |
+|---|---|---|---|
+| Mamba s1 | 95.9 [95.5, 96.2] | 388 [356, 420] | -104 [-117, -91] |
+| Mamba s2 | 96.0 [95.7, 96.4] | 345 [313, 379] | -147 [-157, -137] |
+| Mamba s3 | 95.9 [95.5, 96.3] | 314 [282, 346] | -178 [-186, -169] |
+| joint-FTC retrained | 96.1 [95.7, 96.4] | 492 [466, 520] | |
+| joint-FTC medium-deployed | 95.6 [95.2, 96.0] | 410 [379, 443] | |
+
+Per-scenario noise (ADR-0006; the cells never trained on it):
+
+| Cell | Capture % | CVaR95 (m/s) | Delta CVaR95 vs retrained joint-FTC |
+|---|---|---|---|
+| Mamba s1 | 95.8 [95.4, 96.2] | 610 [587, 633] | +53 [+40, +65] |
+| Mamba s2 | 94.3 [93.9, 94.8] | 535 [510, 561] | -22 [-31, -13] |
+| Mamba s3 | 95.6 [95.2, 96.0] | 596 [572, 619] | +39 [+27, +50] |
+| joint-FTC retrained | 96.3 [95.9, 96.7] | 557 [535, 579] | |
+| joint-FTC medium-deployed | 94.6 [94.1, 95.0] | 457 [429, 485] | |
+
+Reading. Under the shared path the n = 1000 claim survives the depth: every seed beats both
+references on the tail with paired CIs excluding zero, capture within half a point (the n = 1000
+tails, 231-273 m/s, were the low side of wide intervals; at depth they read 314-388 against 492 and
+410). Under per-scenario noise the reversal does not survive: the retrained joint-FTC captures more
+than every seed (paired capture deltas -0.5 to -2.0 pts, CIs excluding zero) and out-tails two of
+three; the medium-deployed joint-FTC holds the best conditional tail of the five (457, every seed
+78-153 m/s above it). Same mechanism as Appendix E: a policy trained on one density history fits
+it. The open follow-up is a centered retrain under `per_draw` seeding (TODO.md).

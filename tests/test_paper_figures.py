@@ -226,3 +226,12 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     src.write_text(json.dumps(d))
     with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag/marginal"):
         eqm.main()
+
+    # The regime pair and the seed pool are the source's own record (issue #166): copied, never restated.
+    assert json.loads(out.read_text())["regimes"] == json.loads(eqm.SRC.read_text())["regimes"]
+    assert json.loads(out.read_text())["seed_pool"] == json.loads(eqm.SRC.read_text())["seed_pool"]
+    d = json.loads(eqm.SRC.read_text())
+    del d["regimes"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="carries no protocol record"):
+        eqm.main()

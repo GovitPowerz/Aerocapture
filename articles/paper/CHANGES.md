@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-25 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -97,3 +97,42 @@ last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
   No number the paper quotes from `experiments/ou_marginal/` is transcribed any more; the "2--4 times" ratio of
   network to classical tail loss (abstract, Section 1, the table caption) stays a rounded prose
   characterization of those two ranges, not a bundle value.
+- 2026-09-25 (#166): Appendix E's three prose claims are narrowed to what `data/quote_marginal.json`
+  shows, and the regime check tests the source. The shared-path-versus-per-scenario table notes,
+  beside every value under either regime, a capture rate below 100% and any heat-load violation, the
+  one rule for every row and the one the prose introducing the table now states (two rows carried a
+  note before, under an intro whose rule the notes did not follow): the per-scenario GRU (98.0%
+  capture, 1.5% violation), Dense 972 (99.3%, 0.5%), Dense 515 (98.4%, 0.8%), FNPAG (99.4%) and
+  PredGuid (99.9%) join the Mamba (now with its 1.2% violation) and the LSTM (17.0%, and 14.6%
+  under the shared path); an assert holds that every network sheds capture or feasibility. The
+  first conclusion no longer says the scratch retrains "edge FNPAG's 154.3 by roughly one
+  sigma_run": four of the five scratch means sit below it, by 0.6--6.2 m/s, and the dense-515 mean
+  sits 4.3 above, both asserted. The consistency quote's range covers all four other cells
+  (+-3.8--12.7, not +-5.7--12.7) and asserts the Mamba spread the smallest of the five.
+  `experiments/ou_marginal/quote_marginal.py` writes its protocol into `quote_results.json`
+  (`regimes`: the noise seeding and per-seed override of each regime; `seed_pool`: the rng, seed
+  and range of the shared pool); `scripts/extract_quote_marginal.py` copies that record and exits
+  on a source without it, so the load-time regime assert of `results.typ` tests the scoring
+  script rather than the extractor's own constant. Re-run on 2026-09-25: all 64 previously scored
+  cells reproduce bit-identically (four `ft_mamba_p962_s2` / `_s3` cells trained since are new to
+  the source and unquoted); no quoted value moved.
+- 2026-09-25 (#156): Section 7.3's centered high-regime cells are quoted at sizing depth, and the
+  claim changes. `data/centered_depth.json` (`scripts/centered_depth_eval.py`, `make
+  mc-centered-depth`) scores the three centered-Mamba trainer seeds and the two joint-FTC references
+  on the 9M stress pool at n = 10,000 (its first 1000 seeds are the n = 1000 pool), paired on
+  scenario, bootstrap 95% CIs, under both noise regimes, each labelled; `results.typ` gains
+  `centered()` and `centered_paired()` and asserts the regime pair at load. Two new tables (shared
+  path; per-scenario noise) replace the transcribed three-seed sentence; the figure's Mamba bar
+  becomes the three n = 10,000 seeds with CI whiskers, the joint-FTC line the n = 10,000 reference
+  with its interval, every bar under the shared path. Under the shared path the n = 1000 claim
+  survives: every seed beats both references on the tail with paired CIs excluding zero
+  (104--178 m/s below the retrained joint-FTC, 22--97 below the medium-deployed one) at capture
+  within half a point; the tails read 314--388 m/s at 95.9--96.0% capture, not the 231--273 at
+  94.8--95.0% the n = 1000 quote gave. Under per-scenario noise the reversal does not survive: the
+  retrained joint-FTC captures 96.3% against the seeds' 94.3--95.8% and out-tails two of three,
+  the medium-deployed one holds the best conditional tail (457 against 535--610). Section 7.3, its
+  figure caption and the Discussion now say so (the centered cells trained on the shared path;
+  the open follow-up is a centered retrain under per-scenario seeding), asserted in `paper.typ`;
+  the "not intrinsic to neural guidance" conclusion is scoped to the shared path. The Discussion's
+  echo of Appendix E's FNPAG margin follows #166 (four of five scratch means below FNPAG, by at
+  most 6.2 m/s). The colophon lists the two tables and the new file.

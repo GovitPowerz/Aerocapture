@@ -31,7 +31,7 @@ PDF ?= articles/paper/paper.pdf
 .PHONY: figures results confirmatory-marginal quote-marginal fetch-logs provenance pdf paper check check-sums check-logs check-schema check-provenance \
         check-marginal check-quote sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
-        mc-objective-centering mc-compute-benchmark mc-requote mc-quant probes
+        mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes
 
 # ---------------------------------------------------------------------------
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
@@ -63,7 +63,7 @@ $(FIGS)/fig_curation.svg: $(DATA)/results.json $(DATA)/far_tail_eval.json
 $(FIGS)/fig_islands.svg:
 $(FIGS)/fig_joint_reference.svg: $(DATA)/results.json
 $(FIGS)/fig_loss_vs_tail.svg: $(DATA)/results.json $(DATA)/far_tail_eval.json
-$(FIGS)/fig_objective_centering.svg: $(DATA)/objective_centering.json $(DATA)/robustness_retrain.json
+$(FIGS)/fig_objective_centering.svg: $(DATA)/objective_centering.json $(DATA)/centered_depth.json
 $(FIGS)/fig_optimizer.svg: $(DATA)/results.json
 $(FIGS)/fig_output_param.svg: $(DATA)/results.json
 $(FIGS)/fig_pareto.svg: $(SWEEP_MANIFESTS) $(SWEEP_PARQUETS)
@@ -211,7 +211,7 @@ need-sim:
 	@$(UVPY) -c "import aerocapture_rs" 2>/dev/null || { echo "error: aerocapture_rs not built (./build.sh)"; exit 1; }
 
 mc-data: mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
-         mc-objective-centering mc-compute-benchmark mc-requote mc-quant probes
+         mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes
 
 # far_tail_eval.json -- n=10000 reserved 2M pool per cell (~minutes/cell, FNPAG ~50x slower).
 # The cell list is label:toml[:bundle_key]; the committed file records only labels, so pass CELLS=...
@@ -241,6 +241,11 @@ mc-robustness-retrain: need-sim
 	$(UVPY) articles/paper/scripts/robustness_retrain_eval.py --n-sims 1000
 mc-objective-centering: need-sim
 	$(UVPY) articles/paper/scripts/objective_centering_eval.py --n-sims 1000
+
+# centered_depth.json -- the three centered-Mamba seeds + the two joint-FTC references at n = 10000 on the
+# 9M stress pool, both regimes, bootstrap CIs and paired deltas (issue #156; ~minutes).
+mc-centered-depth: need-sim
+	$(UVPY) articles/paper/scripts/centered_depth_eval.py --n-sims 10000
 
 # compute_benchmark.json -- 200 single-threaded sims per scheme; wall-clock, never diffable.
 mc-compute-benchmark: need-sim
