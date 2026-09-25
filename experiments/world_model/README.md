@@ -13,7 +13,11 @@ auto-resetting on a fresh seed and being integrated until the whole batch ends. 
 the skipped physics (Rayon-parallel, under 0.1 us per slot-tick amortized) but the skipped
 observation build, serial at about 1 us per slot: a frozen slot's rows are copied from its cached
 terminal state, so a 1,000-slot step falls from 1.2 ms to 0.2 ms once the slots are done and a
-1,000-flight lockstep batch from 1.2 s to 0.7 s. The Compute table below predates the change.
+1,000-flight lockstep batch from 1.2 s to 0.7 s. The #155 rerun on the frozen plant reproduces every
+model and planner number in `world_model.json`; the change shows only in the wall-clock numbers,
+and there only where the plant dominates: the data stage and the clairvoyant replay (its ms per
+flight-replan and the planning figure's cost panel with it). The train times and the learned
+planners' ms per replan moved within run noise.
 
 ## Result in one paragraph
 
@@ -93,8 +97,8 @@ validation epoch kept), three training seeds each.
 
 | model | parameters | best val NLL (s0 / s1 / s2) | best epoch | train time |
 |---|---|---|---|---|
-| GRU(128) + MLP head | 198,484 | -2.97 / -2.91 / -2.97 | 24 / 23 / 25 | 12-13 min |
-| one-step MLP (ablation, no memory) | 98,900 | -3.11 / -3.12 / -3.11 | 38 / 39 / 39 | 2.0-2.1 min |
+| GRU(128) + MLP head | 198,484 | -2.97 / -2.91 / -2.97 | 24 / 23 / 25 | 12 min |
+| one-step MLP (ablation, no memory) | 98,900 | -3.11 / -3.12 / -3.11 | 38 / 39 / 39 | 2.1 min |
 
 Every GRU's validation NLL bottoms out at epoch 23 to 25 and then climbs by 1.9 to 5.9 nats while
 the training NLL keeps falling, so the best-validation checkpoint is the one kept. The memoryless
@@ -167,10 +171,10 @@ Planning on the 1,000-seed planning pool (`per_draw` noise):
 
 | planner | capture | delta-v p50 | p95 | CVaR95 (95% CI) | abs apoapsis error p50 / p95, km | periapsis p50, km | first 150 ticks at bank_min | ms per flight-replan |
 |---|---|---|---|---|---|---|---|---|
-| clairvoyant plant replay | 100% | 137 | 171 | 175 (174-177) | 13 / 31 | -23 | 0% | 6.2 |
+| clairvoyant plant replay | 100% | 137 | 171 | 175 (174-177) | 13 / 31 | -23 | 0% | 3.6 |
 | GRU s0 | 100% | 946 | 1256 | 1342 (1314-1365) | 9,844 / 32,979 | 36 | 99.3% | 0.9 |
-| GRU s1 | 100% | 963 | 1269 | 1342 (1318-1363) | 9,991 / 33,900 | 31 | 99.3% | 1.3 |
-| GRU s2 | 100% | 859 | 1253 | 1342 (1313-1365) | 7,803 / 31,650 | 42 | 99.0% | 0.7 |
+| GRU s1 | 100% | 963 | 1269 | 1342 (1318-1363) | 9,991 / 33,900 | 31 | 99.3% | 1.4 |
+| GRU s2 | 100% | 859 | 1253 | 1342 (1313-1365) | 7,803 / 31,650 | 42 | 99.0% | 0.8 |
 | MLP s0 | 100% | 772 | 937 | 977 (963-990) | 5,745 / 9,165 | 33 | 86.5% | 0.4 |
 | MLP s1 | 100% | 938 | 1256 | 1342 (1314-1365) | 9,736 / 31,944 | 38 | 99.3% | 0.4 |
 | MLP s2 | 100% | 823 | 1253 | 1342 (1313-1365) | 7,414 / 31,650 | 43 | 98.1% | 0.3 |
@@ -298,18 +302,21 @@ around the plant's seven physical states is the heavier third option.
 
 ## Compute
 
-One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, about an hour end to end
-(stage `meta` and `wall_s` fields in `world_model.json`):
+One Apple M4 Pro (14 cores, 48 GB), CPU only, 10 torch threads, 56 minutes summed over the stages
+(stage `meta` fields and per-stage wall times in `world_model.json`; the #155 rerun was resumed
+once from its cached pools and models after a machine sleep, so the stages did not run on one
+continuous clock):
 
 | stage | wall time |
 |---|---|
-| data: 13,000 flights, 5.1 M steps, 207,000 to 227,000 env-ticks/s | 24 s |
-| train: 3 GRU at 12 to 13 min (18 s per epoch), 3 MLP at 2.0 to 2.1 min | 43 min |
-| plan: clairvoyant replay 5.9 min, learned models 11 to 45 s each, FNPAG 9 s | 8.5 min |
-| eval + plot | 7.3 min |
+| data: 13,000 flights, 5.1 M steps, 340,000 to 352,000 env-ticks/s | 15 s |
+| train: 3 GRU at 12 min (18 s per epoch), 3 MLP at 2.1 min | 42 min |
+| plan: clairvoyant replay 3.5 min, learned models 12 to 49 s each, FNPAG 8 s | 6.2 min |
+| eval 7.4 min, plot 1 s | 7.4 min |
 
 The estimate before starting was 4 to 5 hours. `BatchedSimulation` and small CPU models made it an
-hour.
+hour; freezing the finished slots (#153) then took the data stage from 24 s to 15 s and the
+clairvoyant replay from 5.9 to 3.5 min.
 
 ## Reproduce
 

@@ -1008,6 +1008,7 @@ def plot_planning(block: dict[str, Any], sweep: dict[str, Any] | None) -> None:
 
 
 def stage_plot(args: argparse.Namespace) -> dict[str, object]:
+    t0 = time.perf_counter()
     results = json.loads(OUT.read_text())
     _style()
     if "eval" in results:
@@ -1018,7 +1019,7 @@ def stage_plot(args: argparse.Namespace) -> dict[str, object]:
         plot_counterfactual(results["eval"])
     if "plan" in results:
         plot_planning(results["plan"], results.get("eval", {}).get("bank_sweep"))
-    return {"figures": sorted(p.name for p in HERE.glob("fig_*.svg"))}
+    return {"figures": sorted(p.name for p in HERE.glob("fig_*.svg")), "wall_s": round(time.perf_counter() - t0, 1)}
 
 
 STAGE_FNS = {"data": stage_data, "train": stage_train, "plan": stage_plan, "eval": stage_eval, "plot": stage_plot}
