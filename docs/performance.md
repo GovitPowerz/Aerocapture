@@ -208,7 +208,7 @@ wall on 14 threads. Each trajectory is a strictly sequential chain of ticks, so 
 parallelism is across trajectories, about 3,000 wide. Per tick, navigation plus plant cost about
 1.5 µs and the Mamba policy 2.7 µs of scalar f64 code.
 
-**What a port would buy.** The DeepMind-style move is a batched plant in JAX. The tick becomes
+**What a port would buy.** The natural accelerator move is a batched plant in JAX. The tick becomes
 array code, with `vmap` over trajectories, `lax.scan` over ticks, and the whole rollout one
 jitted program. That is the Brax / MJX pattern, not those engines: this plant is a 3-DOF point
 mass with aero tables, not a rigid-body system. The ceiling is set by the loop around the
