@@ -197,18 +197,19 @@ is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else 
 / `--data-neural-network <champion best_model.json>`). `tests/test_paper_rl_configs.py` asserts
 each RL config against the bundled champion (architecture, mask, normalization, decoder,
 scaffolding, regime, `[rl]` pools/budget, seed, output dir) and each bundled `rl/<cell>` model
-against its config. Result (2M pool, n = 1000, per_draw): PPO scratch 237 mean / 316 CVaR95
-(dense, 4.8% heat-flux violations) and 284 / 435 (GRU, 47% heat-flux + 31% g-load) vs champions
-113 / 127 and 125 / 151; PPO warm-started deploys the champion (best validation checkpoint within
-the first 10-20 updates) and then walks off it.
-
-These four cells were trained in the pre-parity env (the lag and shaper bypass above), so they
-optimized a different decision process than the one their validation gate and the quoted numbers
-fly. The dense warm start begins as a ~181 m/s policy in that env against 113 m/s deployed
-(`experiments/obs_lag/`), which is enough on its own to explain the walk-off. They were also
-trained with the non-invariant shaping above (`potential = "dv"` with the terminal potential
-kept), so their objective carried a second terminal DV penalty the population champions never
-saw. The re-quote on the parity env with the corrected shaping is open (`TODO.md`).
+against its config. Result (2M pool, n = 1000, per_draw; cells retrained 2026-09-25 on the parity
+env, #154): PPO scratch 180 mean / 284 CVaR95 (dense, 99.9% capture, 0.6% heat-flux violations)
+and 382 / 412 (GRU, 100% capture, 0.8% heat-flux) vs champions 113 / 127 and 125 / 151, paired
++67 / +257 m/s, both still improving at the 30M-step budget; PPO warm-started from the dense
+champion deploys it (first gate, +1.1 m/s paired) and then walks off it (validation RMS 114 ->
+2475, capture 83% by 17M steps, no recovery); warm-started from the GRU champion it is already off
+the champion at the first gate, promotes 136 / 160 (+11 m/s paired) at update 20 and, after one
+excursion (547 at update 30), plateaus at 139-146 validation RMS from update 40 on. The pre-parity cells
+(one-tick observation lag, action injected past the shaper, `Phi(s_T)` kept, the #150 / #151
+boundary leaks) quoted 237 / 316 (4.8% heat-flux), 284 / 435 (47% heat-flux + 31% g-load),
++0.3 and +3.4 warm; the change is not attributable to any one fix. The dense warm start began
+as a ~181 m/s policy in the pre-parity env (`experiments/obs_lag/`) and as a ~120 m/s policy in
+the parity env, and walks off in both: the lag did not explain the walk-off.
 
 ## Gates
 

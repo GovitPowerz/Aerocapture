@@ -654,17 +654,26 @@ reserved validation pool (offset $10^6$) and the quote on the reserved final-eva
 `results.json`, paired). The reward is potential-based per-step shaping aligned to the predicted
 correction cost plus the true terminal cost (the standard remedy for sparse terminal rewards),
 the budget is $30 times 10^6$ environment steps per cell, and the deployed artifact is the best
-validation checkpoint. From scratch, PPO captures every scenario but at $237$ m/s mean ($316$ at
-$"CVaR"_95$) for the dense cell and $284$ ($435$) for the GRU cell, against $113$ ($127$) and
-$125$ ($151$) for the population-trained champions -- paired mean deltas of $+124$ and $+159$ m/s
--- and it buys those captures by leaning on the constraints: $4.8%$ of the dense cell's scenarios
-and $47%$ of the GRU cell's exceed the heat-flux limit (the feasibility gate of the population
-trainer has no counterpart in the RL loop). Warm-started from a champion, PPO deploys the
-champion: the best validation checkpoint is reached within the first $10$--$20$ updates ($113$
-($127$) dense, $128$ ($155$) GRU; paired mean deltas $+0.3$ and $+3.4$ m/s), after which the
-policy gradient walks off the population optimum -- validation capture falls to $2%$ by
-$13 times 10^6$ steps for the dense cell and to $91%$ for the GRU cell -- consistent with the
-stochastic shaped return optimizing a different quantity than the deterministic mission cost.
+validation checkpoint. The environment flies exactly what the deployed network flies (a
+bit-identity gate holds the two loops together); an earlier draft of this baseline had trained
+against a one-tick observation lag, an action injected past the command shaper, a shaping
+potential not zeroed at terminations and three episode-boundary leaks in the rollout, and the
+numbers below supersede it -- the difference between
+the two drafts is not attributable to any one of those fixes. From scratch, PPO captures $99.9%$
+of scenarios at $180$ m/s mean ($284$ at $"CVaR"_95$) for the dense cell and every scenario at
+$382$ ($412$) for the GRU cell, against $113$ ($127$) and $125$ ($151$) for the population-trained
+champions -- paired mean deltas of $+67$ and $+257$ m/s -- with the heat-flux limit exceeded on
+$0.6%$ and $0.8%$ of scenarios (the feasibility gate of the population trainer has no counterpart
+in the RL loop), and both cells were still improving when their step budget ran out. Warm-started
+from the dense champion, PPO deploys the champion: the best validation checkpoint is the first
+one, at $10$ updates ($114$ ($130$); paired mean delta $+1.1$ m/s), after which the policy
+gradient walks off the population optimum -- validation RMS climbs from $114$ to $2475$ and
+validation capture falls to $83%$ by $17 times 10^6$ steps, and no later checkpoint is promoted. Warm-started from the GRU champion, the first gate at $10$ updates is already off
+the champion ($99.8%$ validation capture); the promoted checkpoint at $20$ updates costs $136$
+($160$), $+11$ m/s paired; after one excursion ($547$ at $30$ updates) the policy holds a
+$139$--$146$ m/s validation plateau from $40$ updates to the end of the budget without
+recovering the champion -- consistent with the stochastic shaped
+return optimizing a different quantity than the deterministic mission cost.
 Population search on the mission cost itself was simply the stronger tool here, so throughout we
 optimize the mission cost directly.
 

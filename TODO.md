@@ -2,22 +2,6 @@
 
 ## Backlog
 
-- [ ] Re-quote the paper's Section 5 RL baseline on the parity env: the four
-      `configs/training/paper/rl/` cells were trained before `BatchedSimulation` matched deploy
-      (one-tick observation lag, action injected after the command shaper; see the RL README
-      "Environment"). Retrain with `experiments/paper/18_rl_baseline.sh`, re-bundle `rl/<cell>`,
-      requote the Section 5 table, and check whether the warm start still walks off the champion
-      (it started as a ~181 m/s policy in the old env vs 113 m/s deployed, `experiments/obs_lag/`).
-      The same cells were also trained with non-invariant reward shaping: `potential = "dv"`
-      kept `Phi(s_T)` on terminations, adding `gamma^T * Phi(s_T)` (about minus the terminal
-      predicted DV) on top of `compute_terminal_cost`. Fixed alongside (`Phi = 0` at absorbing
-      states, RL README "Reward structure"). The retrain also picks up two episode-boundary fixes
-      (RL README "Environment" and "Reward structure"): the first shaped reward of every episode
-      after an env's first read the previous episode's terminal aux, and on a timeout the GAE trace
-      leaked the next episode's advantage into the ended one (a recurrent policy's BPTT replay also
-      kept the stale hidden state), and the return normalizer restarted its running return from
-      the ended episode's terminal reward instead of zero. A change in the re-quote cannot be
-      attributed to any one of these fixes alone.
 - [ ] Add neural counterparts for navigation and control: train neural counterparts for the
       density estimator (replacing the exponential filter) and the pilot model (replacing the
       first/second-order dynamics), compared against the classical algorithms on identical MC

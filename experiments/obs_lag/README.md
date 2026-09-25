@@ -29,7 +29,10 @@ noise path it reproduces the quoted 109.89. With shaping off, deploy moves by -0
 The injection mismatch dominates: the policy reads `prev_bank` telemetry it never saw in
 training. With the injection fixed, the lag alone still costs +24 m/s mean and +84 m/s CVaR95.
 
-## Paper Section 5 PPO models (bundled `rl/<cell>`): pre-fix env (their training env) vs deploy
+## Pre-parity Section 5 PPO models: pre-fix env (their training env) vs deploy
+
+These are the 2026-09-22 cells, archived at `training_output/rl_preparity_20260922/` (untracked)
+and no longer bundled; the bundled `rl/<cell>` are the parity-env retrains of #154.
 
 | Cell | Pre-fix env mean | Deploy mean |
 |---|---|---|
@@ -40,6 +43,11 @@ training. With the injection fixed, the lag alone still costs +24 m/s mean and +
 
 PPO's validation gate flies deploy (`evaluate_cell`), but PPO optimizes the env. The dense warm
 start is a 113 m/s policy by the gate and a 181 m/s policy in the env it trains in.
+
+Retrained on the parity env (#154, 2026-09-25), the dense warm start starts at ~120 m/s in its
+env and still walks off the champion (validation capture 83% by 17M steps on the 1M-offset
+validation pool, per_draw), so the mismatch above
+does not explain the walk-off. The parity-env numbers are the ones the paper quotes.
 
 ## Reproducing
 
