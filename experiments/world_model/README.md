@@ -7,7 +7,13 @@ score it, and it plans through FNPAG's corrector next to a clairvoyant replay of
 The deliverable is where it breaks and why.
 
 Nothing in the simulator or the deployed cells changes. Everything runs through the existing PyO3
-seam, `aerocapture_rs.BatchedSimulation`, with the bank injected from Python.
+seam, `aerocapture_rs.BatchedSimulation`, with the bank injected from Python; the plant constructs
+it with `auto_reset=False` (#153), so a finished flight freezes at its terminal state instead of
+auto-resetting on a fresh seed and being integrated until the whole batch ends. The win is not
+the skipped physics (Rayon-parallel, under 0.1 us per slot-tick amortized) but the skipped
+observation build, serial at about 1 us per slot: a frozen slot's rows are copied from its cached
+terminal state, so a 1,000-slot step falls from 1.2 ms to 0.2 ms once the slots are done and a
+1,000-flight lockstep batch from 1.2 s to 0.7 s. The Compute table below predates the change.
 
 ## Result in one paragraph
 

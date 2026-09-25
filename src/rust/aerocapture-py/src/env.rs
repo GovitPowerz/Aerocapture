@@ -6,6 +6,11 @@
 //! auto-reset env, obs and aux rows are the new episode's s_0; the ended
 //! episode's s_T is in info["terminal_observation"] / info["terminal_aux"].
 //!
+//! `auto_reset=False` (fixed-pool consumers: the world-model plant) freezes a
+//! done slot instead: no new seed is drawn, later step() calls skip its physics,
+//! its obs / aux rows stay the terminal state (the ending step's info payload),
+//! `done` stays True and `info` is empty, until `reset(seeds)` re-seeds it.
+//!
 //! Observation timing matches deploy: every env is held at a tick's sense point
 //! (`tick::sense_tick` done, `last_nav` = nav(t_k)). step(a_k) runs
 //! `tick::act_tick(Some(a_k))` then the next tick's `sense_tick`, so the returned
@@ -67,6 +72,10 @@ pub struct BatchedSimulation {
     sim_data: Arc<SimData>,
     envs: Vec<SimState>,
     seed_base: u64,
+    auto_reset: bool,
+    /// Under `auto_reset=false`, a done slot's terminal (obs, aux) rows, copied
+    /// out on every later step instead of rebuilt from the frozen state.
+    frozen: Vec<Option<(Vec<f64>, [f64; AUX_WIDTH])>>,
     episode_counter: Vec<u64>,
     episode_ids: Vec<u64>,
     step_counts: Vec<u64>,
@@ -77,12 +86,13 @@ pub struct BatchedSimulation {
 #[pymethods]
 impl BatchedSimulation {
     #[new]
-    #[pyo3(signature = (toml_path, n_envs, overrides=None, seed_base=3_000_000))]
+    #[pyo3(signature = (toml_path, n_envs, overrides=None, seed_base=3_000_000, auto_reset=true))]
     fn new(
         toml_path: &str,
         n_envs: usize,
         overrides: Option<&Bound<'_, PyDict>>,
         seed_base: u64,
+        auto_reset: bool,
     ) -> PyResult<Self> {
         if n_envs == 0 {
             return Err(pyo3::exceptions::PyValueError::new_err(
@@ -143,6 +153,8 @@ impl BatchedSimulation {
             sim_data,
             envs,
             seed_base,
+            auto_reset,
+            frozen: vec![None; n_envs],
             episode_counter,
             episode_ids,
             step_counts: vec![0u64; n_envs],
@@ -178,6 +190,7 @@ impl BatchedSimulation {
             self.envs[i] = fresh_env(&self.sim_input, &self.sim_data, seed);
             self.episode_ids[i] = seed;
             self.step_counts[i] = 0;
+            self.frozen[i] = None;
             if !explicit_seeds {
                 // Advance so next default-seed reset draws a fresh, distinct seed per env.
                 self.episode_counter[i] += self.n_envs as u64;
@@ -207,6 +220,7 @@ impl BatchedSimulation {
         let sim_data = &self.sim_data;
         let event_defs = &self.event_defs;
         let event_ctx = &self.event_ctx;
+        let frozen = &self.frozen;
 
         // Advance all envs one tick in parallel; collect terminal info where done.
         // The aux is captured BEFORE auto-reset: a done env's row is its terminal
@@ -217,7 +231,13 @@ impl BatchedSimulation {
             self.envs
                 .par_iter_mut()
                 .zip(actions_vec.par_iter())
-                .map(|(state, &action)| {
+                .zip(frozen.par_iter())
+                .map(|((state, &action), frozen)| {
+                    // A frozen slot (done under auto_reset=false) is left untouched:
+                    // its rows repeat the terminal state, its payload was delivered once.
+                    if let Some((_, aux)) = frozen {
+                        return (true, None, *aux);
+                    }
                     let bank = action.clamp(-std::f64::consts::PI, std::f64::consts::PI);
                     tick::act_tick(
                         state,
@@ -277,16 +297,21 @@ impl BatchedSimulation {
         // Auto-reset terminated envs with advancing seeds. The returned aux must
         // describe the returned obs, so a reset env's row becomes its new
         // episode's s_0 aux; the terminal aux travels in info["terminal_aux"].
-        for (i, (done, _, aux)) in outcomes.iter_mut().enumerate() {
-            if *done {
+        // Without auto-reset the slot keeps its terminal state and seed.
+        for (i, (done, term, aux)) in outcomes.iter_mut().enumerate() {
+            if !*done {
+                self.step_counts[i] += 1;
+            } else if !self.auto_reset {
+                if let Some(t) = term {
+                    self.frozen[i] = Some((t.terminal_obs.clone(), *aux));
+                }
+            } else {
                 self.episode_counter[i] += self.n_envs as u64;
                 let seed = self.seed_base + self.episode_counter[i];
                 self.envs[i] = fresh_env(&self.sim_input, &self.sim_data, seed);
                 self.episode_ids[i] = seed;
                 self.step_counts[i] = 0;
                 *aux = aux_for_env(&self.envs[i], &self.sim_data, &self.sim_input);
-            } else {
-                self.step_counts[i] += 1;
             }
         }
 
@@ -349,7 +374,14 @@ impl BatchedSimulation {
         let arr = PyArray2::<f32>::zeros(py, [self.n_envs, self.obs_dim], false);
         let mut view = unsafe { arr.as_array_mut() };
         for (i, env) in self.envs.iter().enumerate() {
-            let obs = build_obs_for_env(env, &self.sim_data, &self.sim_input);
+            let built;
+            let obs = match &self.frozen[i] {
+                Some((obs, _)) => obs,
+                None => {
+                    built = build_obs_for_env(env, &self.sim_data, &self.sim_input);
+                    &built
+                }
+            };
             for (j, &v) in obs.iter().enumerate() {
                 view[[i, j]] = v as f32;
             }

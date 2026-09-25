@@ -50,7 +50,12 @@ the limit (the reward never inverts the model-dependent NN input normalization);
 Episode boundaries: a done env's returned `obs` and `aux` rows are already its new episode's s_0;
 the ended episode's s_T is in `info["terminal_observation"]` / `info["terminal_aux"]`, the s' of
 the value bootstrap and, on a truncation, of the PBRS `Phi(s')` (a termination has `Phi(s') = 0`;
-`train.py::_shaped_rewards`, gate `tests/rl/test_collect_rollout.py`).
+`train.py::_shaped_rewards`, gate `tests/rl/test_collect_rollout.py`). The auto-reset is for this
+continuous rollout; a consumer flying a fixed pool of seeds in lockstep (the world-model plant,
+`experiments/world_model/wm_plant.py`) constructs the env with `auto_reset=False`: a done slot
+freezes at its terminal state (obs/aux rows = the ending step's `terminal_observation` /
+`terminal_aux`, `done` stays True, `info` empty, no seed drawn) and later `step()` calls skip its
+physics until `reset(seeds)` (#153; gates in `tests/test_env_pyo3.py`).
 Until 2026-09-24 (the Section 5 cells included), `aux` was captured before the auto-reset and
 `obs` after it, so the first shaped reward of every episode after an env's first read
 `Phi(reset obs, previous episode's terminal aux)`, under either potential (both read the aux

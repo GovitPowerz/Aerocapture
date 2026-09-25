@@ -99,12 +99,12 @@ class Episode:
 
 
 class Plant:
-    """N flights stepped in lockstep; a finished flight freezes (the env's auto-reset is ignored)."""
+    """N flights stepped in lockstep; a finished flight freezes at its terminal state (`auto_reset=False`)."""
 
     def __init__(self, toml: str | Path, seeds: list[int], stub: Path = STUB_MODEL) -> None:
         self.seeds = [int(s) for s in seeds]
         n = len(self.seeds)
-        self.env = aerocapture_rs.BatchedSimulation(str(toml), n, {"data.neural_network": str(stub)})
+        self.env = aerocapture_rs.BatchedSimulation(str(toml), n, {"data.neural_network": str(stub)}, auto_reset=False)
         self.env.reset(np.asarray(self.seeds, dtype=np.int64))
         self.done = np.zeros(n, dtype=bool)
         self.length = np.zeros(n, dtype=np.int64)
@@ -114,14 +114,11 @@ class Plant:
         self._info: list[dict[str, object] | None] = [None] * n
 
     def step(self, actions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Advance every flight one tick; returns this step's (obs, aux), frozen rows for finished flights."""
+        """Advance every live flight one tick; returns this step's (obs, aux), the terminal rows for finished flights."""
         obs, _, done, info, aux = self.env.step(actions.astype(np.float32))
         live = ~self.done
         for i in np.flatnonzero(done & live):
-            obs[i], aux[i] = info[i]["terminal_observation"], info[i]["terminal_aux"]
             self._info[i] = info[i]
-        if self._obs:
-            obs[~live], aux[~live] = self._obs[-1][~live], self._aux[-1][~live]
         self._obs.append(obs)
         self._aux.append(aux)
         self._act.append(actions.astype(np.float32))
