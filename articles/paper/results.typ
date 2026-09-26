@@ -7,9 +7,10 @@
 //   marg(label)   -> a confirmatory_marginal.json cell (10 x 100 000, per-scenario noise)
 //   ou(label)     -> a quote_marginal.json cell (paired n = 1000; regime: "marginal" = one noise
 //                    path per scenario, "frozen" = the shared path)
-//   centered(label)         -> a centered_depth.json cell (9M stress pool, n = 10 000, high regime;
-//                              regime: "per_draw" or "legacy", asserted as the file's pair; issue #156)
-//   centered_paired(a, b)   -> its paired seed-versus-reference deltas under one regime
+//   centered(label, regime)          -> a centered_depth.json cell (9M stress pool, n = 10 000, high
+//                                       regime; regime "per_draw" or "legacy", the file's pair, asserted; #156)
+//   centered_paired(a, b, regime)    -> its paired seed-versus-baseline deltas under one regime
+//   span(xs)      -> the min--max range of a list of numbers, as math (f: fixed or signed, d decimals)
 // Every run and confirmatory cell of results.json / confirmatory_eval.json used by the headline
 // tables was flown under the legacy (shared-path) noise regime; legacy_regime() asserts it so a
 // re-quoted run cannot enter a table whose caption states that regime. confirmatory_marginal.json
@@ -24,14 +25,14 @@
 #let marginal = json("data/confirmatory_marginal.json")
 #assert(marginal.noise_seeding == "per_draw", message: "confirmatory_marginal.json is not the per_draw regime")
 #let quotes = json("data/quote_marginal.json")
+#assert(quotes.regimes.keys() == ("frozen", "marginal") and quotes.regimes.values().all(r => r.noise_seeding == "legacy")
+  and quotes.regimes.frozen.per_seed_override == none and quotes.regimes.marginal.per_seed_override != none,
+  message: "quote_marginal.json does not carry the frozen / marginal pair of legacy-seeded regimes")
 #let centered_depth = json("data/centered_depth.json")
 #assert(centered_depth.regimes.keys() == ("per_draw", "legacy")
   and centered_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"
   and centered_depth.regimes.legacy.at("monte_carlo.noise_seeding") == "legacy",
   message: "centered_depth.json does not carry the per_draw / legacy regime pair")
-#assert(quotes.regimes.keys() == ("frozen", "marginal") and quotes.regimes.values().all(r => r.noise_seeding == "legacy")
-  and quotes.regimes.frozen.per_seed_override == none and quotes.regimes.marginal.per_seed_override != none,
-  message: "quote_marginal.json does not carry the frozen / marginal pair of legacy-seeded regimes")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)
@@ -69,14 +70,14 @@
 }
 // A centered high-regime cell at sizing depth, under one of the file's two regimes: n, capture %
 // (+ CI), the conditional DV statistics (+ CIs) of run_stats.
-#let centered(label, regime: "per_draw") = {
+#let centered(label, regime) = {
   let cell = centered_depth.cells.at(regime).find(c => c.label == label)
   assert(cell != none, message: "centered_depth.json has no " + regime + " cell " + label)
   cell
 }
 // Its paired a-versus-b record: capture-rate and conditional-CVaR95 deltas with bootstrap CIs
 // (negative CVaR95 delta = a's tail is better), the both-captured mean delta, win rate, Wilcoxon p.
-#let centered_paired(a, b, regime: "per_draw") = {
+#let centered_paired(a, b, regime) = {
   let p = centered_depth.paired.at(regime).find(p => p.a == a and p.b == b)
   assert(p != none, message: "centered_depth.json has no " + regime + " pair " + a + " - " + b)
   p
@@ -106,6 +107,8 @@
 #let signed(x, d: 1) = (if x < 0 { "\u{2212}" } else { "+" }) + fixed(calc.abs(x), d: d)
 // "lo, hi" of a two-element interval, signed.
 #let ci(iv, d: 1) = signed(iv.at(0), d: d) + ", " + signed(iv.at(1), d: d)
+// "min--max" of a list of numbers, each end formatted by f (fixed or signed) with d decimals.
+#let span(xs, f: fixed, d: 0) = [$#f(calc.min(..xs), d: d)$--$#f(calc.max(..xs), d: d)$]
 // One significant digit times a power of ten, as an equation (x > 0).
 #let sci(x) = {
   assert(x > 0, message: "sci() needs x > 0, got " + repr(x) + " (a zero rate needs prose, not a power of ten)")

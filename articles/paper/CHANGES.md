@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-25 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -116,23 +116,27 @@ last on 2026-09-25 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag
   script rather than the extractor's own constant. Re-run on 2026-09-25: all 64 previously scored
   cells reproduce bit-identically (four `ft_mamba_p962_s2` / `_s3` cells trained since are new to
   the source and unquoted); no quoted value moved.
-- 2026-09-25 (#156): Section 7.3's centered high-regime cells are quoted at sizing depth, and the
-  claim changes. `data/centered_depth.json` (`scripts/centered_depth_eval.py`, `make
-  mc-centered-depth`) scores the three centered-Mamba trainer seeds and the two joint-FTC references
-  on the 9M stress pool at n = 10,000 (its first 1000 seeds are the n = 1000 pool), paired on
-  scenario, bootstrap 95% CIs, under both noise regimes, each labelled; `results.typ` gains
-  `centered()` and `centered_paired()` and asserts the regime pair at load. Two new tables (shared
-  path; per-scenario noise) replace the transcribed three-seed sentence; the figure's Mamba bar
-  becomes the three n = 10,000 seeds with CI whiskers, the joint-FTC line the n = 10,000 reference
-  with its interval, every bar under the shared path. Under the shared path the n = 1000 claim
-  survives: every seed beats both references on the tail with paired CIs excluding zero
-  (104--178 m/s below the retrained joint-FTC, 22--97 below the medium-deployed one) at capture
-  within half a point; the tails read 314--388 m/s at 95.9--96.0% capture, not the 231--273 at
-  94.8--95.0% the n = 1000 quote gave. Under per-scenario noise the reversal does not survive: the
-  retrained joint-FTC captures 96.3% against the seeds' 94.3--95.8% and out-tails two of three,
-  the medium-deployed one holds the best conditional tail (457 against 535--610). Section 7.3, its
-  figure caption and the Discussion now say so (the centered cells trained on the shared path;
-  the open follow-up is a centered retrain under per-scenario seeding), asserted in `paper.typ`;
-  the "not intrinsic to neural guidance" conclusion is scoped to the shared path. The Discussion's
-  echo of Appendix E's FNPAG margin follows #166 (four of five scratch means below FNPAG, by at
-  most 6.2 m/s). The colophon lists the two tables and the new file.
+- 2026-09-26 (#156): Section 7.3's centered high-regime cells are quoted at sizing depth, and the
+  claim is scoped to the shared noise path. `data/centered_depth.json` (`scripts/centered_depth_eval.py`,
+  `make mc-centered-depth`) scores the three centered-Mamba trainer seeds and the two joint-FTC
+  baselines on the 9M stress pool at n = 10,000 (its first 1000 seeds are the n = 1000 pool), paired
+  on scenario, with bootstrap 95% CIs on capture, mean and CVaR95 and on the paired capture and
+  CVaR95 deltas, under both noise regimes, each labelled. `results.typ` gains `centered()` and
+  `centered_paired()` (regime pair asserted at load) and `span()` (Appendix E's `ou_span`, moved;
+  Appendix E renders unchanged). Two tables (shared path; per-scenario noise) replace the
+  transcribed three-seed sentence; the figure's Mamba bar becomes the three n = 10,000 seeds with CI
+  whiskers and the joint-FTC line the n = 10,000 baseline with its interval, every bar under the
+  shared path. Under the shared path the claim survives: every seed beats both baselines on the
+  conditional tail with paired CIs excluding zero (147--178 m/s below the retrained joint-FTC,
+  65--97 below the medium-deployed one) at capture within half a point (314--345 m/s at
+  95.9--96.0%, not the 231--273 at 94.8--95.0% of the n = 1000 quote). Under per-scenario noise it
+  does not: the retrained joint-FTC out-captures every seed and out-tails two, and the
+  medium-deployed one holds the best conditional tail (457 against 535--604) but is out-captured by
+  seed 3. Section 7.3's title and prose, the figure caption, the Discussion and the abstract's
+  off-nominal clause now say so, asserted in `paper.typ`. Seed 1's run-local model had been
+  overwritten on 2026-07-11 by the seed 3 repeat through the shared config's deploy path; it was
+  rebuilt from seed 1's final checkpoint and reproduces the committed n = 1000 quote exactly
+  (94.9%, CVaR95 272.8), and the eval script exits when two seeds share a model file. The same
+  deploy-path overwrite reached three other run directories; their repair is a separate change.
+  The Discussion's echo of Appendix E's FNPAG margin follows #166 (four of five scratch means below
+  FNPAG, by at most 6.2 m/s). The colophon lists the two tables and the new file.

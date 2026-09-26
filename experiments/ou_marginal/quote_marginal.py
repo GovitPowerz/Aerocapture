@@ -22,6 +22,7 @@ from pathlib import Path
 import aerocapture_rs
 import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
+from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 from aerocapture.training.report import _read_constraint_limits
 
 REPO = Path(__file__).resolve().parents[2]
@@ -32,8 +33,11 @@ REPO = Path(__file__).resolve().parents[2]
 # The shared seed pool is one numpy stream over [0, 2^31).
 MARGINAL_SEED_BASE, MARGINAL_SEED_STEP = 1000, 7
 REGIMES: dict[str, dict[str, str | None]] = {
-    "frozen": {"noise_seeding": "legacy", "per_seed_override": None},
-    "marginal": {"noise_seeding": "legacy", "per_seed_override": f"simulation.random_seed = {MARGINAL_SEED_BASE} + {MARGINAL_SEED_STEP} i"},
+    "frozen": {"noise_seeding": LEGACY_NOISE_REGIME["monte_carlo.noise_seeding"], "per_seed_override": None},
+    "marginal": {
+        "noise_seeding": LEGACY_NOISE_REGIME["monte_carlo.noise_seeding"],
+        "per_seed_override": f"simulation.random_seed = {MARGINAL_SEED_BASE} + {MARGINAL_SEED_STEP} i",
+    },
 }
 SEED_POOL_RNG_SEED, SEED_POOL_HIGH = 987654321, 2**31
 SEED_POOL = {"rng": "numpy.random.default_rng", "seed": SEED_POOL_RNG_SEED, "range": [0, SEED_POOL_HIGH]}
@@ -88,7 +92,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         REPO / toml,
         seeds,
         model=REPO / model_dir / "best_model.json" if model_dir is not None else None,
-        extra_overrides={"monte_carlo.noise_seeding": REGIMES[regime]["noise_seeding"]},
+        extra_overrides=LEGACY_NOISE_REGIME,
         per_seed_overrides=[{"simulation.random_seed": float(MARGINAL_SEED_BASE + MARGINAL_SEED_STEP * i)} for i in range(len(seeds))]
         if REGIMES[regime]["per_seed_override"] is not None
         else None,

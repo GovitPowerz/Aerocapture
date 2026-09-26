@@ -33,9 +33,10 @@
       the three co-optimized actuator-side parameters against the navigation-estimated density
       history, weights frozen; complements the training-side regime-matched schedule above.
 - [ ] Centered retrain under per-scenario seeding: at sizing depth (#156, `centered_depth.json`,
-      n=10,000 + CIs, three seeds) the centered-Mamba seeds beat both joint-FTC references only on
-      the shared noise path they trained under; under `per_draw` the retrained joint-FTC wins
-      capture and two of three tails and the medium-deployed one holds the best conditional tail.
+      n=10,000 + CIs, three seeds) the centered-Mamba seeds beat both joint-FTC baselines only on
+      the shared noise path they trained under; under `per_draw` the retrained joint-FTC
+      out-captures every seed and out-tails two, and the medium-deployed one holds the best
+      conditional tail but is out-captured by seed 3.
       Retrain the centered recipe under `per_draw` (scratch or the Appendix E fine-tune route),
       requote both tables of Section 7.3.
 - [ ] Run-variance calibration at the mean: `sigma_extras.json` adds GA/CMA-ES x fixed/rotating

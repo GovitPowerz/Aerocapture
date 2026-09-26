@@ -242,7 +242,7 @@ mc-robustness-retrain: need-sim
 mc-objective-centering: need-sim
 	$(UVPY) articles/paper/scripts/objective_centering_eval.py --n-sims 1000
 
-# centered_depth.json -- the three centered-Mamba seeds + the two joint-FTC references at n = 10000 on the
+# centered_depth.json -- the three centered-Mamba seeds + the two joint-FTC baselines at n = 10000 on the
 # 9M stress pool, both regimes, bootstrap CIs and paired deltas (issue #156; ~minutes).
 mc-centered-depth: need-sim
 	$(UVPY) articles/paper/scripts/centered_depth_eval.py --n-sims 10000

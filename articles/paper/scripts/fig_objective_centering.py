@@ -6,7 +6,7 @@ The lever sweep (stacked cubed/max/n=2 -> centered linear/middle/n=16) at n = 10
 from objective_centering.json, then the three centered-Mamba trainer seeds at
 n = 10 000 from centered_depth.json (issue #156), every bar under the shared noise
 path (the file's "legacy" cells) so the figure is one regime. The dashed line and
-its band mark the retrained joint-FTC reference at the same depth; whiskers are
+its band mark the retrained joint-FTC baseline at the same depth; whiskers are
 bootstrap 95% CIs where the data carry them (CVaR95 everywhere, capture for the
 depth cells). Capture and the tail are shown SEPARATELY because the levers trade
 them off (the middle bucket alone drops capture); CVaR95 over captures is only
@@ -76,9 +76,10 @@ def main():
     caps = [cells[k]["capture_pct"] for k in labels]
     axL.bar(x, caps, color=cols)
     for i, k in enumerate(labels):
-        if "capture_pct_ci" in cells[k]:
-            _whiskers(axL, i, caps[i], cells[k]["capture_pct_ci"])
-        axL.text(i, max(caps[i], cells[k].get("capture_pct_ci", [caps[i]] * 2)[1]) + 0.3, f"{caps[i]:.1f}", ha="center", va="bottom", fontsize=7)
+        ci = cells[k].get("capture_pct_ci")  # the n = 1000 lever cells carry no capture CI
+        if ci:
+            _whiskers(axL, i, caps[i], ci)
+        axL.text(i, (ci[1] if ci else caps[i]) + 0.3, f"{caps[i]:.1f}", ha="center", va="bottom", fontsize=7)
     axL.axhspan(*ref["capture_pct_ci"], color="#666666", alpha=0.12, lw=0)
     axL.axhline(ref["capture_pct"], ls="--", lw=1.0, color="#666666")
     axL.text(-0.4, ref["capture_pct_ci"][1], "joint-FTC", va="bottom", ha="left", fontsize=7, color="#666666")

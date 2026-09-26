@@ -1741,8 +1741,8 @@ z
    <g id="patch_8">
     <path d="M 201.149449 1057.745 
 L 223.71523 1057.745 
-L 223.71523 63.748695 
-L 201.149449 63.748695 
+L 223.71523 61.985923 
+L 201.149449 61.985923 
 z
 " clip-path="url(#p4cfea6d83c)" style="fill: #55a868; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
@@ -1771,8 +1771,8 @@ z
 " clip-path="url(#p4cfea6d83c)" style="fill: #666666; opacity: 0.12"/>
    </g>
    <g id="LineCollection_1">
-    <path d="M 212.432339 67.792703 
-L 212.432339 59.80838 
+    <path d="M 212.432339 65.926238 
+L 212.432339 58.045608 
 " clip-path="url(#p4cfea6d83c)" style="fill: none; stroke: #333333; stroke-width: 0.8"/>
    </g>
    <g id="line2d_18">
@@ -1782,12 +1782,12 @@ L -2 -0
 " style="stroke: #333333"/>
     </defs>
     <g clip-path="url(#p4cfea6d83c)">
-     <use xlink:href="#m8204fd0608" x="212.432339" y="67.792703" style="fill: #4878d0; stroke: #333333"/>
+     <use xlink:href="#m8204fd0608" x="212.432339" y="65.926238" style="fill: #4878d0; stroke: #333333"/>
     </g>
    </g>
    <g id="line2d_19">
     <g clip-path="url(#p4cfea6d83c)">
-     <use xlink:href="#m8204fd0608" x="212.432339" y="59.80838" style="fill: #4878d0; stroke: #333333"/>
+     <use xlink:href="#m8204fd0608" x="212.432339" y="58.045608" style="fill: #4878d0; stroke: #333333"/>
     </g>
    </g>
    <g id="LineCollection_2">
@@ -1914,12 +1914,12 @@ z
     </g>
    </g>
    <g id="text_24">
-    <!-- 95.9 -->
-    <g style="fill: #262626" transform="translate(206.377339 55.031605) scale(0.07 -0.07)">
+    <!-- 96.0 -->
+    <g style="fill: #262626" transform="translate(206.377339 53.268833) scale(0.07 -0.07)">
      <use xlink:href="#STIXTwoText-78f"/>
-     <use xlink:href="#STIXTwoText-78b" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-78c" transform="translate(49.5 0)"/>
      <use xlink:href="#STIXTwoText-725" transform="translate(99 0)"/>
-     <use xlink:href="#STIXTwoText-78f" transform="translate(123.5 0)"/>
+     <use xlink:href="#STIXTwoText-786" transform="translate(123.5 0)"/>
     </g>
    </g>
    <g id="text_25">
@@ -2821,8 +2821,8 @@ z
    <g id="patch_22">
     <path d="M 496.096449 228.205 
 L 518.66223 228.205 
-L 518.66223 156.584541 
-L 496.096449 156.584541 
+L 518.66223 168.668636 
+L 496.096449 168.668636 
 z
 " clip-path="url(#p034368ddc2)" style="fill: #55a868; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
@@ -2926,18 +2926,18 @@ L 479.172113 164.958688
     </g>
    </g>
    <g id="LineCollection_9">
-    <path d="M 507.379339 162.483544 
-L 507.379339 150.670773 
+    <path d="M 507.379339 174.816814 
+L 507.379339 162.142081 
 " clip-path="url(#p034368ddc2)" style="fill: none; stroke: #333333; stroke-width: 0.8"/>
    </g>
    <g id="line2d_49">
     <g clip-path="url(#p034368ddc2)">
-     <use xlink:href="#m8204fd0608" x="507.379339" y="162.483544" style="fill: #4878d0; stroke: #333333"/>
+     <use xlink:href="#m8204fd0608" x="507.379339" y="174.816814" style="fill: #4878d0; stroke: #333333"/>
     </g>
    </g>
    <g id="line2d_50">
     <g clip-path="url(#p034368ddc2)">
-     <use xlink:href="#m8204fd0608" x="507.379339" y="150.670773" style="fill: #4878d0; stroke: #333333"/>
+     <use xlink:href="#m8204fd0608" x="507.379339" y="162.142081" style="fill: #4878d0; stroke: #333333"/>
     </g>
    </g>
    <g id="LineCollection_10">
@@ -3037,11 +3037,11 @@ L 586.0775 20.82
     </g>
    </g>
    <g id="text_49">
-    <!-- 388 -->
-    <g style="fill: #262626" transform="translate(502.181839 147.528177) scale(0.07 -0.07)">
+    <!-- 323 -->
+    <g style="fill: #262626" transform="translate(502.181839 158.999484) scale(0.07 -0.07)">
      <use xlink:href="#STIXTwoText-789"/>
-     <use xlink:href="#STIXTwoText-78e" transform="translate(49.5 0)"/>
-     <use xlink:href="#STIXTwoText-78e" transform="translate(99 0)"/>
+     <use xlink:href="#STIXTwoText-788" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-789" transform="translate(99 0)"/>
     </g>
    </g>
    <g id="text_50">
