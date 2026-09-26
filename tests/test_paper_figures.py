@@ -203,6 +203,7 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     out.parent.mkdir(parents=True)
     shutil.copy(eqm.SRC, src)
     shutil.copy(eqm.OUT, out)
+    committed_src = src.read_text()
     monkeypatch.setattr(eqm, "REPO", tmp_path)
     monkeypatch.setattr(eqm, "SRC", src)
     monkeypatch.setattr(eqm, "OUT", out)
@@ -225,4 +226,19 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     del d["cells"]["fnpag/marginal"]
     src.write_text(json.dumps(d))
     with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag/marginal"):
+        eqm.main()
+
+    # The regime pair and the seed pool are the source's own record (issue #166): copied, never
+    # restated, so an edited source record reaches the extract.
+    d = json.loads(committed_src)
+    d["regimes"]["marginal"]["per_seed_override"] = "simulation.random_seed = 1 + 2 i"
+    d["seed_pool"]["seed"] = 1
+    src.write_text(json.dumps(d))
+    monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py"])
+    eqm.main()
+    assert json.loads(out.read_text())["regimes"] == d["regimes"]
+    assert json.loads(out.read_text())["seed_pool"] == d["seed_pool"]
+    del d["regimes"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="carries no protocol record"):
         eqm.main()

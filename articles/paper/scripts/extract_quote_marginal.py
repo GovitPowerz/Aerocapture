@@ -5,10 +5,11 @@ the retraining table and their prose, and the conclusion's shallow-tail quotes) 
 through results.typ (issue #157). Its source, experiments/ou_marginal/quote_results.json, is
 written by quote_marginal.py next to it (every OU-marginal cell flown under both regimes on one
 shared seed pool: "frozen" pins the shared noise path, "marginal" gives scenario i its own path
-through simulation.random_seed = 1000 + 7 i); this extract keeps only the cells and fields the
-paper quotes, so the bundle carries them under data/SHA256SUMS and the provenance digest.
-`make check` runs `--check`, which fails when the committed extract is not what the source
-yields. Pure stdlib.
+through a per-seed simulation.random_seed override); this extract keeps only the cells and
+fields the paper quotes, plus the protocol record the source writes (`regimes`, `seed_pool`,
+copied verbatim so results.typ's regime assert tests the source, never this script), so the
+bundle carries them under data/SHA256SUMS and the provenance digest. `make check` runs
+`--check`, which fails when the committed extract is not what the source yields. Pure stdlib.
 """
 
 import json
@@ -18,13 +19,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 SRC = REPO / "experiments/ou_marginal/quote_results.json"
 OUT = REPO / "articles/paper/data/quote_marginal.json"
-# quote_marginal.py's protocol, which the source file does not record itself: both regimes pin
-# monte_carlo.noise_seeding = legacy; the marginal one gives scenario i its own density-noise path
-# through a per-seed override. results.typ asserts this shape at load.
-REGIMES = {
-    "frozen": {"noise_seeding": "legacy", "per_seed_override": None},
-    "marginal": {"noise_seeding": "legacy", "per_seed_override": "simulation.random_seed = 1000 + 7 i"},
-}
+# The protocol record quote_marginal.py writes next to its cells (issue #166); a source without
+# it predates the record and must be re-run, never patched here.
+PROTOCOL = ("regimes", "seed_pool")
+REGIMES = ("frozen", "marginal")
 # The five shared-path-trained champions and the three classical laws Appendix E's regime table
 # quotes, under both regimes.
 SHARED_PATH = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515", "fnpag", "pred_guid", "ftc")
@@ -41,13 +39,15 @@ FIELDS = ("capture_pct", "dv_cvar95", "heat_load_viol_pct")
 
 def build() -> dict:
     src = json.loads(SRC.read_text())
+    if any(k not in src for k in PROTOCOL):
+        sys.exit(f"{SRC.relative_to(REPO)} carries no protocol record ({', '.join(PROTOCOL)}): re-run experiments/ou_marginal/quote_marginal.py")
     missing = [key for key in KEYS if key not in src["cells"]]
     if missing:
         sys.exit(f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: run experiments/ou_marginal/quote_marginal.py")
     return {
         "source": str(SRC.relative_to(REPO)),
         "n_sims": src["n_sims"],
-        "regimes": REGIMES,
+        **{k: src[k] for k in PROTOCOL},
         "cells": {key: {f: src["cells"][key][f] for f in FIELDS} for key in KEYS},
     }
 

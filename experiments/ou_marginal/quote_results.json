@@ -1,5 +1,23 @@
 {
  "n_sims": 1000,
+ "regimes": {
+  "frozen": {
+   "noise_seeding": "legacy",
+   "per_seed_override": null
+  },
+  "marginal": {
+   "noise_seeding": "legacy",
+   "per_seed_override": "simulation.random_seed = 1000 + 7 i"
+  }
+ },
+ "seed_pool": {
+  "rng": "numpy.random.default_rng",
+  "seed": 987654321,
+  "range": [
+   0,
+   2147483648
+  ]
+ },
  "cells": {
   "ou_dense_p515/frozen": {
    "capture_pct": 100.0,
@@ -175,6 +193,38 @@
    "dv_p95": 133.25,
    "dv_p99": 141.52,
    "dv_cvar95": 138.59,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_mamba_p962_s2/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 117.12,
+   "dv_p95": 126.92,
+   "dv_p99": 132.2,
+   "dv_cvar95": 130.23,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_mamba_p962_s2/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 120.21,
+   "dv_p95": 134.7,
+   "dv_p99": 141.21,
+   "dv_cvar95": 139.14,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_mamba_p962_s3/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 118.19,
+   "dv_p95": 126.6,
+   "dv_p99": 131.21,
+   "dv_cvar95": 129.33,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_ft_mamba_p962_s3/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 119.54,
+   "dv_p95": 132.31,
+   "dv_p99": 141.1,
+   "dv_cvar95": 138.18,
    "heat_load_viol_pct": 0.0
   },
   "ou_gru_p1014/frozen": {

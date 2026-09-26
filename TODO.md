@@ -32,12 +32,16 @@
       lightweight in-flight adaptation, e.g. adapting only the calibrated input normalization or
       the three co-optimized actuator-side parameters against the navigation-estimated density
       history, weights frozen; complements the training-side regime-matched schedule above.
-- [ ] Run-variance calibration beyond the tail: the objective-centering recovery is three-seed
-      (capture 94.8-95.0%, conditional tail 231-273 m/s, every seed beating both FTC references)
-      and `sigma_extras.json` adds GA/CMA-ES x fixed/rotating seed-strategy repeats, but (a) the
-      centered high-regime cells are still n=1000 and need a requote at sizing depth (n=10,000 +
-      CIs), and (b) a mean-level sigma_run study across the optimizer-budget cells would let tight
-      ties (GA at population 150 vs 300) be ranked or confirmed indistinguishable.
+- [ ] Centered retrain under per-scenario seeding: at sizing depth (#156, `centered_depth.json`,
+      n=10,000 + CIs, three seeds) the centered-Mamba seeds beat both joint-FTC baselines only on
+      the shared noise path they trained under; under `per_draw` the retrained joint-FTC
+      out-captures every seed and out-tails two, and the medium-deployed one holds the best
+      conditional tail but is out-captured by seed 3.
+      Retrain the centered recipe under `per_draw` (scratch or the Appendix E fine-tune route),
+      requote both tables of Section 7.3.
+- [ ] Run-variance calibration at the mean: `sigma_extras.json` adds GA/CMA-ES x fixed/rotating
+      seed-strategy repeats, but a mean-level sigma_run study across the optimizer-budget cells
+      would let tight ties (GA at population 150 vs 300) be ranked or confirmed indistinguishable.
 - [ ] Structured pruning of the Mamba head under the post-fix regime: the quantization half
       shipped (paper Appendix C: the 4-bit fine-tuned head is tail-equivalent, 4.9x memory
       reduction, `a_log`/`d_skip` the bottleneck). Re-run structured pruning on the deployed

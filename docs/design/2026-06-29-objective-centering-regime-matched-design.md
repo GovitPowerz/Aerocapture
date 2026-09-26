@@ -150,3 +150,58 @@ centering closes the joint-FTC off-nominal gap (a bonus, not the methodology goa
 
 After implementation, invoke the `smart-commit` skill, telling it to take the whole git branch into
 account.
+
+## 12. Results at sizing depth (2026-09-26, #156)
+
+`articles/paper/scripts/centered_depth_eval.py` (`make -C articles/paper mc-centered-depth`) scores
+the three centered-Mamba trainer seeds (`objective_centering/mamba_centered`,
+`sigma_extras/mamba_centered_s2`, `_s3`) and the two joint-FTC baselines on the 9M stress pool at
+n = 10,000 (the n = 1000 pool is its first 1000 seeds; both baselines reproduce their committed
+n = 1000 numbers on it exactly), paired on scenario, bootstrap 95% CIs, under both noise regimes,
+into `articles/paper/data/centered_depth.json`. Mean and CVaR95 are over captured scenarios; the
+delta columns are the seed minus the joint-FTC retrained on the regime.
+
+Shared noise path (the regime the cells trained under and the figure's regime):
+
+| Cell | Capture % | Mean (m/s) | CVaR95 (m/s) | Delta capture vs retrained (pts) | Delta CVaR95 vs retrained (m/s) |
+|---|---|---|---|---|---|
+| Mamba s1 | 96.0 [95.7, 96.4] | 135 [133, 136] | 323 [289, 358] | -0.02 [-0.06, +0.02] | -170 [-181, -156] |
+| Mamba s2 | 96.0 [95.7, 96.4] | 149 [147, 151] | 345 [313, 379] | -0.01 [-0.05, +0.02] | -147 [-157, -137] |
+| Mamba s3 | 95.9 [95.5, 96.3] | 135 [133, 136] | 314 [282, 346] | -0.15 [-0.24, -0.08] | -178 [-186, -169] |
+| joint-FTC retrained | 96.1 [95.7, 96.4] | 316 [314, 317] | 492 [466, 520] |  |  |
+| joint-FTC medium-deployed | 95.6 [95.2, 96.0] | 170 [169, 172] | 410 [379, 443] |  |  |
+
+Against the medium-deployed joint-FTC: Mamba s1 capture +0.40 [+0.28, +0.54] pts, CVaR95 -88 [-98, -75]; Mamba s2 capture +0.41 [+0.28, +0.55] pts, CVaR95 -65 [-73, -57]; Mamba s3 capture +0.27 [+0.12, +0.43] pts, CVaR95 -97 [-104, -88].
+
+Per-scenario noise (ADR-0006; the cells never trained on it):
+
+| Cell | Capture % | Mean (m/s) | CVaR95 (m/s) | Delta capture vs retrained (pts) | Delta CVaR95 vs retrained (m/s) |
+|---|---|---|---|---|---|
+| Mamba s1 | 92.2 [91.6, 92.7] | 233 [230, 235] | 604 [580, 629] | -4.15 [-4.58, -3.76] | +48 [+34, +62] |
+| Mamba s2 | 94.3 [93.9, 94.8] | 219 [217, 221] | 535 [510, 561] | -1.98 [-2.27, -1.70] | -22 [-31, -13] |
+| Mamba s3 | 95.6 [95.2, 96.0] | 206 [204, 209] | 596 [572, 619] | -0.67 [-0.85, -0.49] | +39 [+27, +50] |
+| joint-FTC retrained | 96.3 [95.9, 96.7] | 342 [340, 344] | 557 [535, 579] |  |  |
+| joint-FTC medium-deployed | 94.6 [94.1, 95.0] | 178 [176, 180] | 457 [429, 485] |  |  |
+
+Against the medium-deployed joint-FTC: Mamba s1 capture -2.42 [-2.88, -1.96] pts, CVaR95 +148 [+131, +165]; Mamba s2 capture -0.25 [-0.64, +0.13] pts, CVaR95 +78 [+67, +89]; Mamba s3 capture +1.06 [+0.73, +1.39] pts, CVaR95 +139 [+124, +155].
+
+Reading. Under the shared path the n = 1000 claim survives the depth: every seed beats both
+baselines on the conditional tail with paired CIs excluding zero (147-178 m/s below the retrained
+joint-FTC, 65-97 below the medium-deployed one), at capture within half a point of either (the only
+capture deficit the depth resolves is seed 3's 0.15 pts to the retrained baseline). The n = 1000
+tails (231-273 m/s at 94.8-95.0%) were the low side of wide intervals; at depth they read 314-345 at
+95.9-96.0%. Under per-scenario noise the reversal does not survive: the retrained joint-FTC
+out-captures every seed (paired deltas -0.67 to -4.15 pts, CIs excluding zero) and out-tails seeds
+1 and 3; the medium-deployed joint-FTC holds the best conditional tail of the five (457 m/s, every
+seed 78-148 above it) but is out-captured by seed 3, out-captures seed 1 and ties seed 2 on capture.
+No seed beats both baselines. Same mechanism as Appendix E: a policy trained on one density history
+fits it. The open follow-up is a centered retrain under `per_draw` seeding (TODO.md).
+
+Seed 1's model. The s2 / s3 repeats (`experiments/paper/16_sigma_extras.sh`) train with
+`mamba_centered_high.toml`, whose `[data] neural_network` deploy path is seed 1's run directory; the
+s3 run left its model there on 2026-07-11, so seed 1's `best_model.json` held seed 3's weights next
+to seed 1's own `best_params.json`. It was rebuilt from seed 1's final checkpoint
+(`checkpoint_g04000.npz` population row 4, the `final_selection.json` winner `last_gen[4]`) with
+`artifacts.write_best_artifacts`: the rebuilt `best_params.json` is byte-identical to seed 1's, and
+the model reproduces the committed n = 1000 stress quote exactly (94.9% capture, mean 131.80,
+CVaR95 272.80). `centered_depth_eval.py` exits when two seeds share a model file.

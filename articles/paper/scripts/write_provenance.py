@@ -70,7 +70,7 @@ def build() -> dict:
             "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of "
             "confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006); "
             "quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario "
-            "for the marginal one (issue #157)"
+            "for the marginal one (issue #157); centered_depth.json carries both regimes, each cell labelled (issue #156)"
         ),
         "simulator_crate_version": tomllib.loads((REPO / "src/rust/Cargo.toml").read_text())["package"]["version"],
         "typst_version": typst,
