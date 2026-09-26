@@ -17,11 +17,6 @@ import numpy as np
 import pyarrow.parquet as pq
 
 FAMILY_C = {"dense": fl.C["dense"], "gru": fl.C["gru"], "lstm": fl.C["lstm"], "mamba": fl.C["mamba"], "transformer": "#d1701f", "window": "#937860"}
-# Manifest cells with NO architecture_sweep/ bundle entry: 10b_arch_long_challengers.sh
-# extended these three training dirs in place to the headline depth, so their
-# parquets live under runs/headline/ (a different budget) and are deliberately not
-# plotted on the n=2/5000 sweep curves. Any OTHER missing cell is an error.
-NOT_IN_SWEEP_BUNDLE = {("gru", 1014), ("lstm", 1082), ("mamba", 962)}
 
 
 def _cells():
@@ -40,8 +35,6 @@ def _cells():
 def _tail(arch: str, params: int):
     par = fl.RUNS / "architecture_sweep" / f"sweep_{arch}_p{params}" / "final_eval.parquet"
     if not par.exists():
-        if (arch, params) in NOT_IN_SWEEP_BUNDLE:
-            return None
         raise FileNotFoundError(f"sweep cell missing from the bundle: {par}")
     df = pq.read_table(par).to_pandas()
     cap = (df["ifinal"] == 3) & (df["eccentricity"] < 1.0)
@@ -56,9 +49,7 @@ def main():
 
     fam = defaultdict(list)
     for arch, params in _cells():
-        t = _tail(arch, params)
-        if t:
-            fam[arch].append((params, t[0], t[1]))
+        fam[arch].append((params, *_tail(arch, params)))
 
     fig, (axA, axB) = plt.subplots(1, 2, figsize=fl.SIZE2)
     # Panel A: Pareto -- params vs dv_p99 per family

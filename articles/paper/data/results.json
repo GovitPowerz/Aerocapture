@@ -304,6 +304,44 @@
       "g_load_p95": 3.1,
       "best_val_rms_within_transform_only": null
     },
+    "architecture_sweep/sweep_gru_p1014": {
+      "key": "architecture_sweep/sweep_gru_p1014",
+      "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 116.31,
+      "dv_p50": 115.52,
+      "dv_p95": 125.42,
+      "dv_p99": 132.76,
+      "dv_p999": 138.5,
+      "dv_cvar95": 129.63,
+      "dv_cvar99": 137.31,
+      "dv_max_descriptive": 159.19,
+      "dv_mean_ci": [
+        115.99,
+        116.64
+      ],
+      "dv_p95_ci": [
+        124.56,
+        126.39
+      ],
+      "dv_cvar95_ci": [
+        127.9,
+        131.64
+      ],
+      "dv_p99_ci": [
+        129.7,
+        134.02
+      ],
+      "dv_cvar99_ci": [
+        132.55,
+        143.41
+      ],
+      "heat_flux_p95": 174.4,
+      "g_load_p95": 2.5,
+      "best_val_rms_within_transform_only": null
+    },
     "architecture_sweep/sweep_gru_p1954": {
       "key": "architecture_sweep/sweep_gru_p1954",
       "legacy_prefix_regime": false,
@@ -416,6 +454,44 @@
       ],
       "heat_flux_p95": 185.3,
       "g_load_p95": 3.03,
+      "best_val_rms_within_transform_only": null
+    },
+    "architecture_sweep/sweep_lstm_p1082": {
+      "key": "architecture_sweep/sweep_lstm_p1082",
+      "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 111.97,
+      "dv_p50": 111.08,
+      "dv_p95": 120.24,
+      "dv_p99": 124.35,
+      "dv_p999": 129.28,
+      "dv_cvar95": 122.84,
+      "dv_cvar99": 127.96,
+      "dv_max_descriptive": 134.94,
+      "dv_mean_ci": [
+        111.71,
+        112.23
+      ],
+      "dv_p95_ci": [
+        119.44,
+        120.91
+      ],
+      "dv_cvar95_ci": [
+        121.81,
+        123.96
+      ],
+      "dv_p99_ci": [
+        122.33,
+        127.06
+      ],
+      "dv_cvar99_ci": [
+        125.23,
+        130.24
+      ],
+      "heat_flux_p95": 181.5,
+      "g_load_p95": 2.72,
       "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_lstm_p1962": {
@@ -644,6 +720,44 @@
       ],
       "heat_flux_p95": 178.1,
       "g_load_p95": 2.75,
+      "best_val_rms_within_transform_only": null
+    },
+    "architecture_sweep/sweep_mamba_p962": {
+      "key": "architecture_sweep/sweep_mamba_p962",
+      "legacy_prefix_regime": false,
+      "noise_seeding": "legacy",
+      "n": 1000,
+      "capture_pct": 100.0,
+      "dv_mean": 115.19,
+      "dv_p50": 114.53,
+      "dv_p95": 122.03,
+      "dv_p99": 127.32,
+      "dv_p999": 135.87,
+      "dv_cvar95": 125.55,
+      "dv_cvar99": 132.18,
+      "dv_max_descriptive": 149.26,
+      "dv_mean_ci": [
+        114.95,
+        115.43
+      ],
+      "dv_p95_ci": [
+        121.3,
+        122.88
+      ],
+      "dv_cvar95_ci": [
+        124.1,
+        127.23
+      ],
+      "dv_p99_ci": [
+        124.85,
+        128.98
+      ],
+      "dv_cvar99_ci": [
+        127.92,
+        137.7
+      ],
+      "heat_flux_p95": 179.1,
+      "g_load_p95": 2.82,
       "best_val_rms_within_transform_only": null
     },
     "architecture_sweep/sweep_transformer_p1112": {
