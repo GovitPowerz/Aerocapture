@@ -100,6 +100,8 @@
 #let ou_scratch_all = ou_nets.map(ou_scratch).flatten()
 #assert(ou_scratch_all.len() == 15 and ou_scratch_all.filter(ou_clean).len() == 14 and ou_nets.map(ou_ft1k).filter(ou_clean).len() == 3,
   message: "the prose counts fourteen of fifteen clean scratch repeats and three of five clean fine-tunes")
+#assert(ou_scratch_all.all(c => c.viol_pct == 0) and ou_scratch_all.map(c => calc.round(R.quotes.n_sims * c.capture_pct / 100)).sum() == 15 * 1000 - 1,
+  message: "the abstract and the conclusion state that the scratch retrains are feasible in every cell and capture all but one of 15 000 scenarios")
 #let ou_odd = ou_scratch("dense_p515").filter(c => not ou_clean(c))
 #assert(ou_odd.len() == 1 and ou_odd.first().viol_pct == 0 and calc.round(R.quotes.n_sims * (100 - ou_odd.first().capture_pct) / 100) == 1,
   message: "the prose states that the one unclean scratch repeat is a dense-515 seed losing one scenario")
@@ -115,12 +117,15 @@
 #let ou_below_fnpag = ou_vs_fnpag.filter(x => x > 0)
 #assert(ou_below_fnpag.len() == 4 and ou_fnpag1k.cvar95 - ou_scratch3("dense_p515").mean < 0,
   message: "the prose states four of the five scratch means below FNPAG and the dense-515 one above")
-// Under per-scenario noise every network gives something up: capture, or a heat-load violation
-// beyond its shared-path one (the LSTM's shared-path champion is already infeasible).
-#assert(ou_nets.all(l => R.ou(l).capture_pct < 100 or R.ou(l).viol_pct > R.ou(l, regime: "frozen").viol_pct),
-  message: "the regime table's prose states that every network sheds capture or feasibility under per-scenario noise")
+// Under per-scenario noise every network adds heat-load violations beyond its shared-path ones (the
+// LSTM's shared-path champion is already infeasible) and no classical law incurs any; capture slips
+// in both families (the table notes FNPAG and PredGuid too), so the asymmetry is feasibility.
+#assert(ou_nets.all(l => R.ou(l).viol_pct > R.ou(l, regime: "frozen").viol_pct),
+  message: "the regime table's prose states that every network adds heat-load violations under per-scenario noise")
 #assert(ou_laws.all(l => R.ou(l).viol_pct == 0 and R.ou(l, regime: "frozen").viol_pct == 0),
-  message: "the regime table notes no heat-load violation for a classical law")
+  message: "the regime table's prose states that no classical law incurs a heat-load violation")
+#assert(ou_nets.any(l => R.ou(l).capture_pct < 100) and ou_laws.any(l => R.ou(l).capture_pct < 100),
+  message: "the regime table's prose states that capture slips in both families under per-scenario noise")
 // Section 7.3's centered high-regime cells at sizing depth (data/centered_depth.json, issue #156):
 // the three centered-Mamba trainer seeds and the two joint-FTC baselines on the 9M stress pool,
 // n = 10 000, paired on scenario, under per-scenario noise and under the shared path (the regime
@@ -152,6 +157,10 @@
 #assert(cd_pd_med("mamba_centered_s3").delta_capture_pts_ci.at(0) > 0 and cd_pd_med("mamba_centered_s1").delta_capture_pts_ci.at(1) < 0
   and cd_pd_med("mamba_centered_s2").delta_capture_pts_ci.at(0) < 0 and cd_pd_med("mamba_centered_s2").delta_capture_pts_ci.at(1) > 0,
   message: "the prose ranks the medium-deployed joint-FTC below seed 3 on capture, above seed 1, and at capture parity with seed 2")
+// Section 7.2's half-point parity band: every per-scenario capture difference the prose ranks on lies
+// outside it, and the one parity it names (seed 2 against the medium-deployed baseline) inside.
+#assert(cd_seeds.all(s => cd_baselines.all(b => (calc.abs(cd_pair(s, b, "per_draw").delta_capture_pts) < 0.5) == (s == "mamba_centered_s2" and b == "jointFTC-medium"))),
+  message: "the prose reads per-scenario capture with Section 7.2's half-point parity band")
 #assert(cd("jointFTC-medium", "per_draw").dv_cvar95 < calc.min(..(cd_seeds + ("jointFTC-high",)).map(l => cd(l, "per_draw").dv_cvar95)),
   message: "the prose states the medium-deployed joint-FTC holds the best per-scenario conditional tail of the five")
 
@@ -191,8 +200,9 @@
   paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
   path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more than the
   classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$ m/s at
-  $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the retraining,
-  which restores $100%$ capture and full constraint feasibility for every cell. The
+  $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the retraining
+  from scratch, which restores full constraint feasibility for every cell and captures all but one of
+  $15\,000$ scenarios. The
   result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -694,7 +704,7 @@ gradient-free search.], <fig-plateau>)
     [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
     [Fresh re-quote (offset 8M)], [$1000$], [once; quantization grid], [quantization cell choice (Appendix C)],
     [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
-    [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    [Off-nominal stress (offset 9M)], [$1000$--$10\,000$], [once per policy/regime], [none (robustness probe)],
     [Architecture probes (offset 10M)], [$1000$], [once per arm-repeat], [none (Appendix B verdicts)],
     table.hline(stroke: 0.7pt),
   ),
@@ -1056,8 +1066,9 @@ deliberately harsher off-nominal regime (atmosphere, density perturbation, navig
 set high), the picture inverts on robustness, and we report it plainly because it is the one place the
 network loses (@fig-robust). All stress-regime tail statistics are conditional on capture --
 $"CVaR"_95 (Delta v | "capture")$ -- and a conditional tail can improve by failing the hardest
-scenarios, so we read every stress comparison lexicographically: capture probability first,
-conditional tail cost second, and no tail win is claimed across a capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
+scenarios, so we read every stress comparison lexicographically: capture probability first (a
+difference within half a point read as parity), conditional tail cost second, and no tail win is
+claimed across a larger capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
 $5.5$ points and its $"CVaR"_95$ inflates by $197$ m/s -- against the network's #box[$9.9$-point] capture
 drop and $+402$ m/s inflation; PredGuid ($-9.3$ pts, $+297$) sits between, FNPAG loses less capture
 ($-7.1$ pts) but inflates its tail the most ($+490$), and the *fixed*-reference FTC collapses entirely ($-33$ points), which again ties the
@@ -1435,9 +1446,10 @@ density noise. In that regime the shared-path champion reached $"CVaR"_(99.9) = 
 m/s at $100%$ capture, beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at $"CVaR"_95$
 on every one of a thousand paired scenarios -- the numbers the main body of this paper still
 quotes; under per-scenario noise the shared-path-trained networks lose #R.span(ou_nets.map(ou_shift)) m/s of
-$"CVaR"_95$ where the classical schemes lose #R.span(ou_laws.map(ou_shift)) (Appendix E). Retraining under the repaired
-seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
-whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
+$"CVaR"_95$ where the classical schemes lose #R.span(ou_laws.map(ou_shift)) (Appendix E). Retraining from scratch under the
+repaired seeding restores full constraint feasibility for every cell -- including the LSTM
+whose deployed champion had been heat-load infeasible -- and captures all but one of $15\,000$
+scenarios, and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
 fine-tune takes the shallow tail ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ m/s against FNPAG's $#R.fixed(ou_fnpag1k.cvar95)$); on the $10^6$-scenario far
 tail the fine-tuned recurrent policy holds $#R.fixed(ou_ft3.mean)$ (three-seed mean) while the dense fine-tune and
@@ -1980,7 +1992,8 @@ nothing else is.
 ) <tbl-ou-regimes>
 
 The asymmetry is the finding: the analytic laws lose #R.span(ou_laws.map(ou_shift)) m/s -- ordinary distribution
-widening -- while the networks lose #R.span(ou_nets.map(ou_shift)) and shed capture or feasibility. A policy with
+widening -- while the networks lose #R.span(ou_nets.map(ou_shift)) and every one adds heat-load violations, which no law incurs
+(capture slips in both families). A policy with
 internal state can fit the one density history it ever sees, and did. On the per-scenario tail the
 deployed FNPAG ($#R.fixed(ou_fnpag1k.cvar95)$ m/s, clean constraints) beats every shared-path-trained network, inverting the
 Section 7 margin.

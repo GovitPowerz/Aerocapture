@@ -104,7 +104,12 @@ last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag
   note before, under an intro whose rule the notes did not follow): the per-scenario GRU (98.0%
   capture, 1.5% violation), Dense 972 (99.3%, 0.5%), Dense 515 (98.4%, 0.8%), FNPAG (99.4%) and
   PredGuid (99.9%) join the Mamba (now with its 1.2% violation) and the LSTM (17.0%, and 14.6%
-  under the shared path); an assert holds that every network sheds capture or feasibility. The
+  under the shared path). The asymmetry sentence under the table names the feasibility split the
+  notes show (every network adds heat-load violations, no law incurs any; capture slips in both
+  families), each half asserted; it had contrasted the networks as the ones that "shed capture or
+  feasibility" beside FNPAG's 99.4% and PredGuid's 99.9% capture. The abstract and the conclusion
+  no longer say the retraining "restores 100% capture ... for every cell": the scratch retrains are
+  feasible in every cell and capture all but one of 15,000 scenarios, asserted. The
   first conclusion no longer says the scratch retrains "edge FNPAG's 154.3 by roughly one
   sigma_run": four of the five scratch means sit below it, by 0.6--6.2 m/s, and the dense-515 mean
   sits 4.3 above, both asserted. The consistency quote's range covers all four other cells
@@ -139,4 +144,8 @@ last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag
   (94.9%, CVaR95 272.8), and the eval script exits when two seeds share a model file. The same
   deploy-path overwrite reached three other run directories; their repair is a separate change.
   The Discussion's echo of Appendix E's FNPAG margin follows #166 (four of five scratch means below
-  FNPAG, by at most 6.2 m/s). The colophon lists the two tables and the new file.
+  FNPAG, by at most 6.2 m/s). The colophon lists the two tables and the new file. Section 7.2's
+  lexicographic rule states the half-point capture-parity band Section 7.3 reads with (seed 3's
+  resolved 0.15-point deficit to the retrained joint-FTC sits inside it; the per-scenario ranking
+  deltas sit outside it except seed 2's parity, asserted), and the pool table gives the stress
+  pool's n = 10,000 depth and one query per policy and noise regime.

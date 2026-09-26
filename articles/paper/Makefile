@@ -204,7 +204,8 @@ help:
 # mc-data: OPT-IN producers that re-fly deployed cells. Never default, never CI.
 # Need training_output/ (the cells are not committed), the PyO3 build (./build.sh),
 # and every committed number was produced under the legacy noise regime (the
-# scripts pin it; ADR-0003/0006). Wall times are single-machine estimates.
+# scripts pin it; ADR-0003/0006) except the labelled per_draw cells of
+# centered_depth.json. Wall times are single-machine estimates.
 # ---------------------------------------------------------------------------
 need-sim:
 	@test -d $(ROOT)/training_output || { echo "error: training_output/ missing -- mc-* targets re-fly cells (experiments/paper/README.md)"; exit 1; }
