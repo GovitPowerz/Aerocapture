@@ -567,9 +567,11 @@ def _load_corridor_data(scheme_dir: Path) -> dict[str, Any] | None:
     """Load corridor boundaries .npz from the mission-level training output directory."""
     from aerocapture.training.corridor import load_corridor
 
-    # corridor_boundaries.npz lives one level up (mission directory, e.g. training_output/)
-    # or in the piecewise_constant sibling directory
+    # An --output-dir piecewise_constant run keeps its corridor in its own dir
+    # (artifacts.piecewise_artifact_dir); otherwise corridor_boundaries.npz lives
+    # one level up (mission directory) or in the piecewise_constant sibling directory.
     candidates = [
+        scheme_dir / "corridor_boundaries.npz",
         scheme_dir.parent / "corridor_boundaries.npz",
         scheme_dir.parent / "piecewise_constant" / "corridor_boundaries.npz",
     ]

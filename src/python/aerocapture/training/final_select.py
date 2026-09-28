@@ -424,7 +424,6 @@ def run_final_select(
 
         params = decode_normalized(np.asarray(sel.individual, dtype=np.float64), param_specs)
         deploy_optimized_artifacts(params, config, toml_data, training_dir, base_toml)
-    write_final_selection_json(training_dir, sel, len(val_seeds))
     if patch:
         island_name: str | None = None
         if state.kind == "islands":
@@ -436,6 +435,9 @@ def run_final_select(
         patch_checkpoint(state, sel.individual, sel.val_rms, island_name=island_name)
     else:
         print("  --no-checkpoint-patch: checkpoint untouched; a later resume will revert these artifacts at its next checkpoint save.")
+    # Sidecar AFTER the checkpoint patch, as in the trainer's finalize: the campaign
+    # runners read "sidecar newer than the latest checkpoint" as "selection done".
+    write_final_selection_json(training_dir, sel, len(val_seeds))
     print(format_selection_summary(sel))
     return sel
 

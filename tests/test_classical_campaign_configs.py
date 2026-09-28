@@ -65,9 +65,12 @@ def test_runner_trains_every_cell() -> None:
     assert sorted(match.group(1).split()) == sorted(CELLS)
 
 
-def test_manifest_scores_every_retuned_cell() -> None:
-    rows = [line.split("|") for line in MANIFEST.read_text().splitlines() if line.strip() and not line.startswith("#")]
-    retuned = {label.removeprefix("ou_marginal/classical/"): toml for label, toml in rows if label.startswith("ou_marginal/classical/")}
+def test_manifest_scores_every_retuned_cell(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.syspath_prepend(str(REPO / "experiments/ou_marginal"))
+    from confirmatory_marginal import read_manifest  # type: ignore[import-not-found]
+
+    rows = read_manifest(MANIFEST)
+    retuned = {label.removeprefix("ou_marginal/classical/"): toml for label, toml, _ in rows if label.startswith("ou_marginal/classical/")}
     assert sorted(retuned) == sorted(CELLS)
     for cell, toml in retuned.items():
         scheme = load_toml_with_bases(CELL_DIR / f"{cell}.toml")["guidance"]["type"]

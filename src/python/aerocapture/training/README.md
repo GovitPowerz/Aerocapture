@@ -178,7 +178,9 @@ aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoin
 `warm_start_bounds.json` weight-spec bounds when present (decoding under rebuilt Xavier bounds
 would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
 the TOML), validates the chromosome width, errors when `validation_n_sims = 0`, then re-runs the
-rule and rewrites artifacts + sidecar + checkpoint (`load_selection_state` reads BOTH checkpoint
+rule and rewrites artifacts + checkpoint, then the sidecar (last, as in `finalize`: a campaign
+runner reads a sidecar newer than the latest checkpoint as a finished selection;
+`load_selection_state` reads BOTH checkpoint
 formats into a `SelectionState`; `patch_checkpoint` atomically rewrites ONLY the best fields,
 temp files `.tmp_`-prefixed so a crashed patch never shadows the real checkpoint in the
 `checkpoint_g*` resume globs); non-NN winners also get `optimized_<scheme>.toml` rewritten and,
@@ -227,7 +229,10 @@ Spec: `docs/design/2026-06-02-resume-enhancements-design.md`.
 
 **Interrupts and headless runs.** Ctrl+C saves a checkpoint and returns cleanly with
 `interrupted: True` on both paths; the islands trainer returns before selection and
-`final_eval`, so an interrupt never launches the post-loop MC sweeps or rewrites artifacts.
+`final_eval`, so an interrupt never launches the post-loop MC sweeps or rewrites artifacts. The
+single-algo interrupt checkpoint is labelled `completed_gen`, not the loop's gen + 1: a Ctrl+C
+inside `algorithm.next()` still holds the previous population, and a zero-generation resume
+interrupted in its final selection re-saves its own label instead of claiming one more gen.
 `--no-tui` / non-tty -> `NoopDisplay` (`is_live = False`) with a plain per-5-gen heartbeat print
 plus checkpoint-saved lines (a silent multi-hour run is indistinguishable from a NaN-hung batch;
 use `--sim-timeout` against NaN hangs).

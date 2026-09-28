@@ -842,10 +842,13 @@ class SingleAlgoTrainer:
     def on_interrupt(self, gen: int, logger: TrainingLogger, display: DisplayProtocol) -> None:
 
         display.stop()
-        print(f"\nInterrupted at gen {gen + 1}. Saving checkpoint...")
+        # completed_gen, not gen + 1: inside algorithm.next() X/costs are still the
+        # previous population, and on a zero-generation resume (interrupted final
+        # selection) the loop never ran, so gen + 1 would label one gen too many.
+        print(f"\nInterrupted at gen {self.completed_gen}. Saving checkpoint...")
         save_checkpoint(
             self.save_dir,
-            gen + 1,
+            self.completed_gen,
             self.X,
             self.costs,
             self.best_overall_cost,
