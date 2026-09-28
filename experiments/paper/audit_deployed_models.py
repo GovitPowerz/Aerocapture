@@ -73,7 +73,7 @@ def run_toml(run: Path, committed: dict[Path, Path]) -> Path | None:
     parquet = run / "final_eval.parquet"
     if parquet.exists():
         recorded = (pq.read_metadata(parquet).metadata or {}).get(b"aerocapture.toml_path")
-        if recorded is not None and (toml := REPO / bytes(recorded).decode()).exists():
+        if recorded and (toml := REPO / bytes(recorded).decode()).exists():
             return toml
     return committed.get(run.resolve())
 
@@ -158,7 +158,7 @@ def main() -> None:
     by_hash: dict[str, list[Path]] = defaultdict(list)
     for run in runs:
         by_hash[digest[run]].append(run)
-    width = max(len(str(run.relative_to(TRAINING))) for run in runs)
+    width = max((len(str(run.relative_to(TRAINING))) for run in runs), default=len("run dir"))
     print(f"\n{'run dir':<{width}}  {'bundle':<7}  status")
     for run in runs:
         twins = [str(r.relative_to(TRAINING)) for r in by_hash[digest[run]] if r != run]

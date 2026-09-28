@@ -1256,7 +1256,7 @@ class IslandsTrainer:
             for stale in (
                 save_dir / "best_model.json",
                 save_dir / "best_params.json",
-                owned_deploy_path(config, save_dir, self.cwd or ".") if config.guidance_type == "neural_network" else None,
+                owned_deploy_path(config, save_dir, self.cwd) if config.guidance_type == "neural_network" else None,
             ):
                 if stale is not None and stale.exists():
                     stale.unlink()
