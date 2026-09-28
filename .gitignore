@@ -83,3 +83,6 @@ demo_output/
 # The compiled paper ships in-repo (linked from README; rebuild: typst compile articles/paper/paper.typ):
 !articles/paper/paper.pdf
 .superpowers/
+# Confirmatory scorers' per-replicate stores (<results>.json.partial/<label>/r<NN>.{json,npy}): transient,
+# deleted once their cell is saved; listed last so the data/ JSON negations above cannot re-include them.
+*.json.partial/

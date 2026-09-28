@@ -5,10 +5,21 @@ Reuses the paper's confirmatory machinery (`_eval_cell`, `make_confirmatory_pool
 `monte_carlo.noise_seeding = per_draw`, and writes to its OWN results file so the
 frozen-regime `confirmatory_eval.json` is never mixed with marginal rows.
 
-Cells: the two fine-tuned champions, the frozen-trained headline champion
-(before/after contrast), and FNPAG (best classical).
+Cells come from a manifest (one `label|toml[|model_dir]` per line, `#` comments;
+model_dir defaults to training_output/<label>) or from `--cells label:toml[:model_dir]`;
+with neither, the default manifest `confirmatory_cells.txt` (the two fine-tuned
+champions, the frozen-trained headline champion, FNPAG, the Section 5 PPO cells).
+A cell already in confirmatory_marginal.json is skipped; a cell without its
+final_eval.parquet is not quotable yet and is skipped too.
 
-Usage: uv run python experiments/ou_marginal/confirmatory_marginal.py [--n 100000]
+Stop and resume: Ctrl-C (or a crash, or a shutdown) at any point, then rerun the
+same command. Every finished replicate is on disk under
+confirmatory_marginal.json.partial/<label>/ and is loaded, not flown again; the
+cell is assembled once all its replicates exist, written into the results file,
+and its partial store deleted. The store refuses a replicate flown under another
+TOML, model dir, model bytes or pool (delete it to re-fly).
+
+Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--manifest FILE | --cells ...] [--n 100000]
 """
 
 from __future__ import annotations
@@ -22,37 +33,52 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "articles/paper/scripts"))
 OUT = Path(__file__).resolve().parent / "confirmatory_marginal.json"
-
-CELLS = [
-    ("ou_marginal/ft_dense_p515", "configs/training/ou_marginal/dense_p515.toml"),
-    ("ou_marginal/ft_mamba_p962", "configs/training/ou_marginal/mamba_p962.toml"),
-    ("ou_marginal/ft_mamba_p962_s2", "configs/training/ou_marginal/mamba_p962.toml"),
-    ("ou_marginal/ft_mamba_p962_s3", "configs/training/ou_marginal/mamba_p962.toml"),
-    ("mamba_p962_long", "configs/training/sweep/mamba_p962.toml"),
-    ("fnpag", "configs/training/msr_aller_fnpag_train.toml"),
-    # Section 5 RL baseline (issue #101): PPO cells protocol-matched to ft_dense_p515 / ft_gru_p1014
-    # (experiments/paper/18_rl_baseline.sh); scaffolding is pinned in their TOMLs, no best_params.json.
-    ("paper/rl/dense_p515_ppo_scratch", "configs/training/paper/rl/dense_p515_ppo_scratch.toml"),
-    ("paper/rl/dense_p515_ppo_warm", "configs/training/paper/rl/dense_p515_ppo_warm.toml"),
-    ("paper/rl/gru_p1014_ppo_scratch", "configs/training/paper/rl/gru_p1014_ppo_scratch.toml"),
-    ("paper/rl/gru_p1014_ppo_warm", "configs/training/paper/rl/gru_p1014_ppo_warm.toml"),
-    ("ou_marginal/ft_gru_p1014", "configs/training/ou_marginal/gru_p1014.toml"),
-]
+DEFAULT_MANIFEST = Path(__file__).resolve().parent / "confirmatory_cells.txt"
 
 
-def main() -> None:
+def read_manifest(path: Path) -> list[tuple[str, str, str | None]]:
+    """(label, toml, model_dir | None) per `label|toml[|model_dir]` line; blank lines and `#` comments skipped."""
+    rows: list[tuple[str, str, str | None]] = []
+    for n, raw in enumerate(path.read_text().splitlines(), start=1):
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        fields = [f.strip() for f in line.split("|")]
+        if len(fields) not in (2, 3) or not all(fields[:2]):
+            raise SystemExit(f"{path}:{n}: expected 'label|toml[|model_dir]', got {raw!r}")
+        rows.append((fields[0], fields[1], fields[2] if len(fields) == 3 and fields[2] else None))
+    return rows
+
+
+def parse_cells(specs: list[str]) -> list[tuple[str, str, str | None]]:
+    """(label, toml, model_dir | None) per `label:toml[:model_dir]` spec."""
+    rows: list[tuple[str, str, str | None]] = []
+    for spec in specs:
+        parts = spec.split(":")
+        if len(parts) not in (2, 3):
+            raise SystemExit(f"--cells: expected 'label:toml[:model_dir]', got {spec!r}")
+        rows.append((parts[0], parts[1], parts[2] if len(parts) == 3 else None))
+    return rows
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n", type=int, default=100_000)
     parser.add_argument("--replicates", type=int, default=10)
-    args = parser.parse_args()
+    parser.add_argument("--cells", nargs="+", default=[], metavar="LABEL:TOML[:MODEL_DIR]")
+    parser.add_argument("--manifest", type=Path, help=f"one 'label|toml[|model_dir]' per line (default {DEFAULT_MANIFEST.name} when no --cells)")
+    args = parser.parse_args(argv)
 
     import confirmatory_eval as ce  # type: ignore[import-not-found]  # articles/paper/scripts via sys.path
     from aerocapture.training.seeds import make_confirmatory_pools
     from aerocapture.training.toml_utils import load_toml_with_bases
 
+    manifest = args.manifest or (None if args.cells else DEFAULT_MANIFEST)
+    cells = parse_cells(args.cells) + (read_manifest(manifest) if manifest else [])
+
     # Same pools as the paper's confirmatory: every cell must share the base MC seed
     # or the paired replicate deltas would silently break.
-    seeds = {label: load_toml_with_bases(REPO / toml).get("monte_carlo", {}).get("seed", 42) for label, toml in CELLS}
+    seeds = {label: load_toml_with_bases(REPO / toml).get("monte_carlo", {}).get("seed", 42) for label, toml, _ in cells}
     assert len(set(seeds.values())) == 1, f"base_mc_seed differs across cells: {seeds}"
     pools = make_confirmatory_pools(next(iter(seeds.values())), args.replicates, args.n)
 
@@ -63,19 +89,23 @@ def main() -> None:
             f"pool shape mismatch vs existing {OUT.name} ({existing.get('n_replicates')}x{existing.get('n_per_replicate')})"
         )
     freeze_commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO).stdout.strip()
-    for label, toml in CELLS:
+    for label, toml, model_dir in cells:
         if label in by_label:
             print(f"{label}: already done, skipping")
             continue
+        cell_dir = REPO / (model_dir or f"training_output/{label}")
         # Quotable only once its final eval ran (an RL dir carries a best_model.json from the
         # first promotion, long before the run is over).
-        if not (REPO / "training_output" / label / "final_eval.parquet").exists():
+        if not (cell_dir / "final_eval.parquet").exists():
             print(f"{label}: no final_eval.parquet yet, skipping")
             continue
         print(f"== {label} ({toml})", flush=True)
-        by_label[label] = ce._eval_cell(label, toml, pools, None, {}, scaffolding_from=None, sim_timeout=5.0, noise_seeding="per_draw")
+        by_label[label] = ce._eval_cell(
+            label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=ce._partial_store(OUT, label)
+        )
         by_label[label]["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
-        OUT.write_text(
+        ce._write_atomic(
+            OUT,
             json.dumps(
                 {
                     "regime": "per_draw (marginal noise)",
@@ -86,8 +116,9 @@ def main() -> None:
                     "cells": [by_label[k] for k in sorted(by_label)],
                 },
                 indent=1,
-            )
+            ),
         )
+        ce._drop_partial(OUT, label)
         print(f"  written {OUT.name}", flush=True)
     for label in sorted(by_label):
         p = by_label[label]["pooled"]
