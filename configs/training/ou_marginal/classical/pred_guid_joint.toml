@@ -1,0 +1,16 @@
+# Classical retune under per-scenario noise (#172): msr_aller_pred_guid_joint_ref_train re-tuned by the
+# shared-path campaign's GA allocation (experiments/paper/01_classical_baselines.sh,
+# 07_joint_reference.sh) with every scenario on its own density-noise path.
+# The joint ref_bank gene's winning table deploys to the run dir (ref_trajectory.dat).
+# Driven by experiments/ou_marginal/classical_campaign.sh into
+# training_output/ou_marginal/classical/pred_guid_joint/; the runner reads n_gen here as its target.
+base = ["../../msr_aller_pred_guid_joint_ref_train.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+algorithm = "ga"
+n_gen = 2000
+n_pop = 300
+training_n_sims = 10

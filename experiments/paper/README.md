@@ -27,6 +27,7 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 ./experiments/paper/13_robustness_retrain.sh        OPTIONAL, off-campaign: retrain FTC-joint + Mamba_962 ON the high regime, eval on the 9M stress pool (tests the paper's "widen the NN training regime" future-work line; directional budget by default, scale NGEN_MAMBA for a conclusive run)
 ./experiments/paper/14_objective_centering.sh        OPTIONAL, off-campaign: objective-centering lever attribution under the high regime (dense_515; Phase 2 Mamba via RUN_MAMBA=1). Tests that worst-case shaping is regime-matched. Spec 2026-06-29. Sizing-depth requote of the three centered-Mamba seeds + joint-FTC references, both regimes: `make -C articles/paper mc-centered-depth` (#156).
 ./experiments/paper/18_rl_baseline.sh               Section 5 RL baseline (issue #101): {dense_p515, gru_p1014} x {PPO scratch, PPO warm-started from the per-scenario champion}, protocol-matched to ou_marginal/ft_*, per_draw regime; then report.py on the two ou_marginal champions and 12 (bundle keys rl/*, ou_marginal/*)
+./experiments/ou_marginal/classical_campaign.sh     per_draw regime (#172): the nine classical cells of 01 + 07 retuned at the same GA allocation (FNPAG 300 gens) -> training_output/ou_marginal/classical/<cell>, then report.py per cell; resumable, ~8 h under `caffeinate -i`; sanity table: `quote_marginal.py --manifest experiments/ou_marginal/classical_cells.txt`
 ```
 
 02 is the long pole (18 x ~1-2 h); 01/03's FTC cells are fast (~ms/sim), fnpag is
@@ -35,13 +36,16 @@ in one checkout without distinct `--output-dir`s (the plain invocation's output 
 the parent of the TOML's `[data] neural_network`; until #170 every `--output-dir` run
 also wrote that path, so siblings overwrote each other's deployed model), and never regenerate
 `training_output/mars/` while a ref-tracking scheme (ftc / energy_controller /
-pred_guid) is training.
+pred_guid) is training. Only the canonical piecewise_constant run (00) and a
+`reference_only` run write `training_output/mars/`; any other `--output-dir`
+piecewise_constant run keeps its corridor and reference in its own dir.
 
 ## Where results land
 
 - Study cells: `training_output/paper/<study>/<cell>/` (study names match the scripts).
 - Classical baselines: canonical `training_output/<scheme>/` (compare_guidance,
-  Study E and the FTC GA cell expect those names).
+  Study E and the FTC GA cell expect those names). Their per-scenario retunes:
+  `training_output/ou_marginal/classical/<cell>/`.
 - Sweeps: canonical `training_output/sweep_<arch>_p<N>/` (param_sweep manifests:
   `configs/training/sweep/manifest.json` + `manifest_floor.json`).
 - Committed bundle (per run: `best_model.json`, `best_params.json`,
