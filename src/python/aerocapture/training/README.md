@@ -740,9 +740,11 @@ validation_n_sims` sims each).
   (`extract_quote_marginal.py`, issue #157). `articles/paper/results.typ` is the compile-time
   seam: accessors over `results.json` / `confirmatory_eval.json` / `quant/finalists_results.json`
   (legacy regime, `legacy_regime()`), `confirmatory_marginal.json` (per_draw, asserted at load)
-  and `quote_marginal.json` (its frozen / marginal regime pair asserted at load) that fill every
-  cell of the performance, paired-comparison, quantization-finalists, per-scenario far-tail,
-  shared-path-versus-per-scenario and retraining tables (the Viol. column of the performance table
+  `quote_marginal.json` (its frozen / marginal regime pair asserted at load on the protocol record
+  its source writes, issue #166) and `centered_depth.json` (Section 7.3's centered cells at
+  n = 10,000, per_draw / legacy pair asserted at load, issue #156) that fill every
+  cell of the performance, paired-comparison, quantization-finalists, sizing-depth centered,
+  per-scenario far-tail, shared-path-versus-per-scenario and retraining tables (the Viol. column of the performance table
   excepted: `results.json` carries no violation field) and the per-scenario quotes of the abstract, Section 9, the
   conclusion and Appendix E, and the colophon reads `provenance.json`; the shared-path prose
   numbers are still transcribed from the bundle files. `paper` chains them; `check` =

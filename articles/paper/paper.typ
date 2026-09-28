@@ -3,8 +3,9 @@
 // Compile: make -C articles/paper pdf (runs typst from the repo ROOT so figure paths resolve,
 // and passes the git head the colophon prints).
 // Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
-// tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), Appendix E's tables (tbl-ou-regimes,
-// tbl-ou-retrain), the per-scenario quotes and the colophon read them at compile time through
+// tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), Section 7.3's depth tables
+// (tbl-centered-sp, tbl-centered-pd), Appendix E's tables (tbl-ou-regimes, tbl-ou-retrain),
+// the per-scenario quotes and the colophon read them at compile time through
 // results.typ; the rest of the prose still quotes transcribed numbers. Rebuild everything:
 // make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
@@ -85,13 +86,11 @@
 // The n = 1000 paired quotes of Appendix E (data/quote_marginal.json): the five shared-path-trained
 // champions and three classical laws scored under both regimes (ou_shift = per-scenario minus
 // shared-path CVaR95), then the three scratch repeats and the fine-tune of each of the same five
-// cells under per-scenario noise. ou_span prints a min--max range of whole m/s; ou_clean is 100%
-// capture at zero violation.
+// cells under per-scenario noise. ou_clean is 100% capture at zero violation.
 #assert(R.quotes.n_sims == 1000, message: "the per-scenario quotes state a paired n = 1000 pool")
 #let ou_nets = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515")
 #let ou_laws = ("fnpag", "pred_guid", "ftc")
 #let ou_shift(label) = R.ou(label).cvar95 - R.ou(label, regime: "frozen").cvar95
-#let ou_span(xs, f: R.fixed) = [$#f(calc.min(..xs), d: 0)$--$#f(calc.max(..xs), d: 0)$]
 #let ou_fnpag1k = R.ou("fnpag")
 #assert(ou_fnpag1k.viol_pct == 0, message: "the prose states clean constraints for the deployed FNPAG under per-scenario noise")
 #let ou_scratch(label) = ("", "_s2", "_s3").map(s => R.ou("ou_" + label + s))
@@ -101,13 +100,69 @@
 #let ou_scratch_all = ou_nets.map(ou_scratch).flatten()
 #assert(ou_scratch_all.len() == 15 and ou_scratch_all.filter(ou_clean).len() == 14 and ou_nets.map(ou_ft1k).filter(ou_clean).len() == 3,
   message: "the prose counts fourteen of fifteen clean scratch repeats and three of five clean fine-tunes")
+#assert(ou_scratch_all.all(c => c.viol_pct == 0) and ou_scratch_all.map(c => calc.round(R.quotes.n_sims * c.capture_pct / 100)).sum() == 15 * 1000 - 1,
+  message: "the abstract and the conclusion state that the scratch retrains are feasible in every cell and capture all but one of 15 000 scenarios")
 #let ou_odd = ou_scratch("dense_p515").filter(c => not ou_clean(c))
 #assert(ou_odd.len() == 1 and ou_odd.first().viol_pct == 0 and calc.round(R.quotes.n_sims * (100 - ou_odd.first().capture_pct) / 100) == 1,
   message: "the prose states that the one unclean scratch repeat is a dense-515 seed losing one scenario")
 #assert(ou_ft1k("gru_p1014").cvar95 > ou_scratch3("gru_p1014").mean, message: "the retraining table states that the GRU fine-tune regresses")
-// The three scratch means the prose calls compressed, and the three other cells' spread of sd.
+// The three scratch means the prose calls compressed, and the four other cells' spread of sd
+// (the Mamba's is the smallest of the five, asserted where it is quoted).
 #let ou_close = ("mamba_p962", "gru_p1014", "dense_p972").map(l => ou_scratch3(l).mean)
-#let ou_other_sd = ("gru_p1014", "dense_p972", "lstm_p1082").map(l => ou_scratch3(l).sd)
+#let ou_other_sd = ou_nets.filter(l => l != "mamba_p962").map(l => ou_scratch3(l).sd)
+#assert(ou_scratch3("mamba_p962").sd < calc.min(..ou_other_sd), message: "the consistency quote states the Mamba scratch spread is the smallest of the five cells")
+// The scratch means against the deployed FNPAG's per-scenario CVaR95: how far each sits below it
+// (positive) or above it. The prose counts four below and names the dense-515 cell as the one above.
+#let ou_vs_fnpag = ou_nets.map(l => ou_fnpag1k.cvar95 - ou_scratch3(l).mean)
+#let ou_below_fnpag = ou_vs_fnpag.filter(x => x > 0)
+#assert(ou_below_fnpag.len() == 4 and ou_fnpag1k.cvar95 - ou_scratch3("dense_p515").mean < 0,
+  message: "the prose states four of the five scratch means below FNPAG and the dense-515 one above")
+// Under per-scenario noise every network adds heat-load violations beyond its shared-path ones (the
+// LSTM's shared-path champion is already infeasible) and no classical law incurs any; capture slips
+// in both families (the table notes FNPAG and PredGuid too), so the asymmetry is feasibility.
+#assert(ou_nets.all(l => R.ou(l).viol_pct > R.ou(l, regime: "frozen").viol_pct),
+  message: "the regime table's prose states that every network adds heat-load violations under per-scenario noise")
+#assert(ou_laws.all(l => R.ou(l).viol_pct == 0 and R.ou(l, regime: "frozen").viol_pct == 0),
+  message: "the regime table's prose states that no classical law incurs a heat-load violation")
+#assert(ou_nets.any(l => R.ou(l).capture_pct < 100) and ou_laws.any(l => R.ou(l).capture_pct < 100),
+  message: "the regime table's prose states that capture slips in both families under per-scenario noise")
+// Section 7.3's centered high-regime cells at sizing depth (data/centered_depth.json, issue #156):
+// the three centered-Mamba trainer seeds and the two joint-FTC baselines on the 9M stress pool,
+// n = 10 000, paired on scenario, under per-scenario noise and under the shared path (the regime
+// of the dense lever sweep in the figure). The asserts pin the ordering the prose states.
+#assert(R.centered_depth.n_sims == 10000, message: "the Section 7.3 requote states n = 10 000")
+#let cd_seeds = ("mamba_centered_s1", "mamba_centered_s2", "mamba_centered_s3")
+#let cd_baselines = ("jointFTC-high", "jointFTC-medium")
+#let cd = R.centered
+#let cd_pair = R.centered_paired
+#let cd_span(labels, regime, field, d: 0) = R.span(labels.map(l => cd(l, regime).at(field)), d: d)
+#let cd_delta_span(baseline, regime) = R.span(cd_seeds.map(s => calc.abs(cd_pair(s, baseline, regime).delta_cvar95)))
+// Shared path: every seed's conditional CVaR95 sits below both baselines with a paired CI excluding
+// zero, at capture within half a point of either (read as parity); the one capture deficit the
+// depth resolves is seed 3's to the retrained baseline.
+#assert(cd_seeds.all(s => cd_baselines.all(b => cd_pair(s, b, "legacy").delta_cvar95_ci.at(1) < 0 and calc.abs(cd_pair(s, b, "legacy").delta_capture_pts) < 0.5)),
+  message: "the prose states every seed beats both baselines on the shared-path tail at depth, capture within half a point")
+#let cd_sp_deficits = cd_seeds.map(s => cd_baselines.filter(b => cd_pair(s, b, "legacy").delta_capture_pts_ci.at(1) < 0).map(b => s + " < " + b)).flatten()
+#assert(cd_sp_deficits == ("mamba_centered_s3 < jointFTC-high",),
+  message: "the prose states that the only shared-path capture deficit resolved at depth is seed 3's to the retrained joint-FTC")
+#let cd_sp_s3_deficit = -cd_pair("mamba_centered_s3", "jointFTC-high", "legacy").delta_capture_pts
+// Per-scenario noise: the retrained joint-FTC out-captures every seed (CI excluding zero) and
+// out-tails two of the three; the medium-deployed joint-FTC out-tails all three, is out-captured by
+// seed 3, out-captures seed 1, and sits at capture parity (interval straddling zero) with seed 2.
+#let cd_pd_med(s) = cd_pair(s, "jointFTC-medium", "per_draw")
+#let cd_pd_high_tail_wins = cd_seeds.filter(s => cd_pair(s, "jointFTC-high", "per_draw").delta_cvar95_ci.at(0) > 0)
+#assert(cd_seeds.all(s => cd_pair(s, "jointFTC-high", "per_draw").delta_capture_pts_ci.at(1) < 0) and cd_pd_high_tail_wins.len() == 2
+  and cd_seeds.all(s => cd_pd_med(s).delta_cvar95_ci.at(0) > 0),
+  message: "the prose states that under per-scenario noise the retrained joint-FTC out-captures every seed and out-tails two, and the medium-deployed one out-tails all three")
+#assert(cd_pd_med("mamba_centered_s3").delta_capture_pts_ci.at(0) > 0 and cd_pd_med("mamba_centered_s1").delta_capture_pts_ci.at(1) < 0
+  and cd_pd_med("mamba_centered_s2").delta_capture_pts_ci.at(0) < 0 and cd_pd_med("mamba_centered_s2").delta_capture_pts_ci.at(1) > 0,
+  message: "the prose ranks the medium-deployed joint-FTC below seed 3 on capture, above seed 1, and at capture parity with seed 2")
+// Section 7.2's half-point parity band: every per-scenario capture difference the prose ranks on lies
+// outside it, and the one parity it names (seed 2 against the medium-deployed baseline) inside.
+#assert(cd_seeds.all(s => cd_baselines.all(b => (calc.abs(cd_pair(s, b, "per_draw").delta_capture_pts) < 0.5) == (s == "mamba_centered_s2" and b == "jointFTC-medium"))),
+  message: "the prose reads per-scenario capture with Section 7.2's half-point parity band")
+#assert(cd("jointFTC-medium", "per_draw").dv_cvar95 < calc.min(..(cd_seeds + ("jointFTC-high",)).map(l => cd(l, "per_draw").dv_cvar95)),
+  message: "the prose states the medium-deployed joint-FTC holds the best per-scenario conditional tail of the five")
 
 #v(0.15in)
 #align(center)[
@@ -145,8 +200,9 @@
   paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
   path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more than the
   classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$ m/s at
-  $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the retraining,
-  which restores $100%$ capture and full constraint feasibility for every cell. The
+  $100%$ capture is that regime's number; Appendix E holds the audit, the repair and the retraining
+  from scratch, which restores full constraint feasibility for every cell and captures all but one of
+  $15\,000$ scenarios. The
   result rests on a training methodology that is itself a contribution: a non-stationary,
   adaptive-seed Monte Carlo environment turns the genetic algorithm from the *worst* optimizer under
   fixed scenarios ($154$ m/s three-seed mean) into the *best* ($120$). Across cell types, engineered,
@@ -154,8 +210,8 @@
   removal -- show it is genuine internal state that compresses the extreme tail that sizes the
   tanks, and that claim now stands on the marginal noise distribution, not on one noise path. The
   main deployment caveat: under a deliberately harsher off-nominal regime the analytic law
-  generalizes better than the medium-trained network -- a gap we trace to the training objective,
-  not to neural guidance itself.]
+  generalizes better than the medium-trained network -- a gap that a regime-matched training
+  objective closes on the shared noise path; under per-scenario noise it stays open.]
 ]
 #v(18pt)
 
@@ -648,7 +704,7 @@ gradient-free search.], <fig-plateau>)
     [Development far tail (offset 2M)], [$10\,000$], [tens], [cost transform, curation bucket, allocation, cell type, headline choice],
     [Fresh re-quote (offset 8M)], [$1000$], [once; quantization grid], [quantization cell choice (Appendix C)],
     [Confirmatory sizing (Appendix A)], [$10 times 100\,000$], [once, post-freeze], [none -- every quoted sizing number],
-    [Off-nominal stress (offset 9M)], [$1000$], [once per policy], [none (robustness probe)],
+    [Off-nominal stress (offset 9M)], [$1000$--$10\,000$], [once per policy/regime], [none (robustness probe)],
     [Architecture probes (offset 10M)], [$1000$], [once per arm-repeat], [none (Appendix B verdicts)],
     table.hline(stroke: 0.7pt),
   ),
@@ -1010,8 +1066,9 @@ deliberately harsher off-nominal regime (atmosphere, density perturbation, navig
 set high), the picture inverts on robustness, and we report it plainly because it is the one place the
 network loses (@fig-robust). All stress-regime tail statistics are conditional on capture --
 $"CVaR"_95 (Delta v | "capture")$ -- and a conditional tail can improve by failing the hardest
-scenarios, so we read every stress comparison lexicographically: capture probability first,
-conditional tail cost second, and no tail win is claimed across a capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
+scenarios, so we read every stress comparison lexicographically: capture probability first (a
+difference within half a point read as parity), conditional tail cost second, and no tail win is
+claimed across a larger capture-rate deficit. The analytic joint-FTC degrades least -- its capture rate falls by
 $5.5$ points and its $"CVaR"_95$ inflates by $197$ m/s -- against the network's #box[$9.9$-point] capture
 drop and $+402$ m/s inflation; PredGuid ($-9.3$ pts, $+297$) sits between, FNPAG loses less capture
 ($-7.1$ pts) but inflates its tail the most ($+490$), and the *fixed*-reference FTC collapses entirely ($-33$ points), which again ties the
@@ -1144,7 +1201,7 @@ sizing pool ($10 times 100\,000$ scenarios per scheme; log scale, curves subsamp
 $approx 100$th order statistic). The network-to-classical separation grows with tail depth -- the
 sizing thesis in one picture.], <fig-survival>)
 
-== Matching the objective to the regime closes the gap <sec-objcenter>
+== Matching the objective to the regime closes the shared-path gap <sec-objcenter>
 
 The robustness caveat of @sec-deployability invites a question: is the off-nominal gap intrinsic to
 neural guidance, or an artifact of a training objective tuned for the wrong regime? Before answering
@@ -1175,34 +1232,90 @@ and the central bucket *alone* is a trap -- it drops capture to $84.5%$, because
 central representative from a cost distribution two samples cannot resolve. The three knobs are a
 coupled system, exactly as in the medium regime, but now the coupling has teeth: only all three
 together recover both capture and the tail (dense $"CVaR"_95$ $1031 arrow.r 276$, mean $574 arrow.r 157$).
-The effect transfers cleanly to the deployed architecture -- the centered Mamba reaches $"CVaR"_95$
-$273$ m/s at $94.9%$ capture against the stalled stack's $1216$ at $27%$ -- so the stall was the
-objective, not the cell type.
+The effect transfers cleanly to the deployed architecture -- three independent centered-Mamba
+retrainings reach $"CVaR"_95$ #cd_span(cd_seeds, "legacy", "dv_cvar95") m/s at #cd_span(cd_seeds, "legacy", "capture_pct", d: 1)$%$ capture
+($n = 10\,000$, @tbl-centered-sp) against the stalled stack's $1216$ at $27%$ ($n = 1000$) -- so the
+stall was the objective, not the cell type.
 
-The payoff, stated with its caveats, is that on this evidence the off-nominal gap is not intrinsic
-to neural guidance. With a
-regime-matched objective the centered Mamba ($"CVaR"_95$ $273$ m/s at $94.9%$ capture) beats the best
-classical scheme on the very regime where the medium-trained network lost to it -- joint-FTC retrained
-on the same regime sits at $424$ m/s at $95.0%$ capture, and the medium-deployed joint-FTC at $340$
-at $94.5%$: capture parity within half a point, so the lexicographic comparison is decided by the
-conditional tail. The analytic law's
-edge in @sec-deployability was a property of the *mismatched* training objective, not of neural
-guidance. The result now carries measured run-to-run scatter: three independent centered-Mamba
-retrainings hold capture at $94.8$--$95.0%$ with $"CVaR"_95 (Delta v | "capture")$ spanning
-$231$--$273$ m/s -- every seed beating both the retrained joint-FTC ($424$) and the
-medium-deployed one ($340$) -- so the reversal is stable across training runs. The remaining
-caveats: these are $n = 1000$ figures (a sizing-grade number wants the $n = 10\,000$ depth used
-elsewhere), and the regime that produces the gap
-is itself one a real mission would design away. The durable lesson is methodological and reinforces
-Section 4: the optimal worst-case weighting is matched to the environment's noise and the per-individual
-sample budget, not fixed once.
+The payoff, and its limit, both come from scoring those three seeds and the two joint-FTC baselines
+at sizing depth: $n = 10\,000$ scenarios of the same stress pool, paired on scenario, with bootstrap
+$95%$ confidence intervals (@tbl-centered-sp, @tbl-centered-pd). Under the shared noise path the
+reversal is stable across training runs and survives the depth. The three seeds hold capture at
+#cd_span(cd_seeds, "legacy", "capture_pct", d: 1)$%$ (the joint-FTC retrained on the regime $#R.fixed(cd("jointFTC-high", "legacy").capture_pct)%$, the
+medium-deployed one $#R.fixed(cd("jointFTC-medium", "legacy").capture_pct)%$), within half a point of either baseline, which we read as capture
+parity: the only capture deficit this depth resolves is the $#R.fixed(cd_sp_s3_deficit, d: 2)$ points seed 3 gives up to the
+retrained baseline. The comparison is therefore decided by the conditional tail, and there every seed wins:
+$"CVaR"_95 (Delta v | "capture")$ of #cd_span(cd_seeds, "legacy", "dv_cvar95") m/s against $#R.fixed(cd("jointFTC-high", "legacy").dv_cvar95, d: 0)$ and $#R.fixed(cd("jointFTC-medium", "legacy").dv_cvar95, d: 0)$, every paired
+seed-minus-baseline delta negative with a confidence interval excluding zero --
+#cd_delta_span("jointFTC-high", "legacy") m/s below the retrained baseline, #cd_delta_span("jointFTC-medium", "legacy") below the medium-deployed one. On
+that evidence the shared-path off-nominal gap is not intrinsic to neural guidance: the analytic
+law's edge in @sec-deployability was a property of the *mismatched* training objective.
+
+Under per-scenario noise the reversal does not survive. The centered cells were trained on the
+shared noise path (before the repair of Appendix E) and show the signature Appendix E measures for
+every shared-path-trained network. The retrained joint-FTC captures $#R.fixed(cd("jointFTC-high", "per_draw").capture_pct)%$ against the
+seeds' #cd_span(cd_seeds, "per_draw", "capture_pct", d: 1)$%$, every paired capture delta negative with its interval excluding zero,
+so, capture first, it ranks above all three; it also holds the better conditional tail against two
+of them ($#R.fixed(cd("jointFTC-high", "per_draw").dv_cvar95, d: 0)$ m/s against #cd_span(cd_seeds, "per_draw", "dv_cvar95")). The medium-deployed joint-FTC holds
+the best conditional tail of the five ($#R.fixed(cd("jointFTC-medium", "per_draw").dv_cvar95, d: 0)$ m/s; every seed sits #cd_delta_span("jointFTC-medium", "per_draw") m/s
+above it) at $#R.fixed(cd("jointFTC-medium", "per_draw").capture_pct)%$ capture: seed 3 out-captures it by
+$#R.fixed(cd_pd_med("mamba_centered_s3").delta_capture_pts, d: 2)$ points, seed 1 captures less, and seed 2 sits at capture parity, so it ranks above
+seeds 1 and 2 and below seed 3. No seed beats both baselines on the marginal distribution, and
+whether a centered retrain under per-scenario seeding recovers the reversal is the question this
+section leaves open. The stress regime itself remains one a real mission would design away. The
+durable lesson is methodological and reinforces Section 4: the optimal worst-case weighting is
+matched to the environment's noise and the per-individual sample budget, not fixed once -- and the
+noise regime the policy trains on is part of that match.
+
+// One row of the two depth tables (data/centered_depth.json): capture %, and the mean and
+// conditional CVaR95 of the correction DV, each with its bootstrap 95% CI, then the paired CVaR95
+// delta against the retrained joint-FTC with its CI (negative = the seed's tail is better; a dash
+// for the two baselines).
+#let cd_ci(iv, f: R.fixed, d: 0) = text(size: 8pt)[\[$#f(iv.at(0), d: d)$, $#f(iv.at(1), d: d)$\]]
+#let cd_row(name, label, regime) = {
+  let c = cd(label, regime)
+  let delta = if cd_seeds.contains(label) {
+    let p = cd_pair(label, "jointFTC-high", regime)
+    [$#R.signed(p.delta_cvar95, d: 0)$ #cd_ci(p.delta_cvar95_ci, f: R.signed)]
+  } else { [--] }
+  (name, [$#R.fixed(c.capture_pct)$ #cd_ci(c.capture_pct_ci, d: 1)], [$#R.fixed(c.dv_mean, d: 0)$ #cd_ci(c.dv_mean_ci)],
+    [$#R.fixed(c.dv_cvar95, d: 0)$ #cd_ci(c.dv_cvar95_ci)], delta)
+}
+#let cd_table(regime) = table(
+  columns: (auto, auto, auto, auto, auto),
+  align: (left, center, center, center, center),
+  table.hline(stroke: 0.7pt),
+  table.header([Cell], [Capture (%)], [Mean (m/s)], [$"CVaR"_95$ (m/s)], [$Delta "CVaR"_95$ (m/s)]),
+  table.hline(stroke: 0.4pt),
+  ..cd_row([Centered Mamba, seed 1], "mamba_centered_s1", regime),
+  ..cd_row([Centered Mamba, seed 2], "mamba_centered_s2", regime),
+  ..cd_row([Centered Mamba, seed 3], "mamba_centered_s3", regime),
+  table.hline(stroke: 0.4pt),
+  ..cd_row([Joint-FTC, retrained], "jointFTC-high", regime),
+  ..cd_row([Joint-FTC, medium-deployed], "jointFTC-medium", regime),
+  table.hline(stroke: 0.7pt),
+)
+#figure(cd_table("legacy"),
+  caption: [The centered high-regime cells at sizing depth under the *shared* noise path: $n = 10\,000$
+  scenarios of the 9M stress pool; capture, and the mean and $"CVaR"_95$ of the correction $Delta v$
+  over captured scenarios, with bootstrap $95%$ intervals in brackets; the last column is each seed's
+  paired delta against the joint-FTC retrained on the regime (negative: the seed's tail is better).
+  The regime of @fig-objcenter and of the $n = 1000$ numbers above.],
+) <tbl-centered-sp>
+#figure(cd_table("per_draw"),
+  caption: [The same five cells, same scenarios, under *per-scenario* noise (each scenario its own
+  density-noise realization, Appendix E). The centered cells never trained on this regime.],
+) <tbl-centered-pd>
 
 #fig("fig_objective_centering.svg", [Objective-centering under the high-dispersion stress probe
-($n = 1000$ on the 9M pool). Left: deployed capture rate; right: deployed correction-DV $"CVaR"_95$
-over captured runs. The medium-regime stack (red) carries an enormous tail; centering recovers it
-(green) and transfers to the Mamba, beating the retrained joint-FTC (dashed). The central bucket alone
-trades capture for the tail (left, $84.5%$), so the three levers are read together. Capture and tail
-are shown separately because the levers trade them off.], <fig-objcenter>)
+(9M pool, shared noise path). Left: deployed capture rate; right: deployed correction-DV $"CVaR"_95$
+over captured runs. The five dense lever cells are $n = 1000$; the three centered-Mamba seeds and
+the retrained joint-FTC baseline (dashed line, shaded interval) are the $n = 10\,000$ cells of
+@tbl-centered-sp; whiskers are bootstrap $95%$ intervals where the data carry them. The
+medium-regime stack (red) carries an enormous tail; centering recovers it (green) and transfers to
+the Mamba, beating the retrained joint-FTC. The central bucket alone trades capture for the tail
+(left, $84.5%$), so the three levers are read together. Capture and tail are shown separately
+because the levers trade them off.], <fig-objcenter>)
 
 = What the network uses
 
@@ -1240,17 +1353,19 @@ dominate, followed by the engineered, cost-aligned predicted-$Delta v$ component
 The clearest limitation is the off-nominal robustness gap of @sec-deployability -- the deployed
 network wins the nominal sizing tail it was trained for and loses, off-nominal, to a training-free
 analytic law. @sec-objcenter traces that gap to the training objective rather than to neural
-guidance, with the markers stated there: the centered-retrain demonstration is now three-seed
-(capture steady at $approx 95%$, conditional tail $231$--$273$ m/s, every seed beating both FTC
-references) but remains $n = 1000$, and the stress regime is one a real mission would design away.
-What remains open is the far-tail depth used for the headline.
+guidance, with the markers stated there: at sizing depth ($n = 10\,000$, three seeds) the centered
+retrain beats both joint-FTC baselines on the shared-path tail with paired intervals excluding zero,
+but under per-scenario noise -- the regime the centered cells never trained on -- the retrained
+joint-FTC out-captures every seed and no seed beats both baselines; and the stress regime is one a
+real mission would design away. What remains open is a centered retrain under per-scenario seeding,
+and the far-tail depth used for the headline.
 
 The shared-noise-path conditioning of Appendix E belongs in the same family, and it sharpens the
 same lesson from a different direction. The main-body numbers are internally consistent and the
 cross-scheme comparison is fair -- every scheme saw the identical conditioning -- but the networks
 overfit the shared density path where the analytic laws cannot, so the *margins* are
-regime-dependent: under per-scenario noise the scratch-retrained networks beat FNPAG by only about
-one run-to-run standard deviation at $"CVaR"_95$, the decisive shallow-tail margin comes from a
+regime-dependent: under per-scenario noise four of the five scratch-retrained networks sit below
+FNPAG at $"CVaR"_95$, by at most $#R.fixed(calc.max(..ou_below_fnpag))$ m/s, the decisive shallow-tail margin comes from a
 fine-tune recipe, and the $"CVaR"_95$ inter-architecture ordering compresses into $sigma_"run"$.
 But the $10^6$-scenario far-tail re-run separates the architectures again, at the depth Section 6
 always claimed: the fine-tuned Mamba holds $"CVaR"_(99.9) = #R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s with $#R.fixed(ou_ft3_capture, d: 3)%$
@@ -1259,7 +1374,8 @@ deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$), while the dense fi
 both blow past $#ou_below(ou_rival999)$. The recurrent advantage lives at the extreme tail, and only a million-scenario
 pool can see it. Twice now -- off-nominal dispersions and per-scenario noise -- the broader pattern
 is the same: the network is exactly as good as the distribution it trains on, and widening the
-training environment recovers what the narrow one gave away.
+training environment recovers what the narrow one gave away (the centered cells of @sec-objcenter,
+trained on the shared path, lose their reversal under per-scenario noise for the same reason).
 
 A second tradeoff is the cost of state. The deployed Mamba runs at $3.14$ ms per simulation against
 $1.88$ ms for the dense network -- about $1.7 times$ for the selective-state-space core -- which is
@@ -1329,10 +1445,11 @@ others. The historical pipeline conditioned every scenario on one sample path of
 density noise. In that regime the shared-path champion reached $"CVaR"_(99.9) = 123.3 plus.minus 0.1$
 m/s at $100%$ capture, beating a well-referenced FTC by $16.4$ m/s in mean and $27.6$ at $"CVaR"_95$
 on every one of a thousand paired scenarios -- the numbers the main body of this paper still
-quotes; under per-scenario noise the shared-path-trained networks lose #ou_span(ou_nets.map(ou_shift)) m/s of
-$"CVaR"_95$ where the classical schemes lose #ou_span(ou_laws.map(ou_shift)) (Appendix E). Retraining under the repaired
-seeding restores $100%$ capture and full constraint feasibility for every cell -- including the LSTM
-whose deployed champion had been heat-load infeasible -- and the correction ends by *strengthening*
+quotes; under per-scenario noise the shared-path-trained networks lose #R.span(ou_nets.map(ou_shift)) m/s of
+$"CVaR"_95$ where the classical schemes lose #R.span(ou_laws.map(ou_shift)) (Appendix E). Retraining from scratch under the
+repaired seeding restores full constraint feasibility for every cell -- including the LSTM
+whose deployed champion had been heat-load infeasible -- and captures all but one of $15\,000$
+scenarios, and the correction ends by *strengthening*
 the thesis it tested. At $"CVaR"_95$ the architectures compress into run-to-run variance and a dense
 fine-tune takes the shallow tail ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ m/s against FNPAG's $#R.fixed(ou_fnpag1k.cvar95)$); on the $10^6$-scenario far
 tail the fine-tuned recurrent policy holds $#R.fixed(ou_ft3.mean)$ (three-seed mean) while the dense fine-tune and
@@ -1822,20 +1939,34 @@ realization per entry, and the quoted absolute statistics understate that spread
 
 We score each deployed policy on a paired pool ($n = 1000$ shared scenario seeds) under both
 regimes: the historical shared path, and a marginal regime in which each scenario receives its own
-realization. All values are $"CVaR"_95$ of the correction $Delta v$ in m/s; capture and the
-heat-load feasibility of Section 6.2 are noted where they move.
+realization. All values are $"CVaR"_95$ of the correction $Delta v$ in m/s; beside each value, a
+capture rate below $100%$ and any heat-load violation of the Section 6.2 limit are noted, and
+nothing else is.
 
-// One tbl-ou-regimes row from data/quote_marginal.json: shared-path CVaR95, per-scenario CVaR95
-// (with `note`, a function of that cell, where the prose discusses what else it gives up), and
-// their difference. The PredGuid / FTC row spans the two laws.
-#let ou_regime_row(policy, label, note: none) = {
-  let m = R.ou(label)
-  let per_scenario = if note == none { [$#R.fixed(m.cvar95)$] } else { [$#R.fixed(m.cvar95)$ #note(m)] }
+// One tbl-ou-regimes row from data/quote_marginal.json: shared-path CVaR95, per-scenario CVaR95,
+// each with what the cell gives up under that regime (ou_gives_up: capture below 100%, any
+// heat-load violation; the same rule for every row), and their difference. The PredGuid / FTC
+// row spans the two laws, so its notes name the law.
+#let ou_gives_up(c, who: none) = {
+  let parts = ()
+  if c.capture_pct < 100 { parts.push([$#R.fixed(c.capture_pct)%$ capture]) }
+  if c.viol_pct > 0 { parts.push([$#R.fixed(c.viol_pct)%$ heat-load viol.]) }
+  if parts.len() == 0 { none } else { text(size: 8pt)[(#if who != none [#who ]#parts.join([, ]))] }
+}
+#let ou_value(label, regime) = {
+  let c = R.ou(label, regime: regime)
+  [$#R.fixed(c.cvar95)$ #ou_gives_up(c)]
+}
+#let ou_regime_row(policy, label) = {
   let shift = ou_shift(label)
   assert(shift > 0, message: label + " does not lose tail under per-scenario noise: the table sets every delta with a math plus")
-  (policy, [$#R.fixed(R.ou(label, regime: "frozen").cvar95)$], per_scenario, [$+#R.fixed(shift)$])
+  (policy, ou_value(label, "frozen"), ou_value(label, "marginal"), [$+#R.fixed(shift)$])
 }
 #let ou_pgftc = ("pred_guid", "ftc")
+#let ou_pgftc_span(regime) = {
+  let notes = ou_pgftc.zip(([PredGuid], [FTC])).map(((l, who)) => ou_gives_up(R.ou(l, regime: regime), who: who)).filter(n => n != none)
+  [#R.span(ou_pgftc.map(l => R.ou(l, regime: regime).cvar95)) #notes.join([ ])]
+}
 #figure(
   table(
     columns: (auto, auto, auto, auto),
@@ -1843,15 +1974,15 @@ heat-load feasibility of Section 6.2 are noted where they move.
     table.hline(stroke: 0.7pt),
     table.header([Deployed policy], [Shared path], [Per-scenario], [$Delta$]),
     table.hline(stroke: 0.4pt),
-    ..ou_regime_row([Mamba $962$ (headline)], "mamba_p962", note: c => text(size: 8pt)[($#R.fixed(c.capture_pct)%$ capture)]),
-    ..ou_regime_row([LSTM $1082$], "lstm_p1082", note: c => text(size: 8pt)[($#R.fixed(c.viol_pct, d: 0)%$ heat-load viol.)]),
+    ..ou_regime_row([Mamba $962$ (headline)], "mamba_p962"),
+    ..ou_regime_row([LSTM $1082$], "lstm_p1082"),
     ..ou_regime_row([GRU $1014$], "gru_p1014"),
     ..ou_regime_row([Dense $972$], "dense_p972"),
     ..ou_regime_row([Dense $515$], "dense_p515"),
     table.hline(stroke: 0.4pt),
     ..ou_regime_row([FNPAG], "fnpag"),
-    [PredGuid / FTC], ou_span(ou_pgftc.map(l => R.ou(l, regime: "frozen").cvar95)), ou_span(ou_pgftc.map(l => R.ou(l).cvar95)),
-    ou_span(ou_pgftc.map(ou_shift), f: R.signed),
+    [PredGuid / FTC], ou_pgftc_span("frozen"), ou_pgftc_span("marginal"),
+    R.span(ou_pgftc.map(ou_shift), f: R.signed),
     table.hline(stroke: 0.7pt),
   ),
   caption: [Shared-path versus per-scenario $"CVaR"_95$ (m/s, paired $n = 1000$) for the deployed
@@ -1860,8 +1991,9 @@ heat-load feasibility of Section 6.2 are noted where they move.
   network.],
 ) <tbl-ou-regimes>
 
-The asymmetry is the finding: the analytic laws lose #ou_span(ou_laws.map(ou_shift)) m/s -- ordinary distribution
-widening -- while the networks lose #ou_span(ou_nets.map(ou_shift)) and shed capture or feasibility. A policy with
+The asymmetry is the finding: the analytic laws lose #R.span(ou_laws.map(ou_shift)) m/s -- ordinary distribution
+widening -- while the networks lose #R.span(ou_nets.map(ou_shift)) and every one adds heat-load violations, which no law incurs
+(capture slips in both families). A policy with
 internal state can fit the one density history it ever sees, and did. On the per-scenario tail the
 deployed FNPAG ($#R.fixed(ou_fnpag1k.cvar95)$ m/s, clean constraints) beats every shared-path-trained network, inverting the
 Section 7 margin.
@@ -1913,16 +2045,17 @@ had been heat-load infeasible.
 ) <tbl-ou-retrain>
 
 Three conclusions. First, training on the right distribution repairs the damage: the scratch
-retrains beat the shared-path-trained networks by #ou_span(ou_nets.map(l => R.ou(l).cvar95 - ou_scratch3(l).mean)) m/s on the marginal tail and edge FNPAG's
-$#R.fixed(ou_fnpag1k.cvar95)$ by roughly one $sigma_"run"$ -- a real but modest margin. The decisive margin comes from
+retrains beat the shared-path-trained networks by #R.span(ou_nets.map(l => R.ou(l).cvar95 - ou_scratch3(l).mean)) m/s on the marginal tail. Against FNPAG's
+$#R.fixed(ou_fnpag1k.cvar95)$ the margin is modest and not unanimous: four of the five scratch means sit below it, by
+#R.span(ou_below_fnpag, d: 1) m/s, and the dense-$515$ mean sits $#R.fixed(ou_scratch3("dense_p515").mean - ou_fnpag1k.cvar95)$ m/s above. The decisive margin comes from
 the fine-tune recipe: continuing a shared-path champion briefly under per-scenario noise yields the
-two best feasible policies of the study ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ and $#R.fixed(ou_ft1k("mamba_p962").cvar95)$ m/s, #ou_span(("dense_p515", "mamba_p962").map(l => ou_fnpag1k.cvar95 - ou_ft1k(l).cvar95)) below FNPAG), though
+two best feasible policies of the study ($#R.fixed(ou_ft1k("dense_p515").cvar95)$ and $#R.fixed(ou_ft1k("mamba_p962").cvar95)$ m/s, #R.span(("dense_p515", "mamba_p962").map(l => ou_fnpag1k.cvar95 - ou_ft1k(l).cvar95)) below FNPAG), though
 the recipe is not universal -- the GRU regresses and the LSTM fine-tune inherits its parent's
 infeasibility, so it must be validated per cell. Second, the inter-architecture ordering of
 Section 6 compresses: the Mamba, GRU, and dense-$972$ scratch means sit within $#int(calc.ceil(calc.max(..ou_close) - calc.min(..ou_close)))$ m/s of one
 another, inside $sigma_"run"$, and only the dense-$515$ cell is significantly worse. What survives
 for the recurrent cell at three repeats is *consistency* -- $plus.minus #R.fixed(ou_scratch3("mamba_p962").sd)$ m/s against
-$plus.minus #R.fixed(calc.min(..ou_other_sd))$--$#R.fixed(calc.max(..ou_other_sd))$ -- which is suggestive, not conclusive. Third, the scope of the main-body
+$plus.minus #R.fixed(calc.min(..ou_other_sd))$--$#R.fixed(calc.max(..ou_other_sd))$ for the other four cells -- which is suggestive, not conclusive. Third, the scope of the main-body
 claims: the methodology results of Sections 4--5 (seed strategy, cost transform, optimizer
 ordering) compare like against like under identical conditioning and are unaffected in kind; the
 absolute $Delta v$ magnitudes and the Section 6 architecture margins are shared-path quantities and
@@ -1995,10 +2128,12 @@ feasibility validation (@tbl-ou-retrain).
 #block(width: 100%, stroke: (top: 0.35pt), inset: (top: 6pt))[
   #set text(size: 8.5pt)
   #set par(justify: false)
-  *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists, @tbl-ou-regimes,
-  @tbl-ou-retrain and @tbl-ou-confirmatory, and the per-scenario quotes of the abstract, Section 9,
+  *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists, @tbl-centered-sp,
+  @tbl-centered-pd, @tbl-ou-regimes, @tbl-ou-retrain and @tbl-ou-confirmatory, the sizing-depth
+  quotes of Section 7.3, and the per-scenario quotes of the abstract, Section 9,
   the conclusion and Appendix E, are read at compile time from `data/results.json`,
-  `data/confirmatory_eval.json`, `data/quant/finalists_results.json`, `data/confirmatory_marginal.json`
+  `data/confirmatory_eval.json`, `data/quant/finalists_results.json`, `data/centered_depth.json`,
+  `data/confirmatory_marginal.json`
   and `data/quote_marginal.json` through `results.typ` (the Viol. column of @tbl-perf is transcribed:
   `results.json` carries no violation field). Paper inputs digest (SHA-256 over every
   tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release

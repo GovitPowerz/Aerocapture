@@ -11,6 +11,14 @@
    "per_seed_override": "simulation.random_seed = 1000 + 7 i"
   }
  },
+ "seed_pool": {
+  "rng": "numpy.random.default_rng",
+  "seed": 987654321,
+  "range": [
+   0,
+   2147483648
+  ]
+ },
  "cells": {
   "mamba_p962/frozen": {
    "capture_pct": 100.0,

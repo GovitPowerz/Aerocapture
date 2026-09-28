@@ -189,7 +189,8 @@ every first-step reward, every timeout and the reward scale leaked across episod
 
 `[monte_carlo] noise_seeding = "per_draw"` (ADR-0006) is the default: each dispersion draw gets its own OU-density / EKF-noise stream. `"legacy"` freezes ONE noise path across every
 n_sims=1 config and exists only to reproduce numbers quoted under it: the goldens, every `configs/test/*.toml`, the paper's main-body tables and every script that re-flies a shared-path cell
-pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script must state which regime it runs and not mix the two in one table.
+pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script must state which regime it runs and not mix the two in one table: `centered_depth_eval.py` flies
+both and labels each cell, so Section 7.3's per-scenario depth table (`tbl-centered-pd`) is the one per_draw table in the main body.
 
 ## Conventions
 

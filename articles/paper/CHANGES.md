@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -97,3 +97,55 @@ last on 2026-09-25 with #157); the arxiv-v3 build is the `arxiv-v3` tag.
   No number the paper quotes from `experiments/ou_marginal/` is transcribed any more; the "2--4 times" ratio of
   network to classical tail loss (abstract, Section 1, the table caption) stays a rounded prose
   characterization of those two ranges, not a bundle value.
+- 2026-09-25 (#166): Appendix E's three prose claims are narrowed to what `data/quote_marginal.json`
+  shows, and the regime check tests the source. The shared-path-versus-per-scenario table notes,
+  beside every value under either regime, a capture rate below 100% and any heat-load violation, the
+  one rule for every row and the one the prose introducing the table now states (two rows carried a
+  note before, under an intro whose rule the notes did not follow): the per-scenario GRU (98.0%
+  capture, 1.5% violation), Dense 972 (99.3%, 0.5%), Dense 515 (98.4%, 0.8%), FNPAG (99.4%) and
+  PredGuid (99.9%) join the Mamba (now with its 1.2% violation) and the LSTM (17.0%, and 14.6%
+  under the shared path). The asymmetry sentence under the table names the feasibility split the
+  notes show (every network adds heat-load violations, no law incurs any; capture slips in both
+  families), each half asserted; it had contrasted the networks as the ones that "shed capture or
+  feasibility" beside FNPAG's 99.4% and PredGuid's 99.9% capture. The abstract and the conclusion
+  no longer say the retraining "restores 100% capture ... for every cell": the scratch retrains are
+  feasible in every cell and capture all but one of 15,000 scenarios, asserted. The
+  first conclusion no longer says the scratch retrains "edge FNPAG's 154.3 by roughly one
+  sigma_run": four of the five scratch means sit below it, by 0.6--6.2 m/s, and the dense-515 mean
+  sits 4.3 above, both asserted. The consistency quote's range covers all four other cells
+  (+-3.8--12.7, not +-5.7--12.7) and asserts the Mamba spread the smallest of the five.
+  `experiments/ou_marginal/quote_marginal.py` writes its protocol into `quote_results.json`
+  (`regimes`: the noise seeding and per-seed override of each regime; `seed_pool`: the rng, seed
+  and range of the shared pool); `scripts/extract_quote_marginal.py` copies that record and exits
+  on a source without it, so the load-time regime assert of `results.typ` tests the scoring
+  script rather than the extractor's own constant. Re-run on 2026-09-25: all 64 previously scored
+  cells reproduce bit-identically (four `ft_mamba_p962_s2` / `_s3` cells trained since are new to
+  the source and unquoted); no quoted value moved.
+- 2026-09-26 (#156): Section 7.3's centered high-regime cells are quoted at sizing depth, and the
+  claim is scoped to the shared noise path. `data/centered_depth.json` (`scripts/centered_depth_eval.py`,
+  `make mc-centered-depth`) scores the three centered-Mamba trainer seeds and the two joint-FTC
+  baselines on the 9M stress pool at n = 10,000 (its first 1000 seeds are the n = 1000 pool), paired
+  on scenario, with bootstrap 95% CIs on capture, mean and CVaR95 and on the paired capture and
+  CVaR95 deltas, under both noise regimes, each labelled. `results.typ` gains `centered()` and
+  `centered_paired()` (regime pair asserted at load) and `span()` (Appendix E's `ou_span`, moved;
+  Appendix E renders unchanged). Two tables (shared path; per-scenario noise) replace the
+  transcribed three-seed sentence; the figure's Mamba bar becomes the three n = 10,000 seeds with CI
+  whiskers and the joint-FTC line the n = 10,000 baseline with its interval, every bar under the
+  shared path. Under the shared path the claim survives: every seed beats both baselines on the
+  conditional tail with paired CIs excluding zero (147--178 m/s below the retrained joint-FTC,
+  65--97 below the medium-deployed one) at capture within half a point (314--345 m/s at
+  95.9--96.0%, not the 231--273 at 94.8--95.0% of the n = 1000 quote). Under per-scenario noise it
+  does not: the retrained joint-FTC out-captures every seed and out-tails two, and the
+  medium-deployed one holds the best conditional tail (457 against 535--604) but is out-captured by
+  seed 3. Section 7.3's title and prose, the figure caption, the Discussion and the abstract's
+  off-nominal clause now say so, asserted in `paper.typ`. Seed 1's run-local model had been
+  overwritten on 2026-07-11 by the seed 3 repeat through the shared config's deploy path; it was
+  rebuilt from seed 1's final checkpoint and reproduces the committed n = 1000 quote exactly
+  (94.9%, CVaR95 272.8), and the eval script exits when two seeds share a model file. The same
+  deploy-path overwrite reached three other run directories; their repair is a separate change.
+  The Discussion's echo of Appendix E's FNPAG margin follows #166 (four of five scratch means below
+  FNPAG, by at most 6.2 m/s). The colophon lists the two tables and the new file. Section 7.2's
+  lexicographic rule states the half-point capture-parity band Section 7.3 reads with (seed 3's
+  resolved 0.15-point deficit to the retrained joint-FTC sits inside it; the per-scenario ranking
+  deltas sit outside it except seed 2's parity, asserted), and the pool table gives the stress
+  pool's n = 10,000 depth and one query per policy and noise regime.

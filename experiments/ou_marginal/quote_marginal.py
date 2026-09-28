@@ -8,7 +8,9 @@ The frozen/marginal protocol matches the 2026-08-27 investigation
 simulation.random_seed = 1000 + 7*i, identical across cells.
 
 Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000]
-Writes experiments/ou_marginal/quote_results.json and prints the table.
+Writes experiments/ou_marginal/quote_results.json (the protocol record REGIMES /
+SEED_POOL alongside the cells, so the paper's extract can copy it rather than
+restate it) and prints the table.
 """
 
 from __future__ import annotations
@@ -20,9 +22,25 @@ from pathlib import Path
 import aerocapture_rs
 import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
+from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 from aerocapture.training.report import _read_constraint_limits
 
 REPO = Path(__file__).resolve().parents[2]
+
+# The protocol, written into quote_results.json so downstream extracts copy it instead of
+# restating it: both regimes pin the legacy (shared-path) seeding; the marginal one gives
+# scenario i its own density-noise path through a per-seed simulation.random_seed override.
+# The shared seed pool is one numpy stream over [0, 2^31).
+MARGINAL_SEED_BASE, MARGINAL_SEED_STEP = 1000, 7
+REGIMES: dict[str, dict[str, str | None]] = {
+    "frozen": {"noise_seeding": LEGACY_NOISE_REGIME["monte_carlo.noise_seeding"], "per_seed_override": None},
+    "marginal": {
+        "noise_seeding": LEGACY_NOISE_REGIME["monte_carlo.noise_seeding"],
+        "per_seed_override": f"simulation.random_seed = {MARGINAL_SEED_BASE} + {MARGINAL_SEED_STEP} i",
+    },
+}
+SEED_POOL_RNG_SEED, SEED_POOL_HIGH = 987654321, 2**31
+SEED_POOL = {"rng": "numpy.random.default_rng", "seed": SEED_POOL_RNG_SEED, "range": [0, SEED_POOL_HIGH]}
 
 
 def discover_ou_cells() -> list[tuple[str, str, str | None]]:
@@ -74,8 +92,10 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         REPO / toml,
         seeds,
         model=REPO / model_dir / "best_model.json" if model_dir is not None else None,
-        extra_overrides={"monte_carlo.noise_seeding": "legacy"},
-        per_seed_overrides=[{"simulation.random_seed": float(1000 + 7 * i)} for i in range(len(seeds))] if regime == "marginal" else None,
+        extra_overrides=LEGACY_NOISE_REGIME,
+        per_seed_overrides=[{"simulation.random_seed": float(MARGINAL_SEED_BASE + MARGINAL_SEED_STEP * i)} for i in range(len(seeds))]
+        if REGIMES[regime]["per_seed_override"] is not None
+        else None,
         sim_timeout_secs=30.0,
     )
     fr = res.final_records
@@ -97,14 +117,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-sims", type=int, default=1000)
     args = parser.parse_args()
-    seeds = np.random.default_rng(987654321).integers(0, 2**31, size=args.n_sims)
+    seeds = np.random.default_rng(SEED_POOL_RNG_SEED).integers(0, SEED_POOL_HIGH, size=args.n_sims)
 
     out: dict[str, dict] = {}
     for label, toml, model_dir in discover_ou_cells() + CELLS:
         if model_dir is not None and not (REPO / model_dir / "best_model.json").exists():
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
             continue
-        for regime in ("frozen", "marginal"):
+        for regime in REGIMES:
             m = score(toml, model_dir, seeds, regime)
             out[f"{label}/{regime}"] = m
             print(
@@ -112,7 +132,7 @@ def main() -> None:
                 f"p95 {m['dv_p95']:7.1f}  cvar95 {m['dv_cvar95']:7.1f}  hl_viol {m['heat_load_viol_pct']:.1f}%"
             )
     result_path = Path(__file__).resolve().parent / "quote_results.json"
-    result_path.write_text(json.dumps({"n_sims": args.n_sims, "cells": out}, indent=1))
+    result_path.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "cells": out}, indent=1))
     print(f"\nWritten {result_path}")
 
 
