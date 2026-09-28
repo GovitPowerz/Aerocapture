@@ -115,6 +115,8 @@ def test_store_refuses_a_replicate_flown_under_another_config(tmp_path: Path, si
         ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="legacy", **kw)
     with pytest.raises(SystemExit, match="r00 was flown under another"):
         ce._eval_cell("toy", TOY_TOML, [p[:-1] for p in TOY_POOLS], None, {}, noise_seeding="per_draw", **kw)
+    with pytest.raises(SystemExit, match="r00 was flown under another"):  # a timed-out sim scores as a failure
+        ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="per_draw", **{**kw, "sim_timeout": 30.0})
     (tmp_path / "best_model.json").write_text('{"v": 2}')  # a model repaired in place: same path, other bytes
     with pytest.raises(SystemExit, match="r00 was flown under another"):
         ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="per_draw", **kw)
@@ -177,7 +179,11 @@ def test_manifest_parsing(tmp_path: Path, cm: ModuleType) -> None:
     m = tmp_path / "cells.txt"
     m.write_text("# label|toml|model_dir\n\nA|a.toml\n  B | b.toml | training_output/b  # trailing comment\nC|c.toml|\n")
     assert cm.read_manifest(m) == [("A", "a.toml", None), ("B", "b.toml", "training_output/b"), ("C", "c.toml", None)]
-    assert cm.parse_cells(["A:a.toml", "B:b.toml:training_output/b"]) == [("A", "a.toml", None), ("B", "b.toml", "training_output/b")]
+    assert cm.parse_cells(["A:a.toml", "B:b.toml:training_output/b", "C:c.toml:"]) == [
+        ("A", "a.toml", None),
+        ("B", "b.toml", "training_output/b"),
+        ("C", "c.toml", None),
+    ]
 
     m.write_text("A|a.toml\n\nB\n")
     with pytest.raises(SystemExit, match=r"cells.txt:3: expected 'label\|toml\[\|model_dir\]'"):
@@ -187,6 +193,39 @@ def test_manifest_parsing(tmp_path: Path, cm: ModuleType) -> None:
         cm.read_manifest(m)
     with pytest.raises(SystemExit, match="--cells: expected"):
         cm.parse_cells(["A:"])
+    m.write_text("# nothing left\n")
+    with pytest.raises(SystemExit, match="no cells"):
+        cm.main(["--manifest", str(m)])
+
+
+def test_a_save_keeps_cells_another_invocation_wrote_meanwhile(
+    tmp_path: Path, sim: ToySim, ce: ModuleType, cm: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two invocations sharing one results file (the slow FNPAG cell runs separately): a cell the
+    other one saved after this one started must survive this one's save."""
+    out = tmp_path / "confirmatory.json"
+    foreign = {
+        "label": "other",
+        "replicates": [],
+        "pooled": {"capture_pct": 1.0, "cvar95": 1.0, "cvar999": 1.0},
+        "replicate_stats": {"capture_pct": {"mean": 1.0}},
+    }
+
+    def other_invocation_saves(seeds: list[int]) -> CellResult:
+        out.write_text(json.dumps({"n_replicates": 2, "n_per_replicate": 30, "noise_seeding": "per_draw", "cells": [foreign]}))
+        return toy_flight(seeds)
+
+    monkeypatch.setattr(cell_eval, "evaluate_cell", lambda _d, _t, seeds, **_kw: other_invocation_saves(seeds))
+    ce.main(["--cells", f"joint_reference/toy:{TOY_TOML}", "--replicates", "2", "--n", "30", "--out", str(out), "--noise-seeding", "per_draw"])
+    assert [c["label"] for c in json.loads(out.read_text())["cells"]] == ["joint_reference/toy", "other"]
+
+    cell = tmp_path / "toy"
+    cell.mkdir()
+    (cell / "final_eval.parquet").touch()
+    monkeypatch.setattr(cm, "OUT", out)
+    out.unlink()
+    cm.main(["--cells", f"ou_marginal/toy:{TOY_TOML}:{cell}", "--replicates", "2", "--n", "30"])
+    assert [c["label"] for c in json.loads(out.read_text())["cells"]] == ["other", "ou_marginal/toy"]
 
 
 def test_default_manifest_names_committed_tomls(cm: ModuleType) -> None:

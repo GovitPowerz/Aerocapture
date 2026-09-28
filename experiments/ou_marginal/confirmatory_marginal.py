@@ -5,13 +5,13 @@ Reuses the paper's confirmatory machinery (`_eval_cell`, `make_confirmatory_pool
 `monte_carlo.noise_seeding = per_draw`, and writes to its OWN results file so the
 frozen-regime `confirmatory_eval.json` is never mixed with marginal rows.
 
-Cells come from a manifest (one `label|toml[|model_dir]` per line, `#` comments;
-model_dir defaults to training_output/<label>, unlike quote_marginal.py where an
-omitted model_dir means a classical cell) or from `--cells label:toml[:model_dir]`;
-with neither, the default manifest `confirmatory_cells.txt` (the two fine-tuned
-champions, the frozen-trained headline champion, FNPAG, the Section 5 PPO cells).
-A cell already in confirmatory_marginal.json is skipped; a cell without its
-final_eval.parquet is not quotable yet and is skipped too.
+Cells come from `--cells label:toml[:model_dir]` and/or a manifest (one
+`label|toml[|model_dir]` per line, `#` comments; model_dir defaults to
+training_output/<label>, unlike quote_marginal.py where an omitted model_dir means
+a classical cell); with neither, the default manifest `confirmatory_cells.txt` (the
+two fine-tuned champions, the frozen-trained headline champion, FNPAG, the Section 5
+PPO cells). A cell already in confirmatory_marginal.json is skipped; a cell without
+its final_eval.parquet is not quotable yet and is skipped too.
 
 Stop and resume: Ctrl-C (or a crash, or a shutdown) at any point, then rerun the
 same command. Every finished replicate is on disk under
@@ -20,7 +20,7 @@ cell is assembled once all its replicates exist, written into the results file,
 and its partial store deleted. The store refuses a replicate flown under another
 merged TOML, override set, model or pool, compared by content (delete it to re-fly).
 
-Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--manifest FILE | --cells ...] [--n 100000]
+Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--cells ...] [--manifest FILE] [--n 100000]
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def parse_cells(specs: list[str]) -> list[tuple[str, str, str | None]]:
         parts = spec.split(":")
         if len(parts) not in (2, 3) or not all(parts[:2]):
             raise SystemExit(f"--cells: expected 'label:toml[:model_dir]', got {spec!r}")
-        rows.append((parts[0], parts[1], parts[2] if len(parts) == 3 else None))
+        rows.append((parts[0], parts[1], parts[2] if len(parts) == 3 and parts[2] else None))
     return rows
 
 
@@ -76,6 +76,8 @@ def main(argv: list[str] | None = None) -> None:
 
     manifest = args.manifest or (None if args.cells else DEFAULT_MANIFEST)
     cells = parse_cells(args.cells) + (read_manifest(manifest) if manifest else [])
+    if not cells:
+        raise SystemExit(f"no cells: {manifest} has no rows and no --cells given")
 
     # Same pools as the paper's confirmatory: every cell must share the base MC seed
     # or the paired replicate deltas would silently break.
@@ -101,10 +103,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{label}: no final_eval.parquet yet, skipping")
             continue
         print(f"== {label} ({toml})", flush=True)
-        by_label[label] = ce._eval_cell(
-            label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=ce._partial_store(OUT, label)
-        )
-        by_label[label]["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
+        cell = ce._eval_cell(label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=ce._partial_store(OUT, label))
+        cell["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
+        # Another invocation may have saved a cell since startup: merge from disk, or this save would drop it.
+        if OUT.exists():
+            by_label.update({c["label"]: c for c in json.loads(OUT.read_text()).get("cells", [])})
+        by_label[label] = cell
         ce._write_atomic(
             OUT,
             json.dumps(

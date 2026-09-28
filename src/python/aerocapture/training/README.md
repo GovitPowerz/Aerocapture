@@ -776,9 +776,11 @@ validation_n_sims` sims each).
 - `articles/paper/scripts/*.py` evaluate deployed cells on the reserved pools
   (`confirmatory_eval.py`: 10 replicate pools sharing seeds across schemes, paired replicate
   deltas, t-based SEs, per-cell `failed_seeds`, `--extra-override` / `--scaffolding-from` for
-  ablation cells; each finished replicate persists under `<out>.partial/<label>/` so an
-  interrupted cell resumes without re-flying one, and a saved cell is skipped unless `--force`;
-  gate `tests/test_confirmatory_persistence.py`). `collect_runs.OU_MARGINAL` / `OFF_CAMPAIGN` and
+  ablation cells; each finished replicate persists under `<out>.partial/<label>/` keyed by the
+  merged TOML, overrides, sim timeout, model bytes and pool, so an interrupted cell resumes
+  without re-flying one and a store flown under anything else is refused; a saved cell is skipped
+  unless `--force`; every save merges the cells the file holds by then, so invocations sharing
+  one `--out` may run concurrently; gate `tests/test_confirmatory_persistence.py`). `collect_runs.OU_MARGINAL` / `OFF_CAMPAIGN` and
   `aggregate_results.PAIRED` / `PER_DRAW_PREFIXES` decide what the bundle carries and stamp each
   run's `noise_seeding`.
 - `experiments/ou_marginal/` — the frozen-vs-marginal noise quantification

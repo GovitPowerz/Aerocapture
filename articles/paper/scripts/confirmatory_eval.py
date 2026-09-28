@@ -26,9 +26,13 @@ same command. Every finished replicate is on disk under <out>.partial/<label>/
 (r<NN>.npy, then r<NN>.json) and is loaded, not flown again; the cell is
 assembled once all its replicates exist, written into the results file, and its
 partial store deleted. The store refuses a replicate flown under another merged
-TOML, override set, model or pool, compared by content (delete it to re-fly). A cell
-already in the file is skipped; --force re-flies it (make mc-confirmatory does, so
-an interrupted mc-confirmatory resumes only its interrupted cell).
+TOML, override set, sim timeout, model or pool, compared by content (delete it to
+re-fly). A cell already in the file is skipped; --force re-flies it. make
+mc-confirmatory passes --force for every cell of the file, so rerun after an
+interruption it reuses the interrupted cell's finished replicates but re-flies the
+cells it had completed: to resume by hand, pass --force --cells with the cells not
+yet re-flown. Invocations sharing one --out may run concurrently (one cell each):
+every save merges the cells the file holds by then.
 """
 
 import argparse
@@ -165,15 +169,18 @@ def _eval_cell(
     overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
     # What a stored replicate must have been flown under to be reused, by content: the merged TOML
     # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
-    # override, and the pinned model's bytes (audit_deployed_models.py --repair rewrites one in place).
+    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes
+    # (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path.
     eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
-    model_file = bundle_model or cell_dir / "best_model.json"
+    flown = {**cell_overrides, **overrides}
+    model_path = flown.pop("data.neural_network", None)
     flight = {
         "toml": toml,
         "bundle_key": bundle_key,
-        "overrides": {**cell_overrides, **overrides},
+        "sim_timeout": sim_timeout,
+        "overrides": flown,
         "config_sha256": hashlib.sha256(json.dumps(load_toml_with_bases(eval_toml), sort_keys=True).encode()).hexdigest(),
-        "model_sha256": hashlib.sha256(model_file.read_bytes()).hexdigest() if model_file.exists() else None,
+        "model_sha256": hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None,
     }
 
     reps: list[dict] = []
@@ -330,7 +337,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{label}: already in {out_path.name}, skipping (--force re-flies it)", flush=True)
             continue
         src = args.scaffolding_from or label
-        by_label[label] = _eval_cell(
+        cell = _eval_cell(
             label,
             toml,
             pools,
@@ -344,6 +351,11 @@ def main(argv: list[str] | None = None) -> None:
             noise_seeding=args.noise_seeding,
             store=_partial_store(out_path, label),
         )
+        # Another invocation on the same file (the slow FNPAG cell runs separately) may have saved
+        # a cell since startup: merge from disk, or this save would drop it.
+        if out_path.exists():
+            by_label.update({c["label"]: c for c in json.loads(out_path.read_text()).get("cells", [])})
+        by_label[label] = cell
         cells = [by_label[k] for k in sorted(by_label)]
         _write_atomic(
             out_path,
