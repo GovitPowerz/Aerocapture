@@ -114,7 +114,12 @@ def save_checkpoint(
     best_val_cost: float = np.inf,
     cost_transform: str = "linear",
 ) -> None:
-    """Save full training state for later resumption."""
+    """Save full training state for later resumption, then the best artifacts.
+
+    best_model.json / best_params.json always go to save_dir. The NN model is
+    also deployed to the TOML's `[data] neural_network` path only when that path
+    lies in save_dir (`artifacts.owned_deploy_path`); another run's path is never written.
+    """
     prefix = f"checkpoint_g{generation:05d}"
 
     # Serialize RNG state -- convert large ints to strings for JSON compatibility

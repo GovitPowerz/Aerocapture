@@ -109,6 +109,21 @@ def _emit_warm_start_artifacts(
         print(f"  [warm_start] WARNING: report rendering failed: {type(e).__name__}: {e}")
 
 
+def owned_deploy_path(config: TrainingConfig, save_dir: Path, cwd: str | Path | None) -> Path | None:
+    """`cwd / [data] neural_network`, resolved, when it lies in save_dir itself; else None.
+
+    Any other path belongs to another run: a config that base-inherits a cell's
+    TOML keeps that cell's path, so an `--output-dir` run writing it would
+    overwrite the cell's best_model.json (#170). A deeper path is refused too (an
+    `--output-dir` above the cell dirs would otherwise own every cell below it).
+    `cwd=None` never deploys.
+    """
+    if cwd is None:
+        return None
+    nn_path = (Path(cwd) / config.sim.nn_param_file).resolve()
+    return nn_path if nn_path.parent == save_dir.resolve() else None
+
+
 def write_best_artifacts(
     best_individual: npt.NDArray[np.float64],
     config: TrainingConfig,
@@ -119,9 +134,9 @@ def write_best_artifacts(
 ) -> None:
     """Write best_model.json (NN) / best_params.json from a normalized chromosome.
 
-    Always writes into save_dir. When `deploy_to_cwd` and `cwd` is not None,
-    additionally writes the NN model to `cwd / config.sim.nn_param_file`
-    (the deploy-path copy save_checkpoint historically maintained).
+    Always writes into save_dir. With `deploy_to_cwd`, the NN model also goes to
+    `cwd / config.sim.nn_param_file` when that path lies in save_dir
+    (`owned_deploy_path`); any other path is never written.
     """
     if config.guidance_type == "neural_network":
         from aerocapture.training.param_spaces import active_scaffolding_specs
@@ -142,8 +157,8 @@ def write_best_artifacts(
             output_param=config.network.output_parameterization,
             normalization=cfg_norm,
         )
-        if deploy_to_cwd and cwd is not None:
-            nn_path = Path(cwd) / config.sim.nn_param_file
+        nn_path = owned_deploy_path(config, save_dir, cwd) if deploy_to_cwd else None
+        if nn_path is not None and nn_path != (save_dir / "best_model.json").resolve():
             write_nn_json(
                 weights,
                 config.network,

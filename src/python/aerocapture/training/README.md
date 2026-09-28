@@ -57,6 +57,16 @@ uv run python -m aerocapture.training.sensitivity configs/training/msr_aller_eqg
 [--algorithm ALG] [--seed-strategy fixed|rotating|adaptive] [--output-dir DIR]`.
 Mission artifacts (corridor, reference trajectory) always live at the canonical
 `training_output/<mission>/`; `--output-dir` / `--resume` relocate only `save_dir`.
+The NN deploy path is run-local: the checkpoint writer and the end-of-training write deploy the
+model to the TOML's `[data] neural_network` only when that path lies in `save_dir` itself
+(`artifacts.owned_deploy_path`). Any other path belongs to another run (a config that
+base-inherits a cell's TOML keeps that cell's path), so such a run writes its artifacts to
+`save_dir` only and prints one notice naming the path it did not write; a plain run (no
+`--output-dir`) is unchanged, since there `save_dir` is the path's parent. Seeding is not covered:
+a v1 dense config (no `[[network.architecture]]`) still seeds its initial population from the
+TOML path when that file exists (`trainer._load_seed_weights`). Until #170 every
+`--output-dir` sibling overwrote the cell's `best_model.json` and left its `best_params.json`;
+`experiments/paper/audit_deployed_models.py` finds and repairs such runs.
 
 ## The training loop
 
@@ -178,7 +188,8 @@ scaffolding values, 17 or 3; `compare_guidance` and `report.py` pick both up). F
 selection-PROMOTED winner is persisted into the winning island's `best_overall_*` and the npz
 checkpoint re-saved (`_persist_islands_promotion`, after `final_eval` so the report keeps the
 pre-selection champions, before the artifact write); when no island promotes a validated best
-the deploy-path `best_model.json` is removed so `compare_guidance` cannot consume a stale one.
+the run's `best_model.json` (and the deploy path, when the run owns it) is removed so
+`compare_guidance` cannot consume a stale one.
 `final_eval` (islands) re-evaluates each island's `best_overall_individual` on the disjoint
 final-eval pool for REPORTING only; a promoted fresh winner gets one single-candidate final-eval
 run. Then `report.py` renders the PDF unless `--skip-report`.
@@ -572,7 +583,7 @@ use `--sim-timeout` against NaN hangs).
   `(generation, island_name)` so islands runs keep all 3 per-gen records), runs the final MC
   re-evaluation on the final-eval pool via `cell_eval.evaluate_cell` (`run_final_evaluation`; the
   evaluated NN is pinned to `<scheme_dir>/best_model.json` when present, because the TOML's shared
-  `[data] neural_network` deploy path is rewritten by every `--output-dir` sibling run; the noise
+  `[data] neural_network` deploy path can name another run's model under `--output-dir`; the noise
   regime it resolved is passed into the run and printed) and the undispersed nominal overlay via
   `cell_eval.fly_nominal` (same TOML, scaffolding and model pin as the final MC; before #72 the
   overlay flew the TOML's shared model path), generates the SVG charts (`charts.py`), writes

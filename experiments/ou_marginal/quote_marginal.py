@@ -7,10 +7,11 @@ The frozen/marginal protocol matches the 2026-08-27 investigation
 (the OU investigation summarized in RESULTS.md): n=1000 shared seeds, marginal additionally sets
 simulation.random_seed = 1000 + 7*i, identical across cells.
 
-Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000]
+Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000] [--only LABEL ...]
 Writes experiments/ou_marginal/quote_results.json (the protocol record REGIMES /
 SEED_POOL alongside the cells, so the paper's extract can copy it rather than
-restate it) and prints the table.
+restate it) and prints the table. `--only` re-scores the named cells (both
+regimes) and keeps every other cell of the existing file.
 """
 
 from __future__ import annotations
@@ -116,11 +117,26 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-sims", type=int, default=1000)
+    parser.add_argument("--only", nargs="+", metavar="LABEL", help="re-score only these cells and merge them into the existing quote_results.json")
     args = parser.parse_args()
     seeds = np.random.default_rng(SEED_POOL_RNG_SEED).integers(0, SEED_POOL_HIGH, size=args.n_sims)
+    result_path = Path(__file__).resolve().parent / "quote_results.json"
 
+    cells = discover_ou_cells() + CELLS
     out: dict[str, dict] = {}
-    for label, toml, model_dir in discover_ou_cells() + CELLS:
+    if args.only:
+        unknown = set(args.only) - {label for label, _, _ in cells}
+        if unknown:
+            raise SystemExit(f"unknown cell label(s): {', '.join(sorted(unknown))}")
+        prior = json.loads(result_path.read_text())
+        if (prior["n_sims"], prior["regimes"], prior["seed_pool"]) != (args.n_sims, REGIMES, SEED_POOL):
+            raise SystemExit(f"{result_path.name} was quoted under another n_sims / protocol: re-quote every cell instead")
+        out = prior["cells"]
+        cells = [c for c in cells if c[0] in args.only]
+        missing = [label for label, _, model_dir in cells if model_dir is not None and not (REPO / model_dir / "best_model.json").exists()]
+        if missing:
+            raise SystemExit(f"no best_model.json for {', '.join(missing)}: nothing to re-quote")
+    for label, toml, model_dir in cells:
         if model_dir is not None and not (REPO / model_dir / "best_model.json").exists():
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
             continue
@@ -131,7 +147,6 @@ def main() -> None:
                 f"{label:<20} {regime:<8} capture {m['capture_pct']:6.1f}%  p50 {m['dv_p50']:7.1f}  "
                 f"p95 {m['dv_p95']:7.1f}  cvar95 {m['dv_cvar95']:7.1f}  hl_viol {m['heat_load_viol_pct']:.1f}%"
             )
-    result_path = Path(__file__).resolve().parent / "quote_results.json"
     result_path.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "cells": out}, indent=1))
     print(f"\nWritten {result_path}")
 
