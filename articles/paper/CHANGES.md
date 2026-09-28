@@ -149,3 +149,15 @@ last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag
   resolved 0.15-point deficit to the retrained joint-FTC sits inside it; the per-scenario ranking
   deltas sit outside it except seed 2's parity, asserted), and the pool table gives the stress
   pool's n = 10,000 depth and one query per policy and noise regime.
+- 2026-09-28 (#170): Appendix E's Dense 515 regime row is re-quoted from the deployed champion.
+  `training_output/dense_p515_ga_paper_best/best_model.json` had been overwritten by the
+  `paper/tail_repeats/dense515_s3` repeat through the shared config's deploy path, so the n = 1000
+  quote flew that repeat's weights (CVaR95 126.2 shared path / 228.0 per-scenario, 98.4% capture and
+  0.8% violation per-scenario). The champion, byte-identical to the bundle's `headline/dense_p515`,
+  gives 117.4 / 201.8 at 100% capture and 0.3% violation; `quote_marginal.py --only dense_p515`
+  rewrote those two cells of `experiments/ou_marginal/quote_results.json` and
+  `data/quote_marginal.json` follows. The paper compiles with every assertion passing; the
+  committed `paper.pdf` is not recompiled here. The trainer now writes `[data] neural_network` only
+  when it lies inside the run's output dir, and `experiments/paper/audit_deployed_models.py`
+  rebuilds every run's winner from its final checkpoint: every rebuildable run under
+  `training_output/` deploys its own winner, including the three other overwritten directories.

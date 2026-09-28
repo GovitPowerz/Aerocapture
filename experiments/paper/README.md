@@ -31,8 +31,9 @@ NaN-hang failure mode). Prereqs: `./build.sh` (Rust binary + PyO3), `uv sync`.
 
 02 is the long pole (18 x ~1-2 h); 01/03's FTC cells are fast (~ms/sim), fnpag is
 ~50x slower than FTC. Never run two cells **of the same config TOML** concurrently
-in one checkout (`[data] neural_network` deploy clobbering; the report pins the
-eval to the run-local model, but interim deploys still race), and never regenerate
+in one checkout without distinct `--output-dir`s (the plain invocation's output dir is
+the parent of the TOML's `[data] neural_network`; until #170 every `--output-dir` run
+also wrote that path, so siblings overwrote each other's deployed model), and never regenerate
 `training_output/mars/` while a ref-tracking scheme (ftc / energy_controller /
 pred_guid) is training.
 
@@ -58,6 +59,11 @@ pred_guid) is training.
   followed by `report.py` on that dir (regenerates `final_eval.parquet`)
   before re-collecting -- the collector skips and warns on dirs whose
   `best_model.json` is newer than their parquet.
+- Deployed-model audit: `uv run python experiments/paper/audit_deployed_models.py`
+  rebuilds every run's winner from its final checkpoint and byte-compares it with the
+  deployed `best_model.json`, flags byte-identical models across dirs and compares each
+  with its bundle copy; `--repair` rewrites a mismatched model (old file kept as
+  `best_model.json.pre-repair`). Run it before collecting or quoting a model.
 - Appendix cards: `articles/paper/figures/appendix/<scheme>/` (7 report-style
   SVGs + `stats.json` per scheme, built by `articles/paper/scripts/collect_appendix.py`
   from training_output). Committed -- `appendix.typ` reads each `stats.json` at

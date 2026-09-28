@@ -37,7 +37,7 @@ from pymoo.algorithms.soo.nonconvex.cmaes import CMAES, SimpleCMAES  # type: ign
 from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
-from aerocapture.training.artifacts import write_best_artifacts
+from aerocapture.training.artifacts import owned_deploy_path, write_best_artifacts
 from aerocapture.training.checkpoint import _prune_old_checkpoints, _restore_seed_curator, load_checkpoint, save_checkpoint
 from aerocapture.training.corridor import _accumulate_corridor
 from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
@@ -1256,7 +1256,7 @@ class IslandsTrainer:
             for stale in (
                 save_dir / "best_model.json",
                 save_dir / "best_params.json",
-                Path(self.cwd or ".") / config.sim.nn_param_file if config.guidance_type == "neural_network" else None,
+                owned_deploy_path(config, save_dir, self.cwd) if config.guidance_type == "neural_network" else None,
             ):
                 if stale is not None and stale.exists():
                     stale.unlink()

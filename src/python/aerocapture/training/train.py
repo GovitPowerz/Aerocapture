@@ -18,13 +18,12 @@ from typing import Any
 
 import numpy as np
 
-from aerocapture.training.artifacts import deploy_optimized_artifacts
+from aerocapture.training.artifacts import deploy_optimized_artifacts, owned_deploy_path, write_best_artifacts
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.cost import build_cost_kwargs
 from aerocapture.training.display import create_display
-from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
-from aerocapture.training.evaluate import write_nn_json
+from aerocapture.training.encoding import decode_normalized
 from aerocapture.training.logger import TrainingLogger
 from aerocapture.training.optimizer import _VALID_SEED_STRATEGIES
 from aerocapture.training.problem import AerocaptureProblem
@@ -33,7 +32,6 @@ from aerocapture.training.seeds import base_mc_seed_from_toml
 from aerocapture.training.toml_utils import load_toml_with_bases
 from aerocapture.training.trainer import IslandsTrainer, SingleAlgoTrainer, run_loop
 from aerocapture.training.training_config import (
-    _resolve_config_normalization,
     _setup_param_specs,
     build_training_config_from_toml,
     check_ref_trajectory_wiring,
@@ -87,6 +85,8 @@ def train(
 
     save_dir = Path(config.save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
+    if verbose and config.guidance_type == "neural_network" and cwd is not None and owned_deploy_path(config, save_dir, cwd) is None:
+        print(f"  [data] neural_network {Path(cwd) / config.sim.nn_param_file} is not in the output dir {save_dir}: not written (run-local artifacts only)")
 
     # Load TOML config once (used for cost function params, curator config)
     _toml: dict = {}
@@ -359,29 +359,11 @@ if __name__ == "__main__":
         if cfg.guidance_type == "neural_network":
             from aerocapture.training.param_spaces import active_scaffolding_specs
 
-            _pack = active_scaffolding_specs(cfg.network.scaffolding)
-            n_scaff = len(_pack)
-            n_weights = len(param_specs) - n_scaff
-            weights = _decode_nn_weights(result["best_individual"][:n_weights], param_specs[:n_weights])
-            nn_path = Path(cwd) / cfg.sim.nn_param_file
-            write_nn_json(
-                weights,
-                cfg.network,
-                nn_path,
-                input_mask=cfg.network.input_mask,
-                output_param=cfg.network.output_parameterization,
-                normalization=_resolve_config_normalization(cfg, cwd),
-            )
-            print(f"Best weights saved to {nn_path}")
-            if n_scaff > 0:
-                scaff_params = decode_normalized(result["best_individual"][n_weights:], list(_pack))
-                for s in _pack:
-                    if s.is_integer and s.name in scaff_params:
-                        scaff_params[s.name] = int(round(scaff_params[s.name]))
-                params_path = Path(cfg.save_dir) / "best_params.json"
-                with open(params_path, "w") as fp:
-                    json.dump(scaff_params, fp, indent=2)
-                print(f"Best scaffolding params saved to {params_path}")
+            save_path = Path(cfg.save_dir)
+            write_best_artifacts(result["best_individual"], cfg, param_specs, save_path, cwd=cwd, deploy_to_cwd=True)
+            print(f"Best weights saved to {save_path / 'best_model.json'}")
+            if active_scaffolding_specs(cfg.network.scaffolding):
+                print(f"Best scaffolding params saved to {save_path / 'best_params.json'}")
         else:
             params = decode_normalized(result["best_individual"], param_specs)
             params_path = Path(cfg.save_dir) / "best_params.json"

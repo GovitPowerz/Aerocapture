@@ -128,6 +128,15 @@ committed config carried two keys Rust never read for five months); section-leve
 `toml_keys_reachable_in_sim_data` table are the test. Neither gate sees a key relayed into a runtime field nothing reads: #128 found four LIVE GA genes (3 FTC, 1 EC) that trained as a pure
 noise walk for months; the dead-code lint on allow-free runtime structs is that gate, and the model JSON / `[cost_function]` channels now deny unknown keys too.
 
+### Run-local deploy path
+
+Until #170 the trainer wrote every NN run's model to the TOML's `[data] neural_network` as well as to its output dir, so an `--output-dir` repeat
+of a config that base-inherits a cell's TOML overwrote that cell's `best_model.json` while its `best_params.json` stayed: Appendix E's Dense 515
+row and three other run dirs flew a sibling's weights, and nothing errored. `artifacts.owned_deploy_path` now allows the write only when the
+path lies in the run's own output dir (gate: `tests/test_deploy_path.py`). Before quoting or collecting a model, run
+`experiments/paper/audit_deployed_models.py`: it rebuilds each run's winner from its final checkpoint and byte-compares it with the deployed
+model (`--repair` rewrites a mismatch).
+
 ### Reference Trajectory Design (open-loop optimum != good reference)
 
 Three lessons from wiring the generated reference in (2026-06-11). (1) UNITS: the ref file contract is MJ/kg in column 0 (the Rust loader multiplies by 1e6); the writer shipped J/kg for months —

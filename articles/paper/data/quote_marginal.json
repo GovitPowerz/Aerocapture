@@ -62,13 +62,13 @@
   },
   "dense_p515/frozen": {
    "capture_pct": 100.0,
-   "dv_cvar95": 126.18,
+   "dv_cvar95": 117.42,
    "heat_load_viol_pct": 0.0
   },
   "dense_p515/marginal": {
-   "capture_pct": 98.4,
-   "dv_cvar95": 228.04,
-   "heat_load_viol_pct": 0.8
+   "capture_pct": 100.0,
+   "dv_cvar95": 201.75,
+   "heat_load_viol_pct": 0.3
   },
   "fnpag/frozen": {
    "capture_pct": 100.0,
