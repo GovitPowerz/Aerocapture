@@ -7,11 +7,22 @@ The frozen/marginal protocol matches the 2026-08-27 investigation
 (the OU investigation summarized in RESULTS.md): n=1000 shared seeds, marginal additionally sets
 simulation.random_seed = 1000 + 7*i, identical across cells.
 
-Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000] [--only LABEL ...]
+Usage: uv run python experiments/ou_marginal/quote_marginal.py [--n-sims 1000] [--manifest FILE] [--only LABEL ...] [--force]
 Writes experiments/ou_marginal/quote_results.json (the protocol record REGIMES /
 SEED_POOL alongside the cells, so the paper's extract can copy it rather than
-restate it) and prints the table. `--only` re-scores the named cells (both
-regimes) and keeps every other cell of the existing file.
+restate it) and prints the table. The cells are every deployed run under
+training_output/ou_marginal/ plus CELLS below, or with `--manifest` the file's
+rows instead (one `label|toml[|model_dir]` per line, `#` comments; no model_dir
+= a classical cell flown from its optimized TOML, unlike confirmatory_marginal.py).
+A `label/regime` already in the file is kept, not re-scored: `--only` re-scores the
+named cells (both regimes) and keeps the rest, `--force` re-quotes the listed cells
+into a fresh file (required after a protocol change: n_sims, regimes, seed pool).
+A cell whose model changed since its quote (a resumed training,
+audit_deployed_models.py --repair) keeps its old numbers until `--only` re-scores it.
+
+Stop and resume: Ctrl-C at any point, then rerun the command without `--force` /
+`--only`. The file is rewritten after every scored `label/regime`, so only the
+one in flight is flown again.
 """
 
 from __future__ import annotations
@@ -25,8 +36,10 @@ import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 from aerocapture.training.report import _read_constraint_limits
+from confirmatory_marginal import read_manifest
 
 REPO = Path(__file__).resolve().parents[2]
+OUT = Path(__file__).resolve().parent / "quote_results.json"
 
 # The protocol, written into quote_results.json so downstream extracts copy it instead of
 # restating it: both regimes pin the legacy (shared-path) seeding; the marginal one gives
@@ -114,24 +127,25 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
     }
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-sims", type=int, default=1000)
+    parser.add_argument("--manifest", type=Path, help="score this file's 'label|toml[|model_dir]' rows instead of the discovered + built-in cells")
     parser.add_argument("--only", nargs="+", metavar="LABEL", help="re-score only these cells and merge them into the existing quote_results.json")
-    args = parser.parse_args()
+    parser.add_argument("--force", action="store_true", help="re-quote the listed cells into a fresh quote_results.json (required after a protocol change)")
+    args = parser.parse_args(argv)
     seeds = np.random.default_rng(SEED_POOL_RNG_SEED).integers(0, SEED_POOL_HIGH, size=args.n_sims)
-    result_path = Path(__file__).resolve().parent / "quote_results.json"
 
-    cells = discover_ou_cells() + CELLS
-    out: dict[str, dict] = {}
+    cells = read_manifest(args.manifest) if args.manifest else discover_ou_cells() + CELLS
+    prior = json.loads(OUT.read_text()) if OUT.exists() else None
+    same_protocol = prior is not None and (prior["n_sims"], prior["regimes"], prior["seed_pool"]) == (args.n_sims, REGIMES, SEED_POOL)
+    if prior is not None and not same_protocol and (args.only or not args.force):
+        raise SystemExit(f"{OUT.name} was quoted under another n_sims / protocol: re-quote every cell instead (--force)")
+    out: dict[str, dict] = prior["cells"] if prior is not None and (args.only or not args.force) else {}
     if args.only:
         unknown = set(args.only) - {label for label, _, _ in cells}
         if unknown:
             raise SystemExit(f"unknown cell label(s): {', '.join(sorted(unknown))}")
-        prior = json.loads(result_path.read_text())
-        if (prior["n_sims"], prior["regimes"], prior["seed_pool"]) != (args.n_sims, REGIMES, SEED_POOL):
-            raise SystemExit(f"{result_path.name} was quoted under another n_sims / protocol: re-quote every cell instead")
-        out = prior["cells"]
         cells = [c for c in cells if c[0] in args.only]
         missing = [label for label, _, model_dir in cells if model_dir is not None and not (REPO / model_dir / "best_model.json").exists()]
         if missing:
@@ -141,14 +155,19 @@ def main() -> None:
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
             continue
         for regime in REGIMES:
+            if f"{label}/{regime}" in out and not args.only:
+                print(f"{label:<20} {regime:<8} already quoted, skipping (--only {label} re-scores it)")
+                continue
             m = score(toml, model_dir, seeds, regime)
             out[f"{label}/{regime}"] = m
+            tmp = OUT.with_name(f".tmp_{OUT.name}")
+            tmp.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "cells": out}, indent=1))
+            tmp.replace(OUT)
             print(
                 f"{label:<20} {regime:<8} capture {m['capture_pct']:6.1f}%  p50 {m['dv_p50']:7.1f}  "
                 f"p95 {m['dv_p95']:7.1f}  cvar95 {m['dv_cvar95']:7.1f}  hl_viol {m['heat_load_viol_pct']:.1f}%"
             )
-    result_path.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "cells": out}, indent=1))
-    print(f"\nWritten {result_path}")
+    print(f"\nWritten {OUT}")
 
 
 if __name__ == "__main__":

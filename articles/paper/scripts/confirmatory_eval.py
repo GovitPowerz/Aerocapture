@@ -20,10 +20,25 @@ Usage:
 Accumulates cells across invocations into articles/paper/data/confirmatory_eval.json
 (so the slow FNPAG cell can run separately). Paired deltas are recomputed on
 every save from the per-replicate stats of whichever pairs are present.
+
+Stop and resume: Ctrl-C (or a crash, or a shutdown) at any point, then rerun the
+same command. Every finished replicate is on disk under <out>.partial/<label>/
+(r<NN>.npy, then r<NN>.json) and is loaded, not flown again; the cell is
+assembled once all its replicates exist, written into the results file, and its
+partial store deleted. The store refuses a replicate flown under another merged
+TOML, override set, sim timeout, model or pool, compared by content (delete it to
+re-fly). A cell already in the file is skipped; --force re-flies it. make
+mc-confirmatory passes --force for every cell of the file, so rerun after an
+interruption it reuses the interrupted cell's finished replicates but re-flies the
+cells it had completed: to resume by hand, pass --force --cells with the cells not
+yet re-flown. Invocations sharing one --out may run concurrently (one cell each):
+every save merges the cells the file holds by then.
 """
 
 import argparse
+import hashlib
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -106,6 +121,26 @@ def _agg(values: list[float]) -> dict:
     }
 
 
+def _partial_store(out: Path, label: str) -> Path:
+    return out.parent / f"{out.name}.partial" / label
+
+
+def _drop_partial(out: Path, label: str) -> None:
+    """Delete a saved cell's replicate store, then the store's parents it leaves empty (labels nest)."""
+    store = _partial_store(out, label)
+    shutil.rmtree(store)
+    for d in store.parents[: len(Path(label).parts)]:
+        if any(d.iterdir()):
+            break
+        d.rmdir()
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    tmp = path.with_name(f".tmp_{path.name}")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
 def _eval_cell(
     label: str,
     toml: str,
@@ -113,28 +148,59 @@ def _eval_cell(
     bundle_key: str | None,
     extra: dict[str, Any],
     *,
-    scaffolding_from: str | None,
+    cell_dir: Path,
     sim_timeout: float,
     noise_seeding: str,
+    store: Path,
 ) -> dict:
-    from aerocapture.training.cell_eval import evaluate_cell
+    """One cell over every pool. Each finished replicate lands in `store` (r<NN>.npy, then r<NN>.json
+    as the completion marker), and a replicate found there is loaded instead of flown, so an
+    interrupted cell resumes where it stopped. The caller deletes the store once the cell is saved."""
+    from aerocapture.training.cell_eval import _resolve_cell, evaluate_cell
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
-    src = scaffolding_from or label
-    scheme_dir = REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
     hfl, gll, hll = (None, None, None)
 
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
     if bundle_key and (bundle_model is None or not bundle_model.exists()):
         raise SystemExit(f"{label}: bundle key {bundle_key} given but {bundle_model} missing (refusing local fallback)")
     overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
+    # What a stored replicate must have been flown under to be reused, by content: the merged TOML
+    # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
+    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes
+    # (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path.
+    eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
+    flown = {**cell_overrides, **overrides}
+    model_path = flown.pop("data.neural_network", None)
+    flight = {
+        "toml": toml,
+        "bundle_key": bundle_key,
+        "sim_timeout": sim_timeout,
+        "overrides": flown,
+        "config_sha256": hashlib.sha256(json.dumps(load_toml_with_bases(eval_toml), sort_keys=True).encode()).hexdigest(),
+        "model_sha256": hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None,
+    }
 
     reps: list[dict] = []
     pooled_parts: list[np.ndarray] = []
     model_used = None
     for r, seeds in enumerate(pools):
-        res = evaluate_cell(scheme_dir, Path(toml), seeds, model=bundle_model, extra_overrides=overrides, sim_timeout_secs=sim_timeout)
+        key = {**flight, "seeds_sha256": hashlib.sha256(np.asarray(seeds, dtype=np.int64).tobytes()).hexdigest()}
+        done = store / f"r{r:02d}.json"
+        if done.exists():
+            saved = json.loads(done.read_text())
+            if saved["key"] != key:
+                raise SystemExit(
+                    f"{label}: {done.parent}/r{r:02d} was flown under another config or pool ({saved['key']} != {key}): delete the store to re-fly it"
+                )
+            rep, model_used, x = saved["replicate"], saved["model"], np.load(done.with_suffix(".npy"))
+            reps.append(rep)
+            pooled_parts.append(x)
+            print(f"  {label} r{r}: loaded from {done.parent}", flush=True)
+            continue
+        res = evaluate_cell(cell_dir, Path(toml), seeds, model=bundle_model, extra_overrides=overrides, sim_timeout_secs=sim_timeout)
         if hfl is None:
             hfl, gll, hll = _read_constraint_limits(res.toml_path)
         model_used = res.overrides.get("data.neural_network")
@@ -155,6 +221,11 @@ def _eval_cell(
         failed = [int(s) for s, ok in zip(seeds, cap, strict=True) if not ok][:50]
         if failed:
             rep["failed_seeds"] = failed  # for post-hoc classification (timeout vs physical)
+        store.mkdir(parents=True, exist_ok=True)
+        npy_tmp = store / f".tmp_r{r:02d}.npy"
+        np.save(npy_tmp, x)
+        npy_tmp.replace(done.with_suffix(".npy"))
+        _write_atomic(done, json.dumps({"key": key, "model": model_used, "replicate": rep}))
         reps.append(rep)
         pooled_parts.append(x)
         print(f"  {label} r{r}: cap={reps[-1]['capture_pct']}% cvar999={reps[-1]['cvar999']} max={reps[-1]['max']}", flush=True)
@@ -220,6 +291,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--out", type=Path, default=OUT, help="output JSON (use a separate file for shallow-pool campaigns - pairing requires all cells on the SAME pools)"
     )
+    parser.add_argument("--force", action="store_true", help="re-fly the --cells already in --out instead of skipping them")
     parser.add_argument(
         "--noise-seeding",
         choices=("legacy", "per_draw"),
@@ -261,11 +333,32 @@ def main(argv: list[str] | None = None) -> None:
     pools = make_confirmatory_pools(base_seed, args.replicates, args.n)
 
     for label, toml, bundle_key in specs:
-        by_label[label] = _eval_cell(
-            label, toml, pools, bundle_key, extra, scaffolding_from=args.scaffolding_from, sim_timeout=args.sim_timeout, noise_seeding=args.noise_seeding
+        if label in by_label and not args.force:
+            print(f"{label}: already in {out_path.name}, skipping (--force re-flies it)", flush=True)
+            continue
+        src = args.scaffolding_from or label
+        cell = _eval_cell(
+            label,
+            toml,
+            pools,
+            bundle_key,
+            extra,
+            # a study cell may be named without its training_output/paper/ prefix
+            cell_dir=REPO / "training_output" / "paper" / src
+            if "/" in src and not (REPO / "training_output" / src).exists()
+            else REPO / "training_output" / src,
+            sim_timeout=args.sim_timeout,
+            noise_seeding=args.noise_seeding,
+            store=_partial_store(out_path, label),
         )
+        # Another invocation on the same file (the slow FNPAG cell runs separately) may have saved
+        # a cell since startup: merge from disk, or this save would drop it.
+        if out_path.exists():
+            by_label.update({c["label"]: c for c in json.loads(out_path.read_text()).get("cells", [])})
+        by_label[label] = cell
         cells = [by_label[k] for k in sorted(by_label)]
-        out_path.write_text(
+        _write_atomic(
+            out_path,
             json.dumps(
                 {
                     "freeze_commit": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO).stdout.strip(),
@@ -279,8 +372,9 @@ def main(argv: list[str] | None = None) -> None:
                     "paired": _paired(by_label),
                 },
                 indent=1,
-            )
+            ),
         )
+        _drop_partial(out_path, label)
         p = by_label[label]["pooled"]
         print(f"{label}: pooled cap={p['capture_pct']}% cvar999={p['cvar999']} (n_tail={p['n_tail_obs_cvar999']}) max={p['max']} -> saved", flush=True)
 

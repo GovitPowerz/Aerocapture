@@ -776,15 +776,24 @@ validation_n_sims` sims each).
 - `articles/paper/scripts/*.py` evaluate deployed cells on the reserved pools
   (`confirmatory_eval.py`: 10 replicate pools sharing seeds across schemes, paired replicate
   deltas, t-based SEs, per-cell `failed_seeds`, `--extra-override` / `--scaffolding-from` for
-  ablation cells). `collect_runs.OU_MARGINAL` / `OFF_CAMPAIGN` and `aggregate_results.PAIRED` /
-  `PER_DRAW_PREFIXES` decide what the bundle carries and stamp each run's `noise_seeding`.
+  ablation cells; each finished replicate persists under `<out>.partial/<label>/` keyed by the
+  merged TOML, overrides, sim timeout, model bytes and pool, so an interrupted cell resumes
+  without re-flying one and a store flown under anything else is refused; a saved cell is skipped
+  unless `--force`; every save merges the cells the file holds by then, so invocations sharing
+  one `--out` may run concurrently; gate `tests/test_confirmatory_persistence.py`). `collect_runs.OU_MARGINAL` / `OFF_CAMPAIGN` and
+  `aggregate_results.PAIRED` / `PER_DRAW_PREFIXES` decide what the bundle carries and stamp each
+  run's `noise_seeding`.
 - `experiments/ou_marginal/` — the frozen-vs-marginal noise quantification
   (`experiments/ou_marginal/quote_results.json`, `RESULTS.md`) and the per_draw retrain campaign for the five NN headline
   cells: `retrain_campaign.sh` (resumable: each cell continues from its latest checkpoint toward
   the 20000-gen target; configs `configs/training/ou_marginal/`, outputs
   `training_output/ou_marginal/<cell>/`), `quote_marginal.py` (the quote table, auto-discovering
-  every `training_output/ou_marginal/*/best_model.json`), `phase2_campaign.sh` (`ft_<cell>`
-  fine-tunes = frozen champion checkpoint + 2000 per_draw gens, and `<cell>_s2` / `_s3` scratch
+  every `training_output/ou_marginal/*/best_model.json`, or `--manifest` rows; keeps a
+  `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file),
+  `confirmatory_marginal.py` (the per_draw 10 x 100k far-tail pools, cells from
+  `confirmatory_cells.txt` or `--manifest` / `--cells`, resumable per replicate),
+  `phase2_campaign.sh` (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw gens,
+  and `<cell>_s2` / `_s3` scratch
   seed repeats with `--seed 2/3`; every repeat job strips `rng_state` from its copied checkpoint,
   because a checkpoint resume restores the saved trainer RNG state and would silently override
   `--seed`). Campaign runs use the sweep config's allocation (GA n_pop 60, training_n_sims 10),

@@ -222,9 +222,12 @@ mc-far-tail: need-sim
 	$(UVPY) articles/paper/scripts/far_tail_eval.py --n-sims 10000 --cells $(CELLS)
 
 # confirmatory_eval.json -- 10 x 100000 scenarios per cell, [2^31, 2^32) pool: HOURS per cell.
-# The committed file is self-describing (label, toml, bundle_key per cell), so the cell list comes from it.
+# The committed file is self-describing (label, toml, bundle_key per cell), so the cell list comes from it;
+# --force re-flies every cell it holds. Rerun after an interruption, it reuses the interrupted cell's
+# finished replicates (<out>.partial/) but re-flies the cells it had completed: to resume by hand, run
+# confirmatory_eval.py --force --cells with the cells not yet re-flown.
 mc-confirmatory: need-sim
-	$(UVPY) articles/paper/scripts/confirmatory_eval.py --replicates 10 --n 100000 --cells \
+	$(UVPY) articles/paper/scripts/confirmatory_eval.py --force --replicates 10 --n 100000 --cells \
 	    $$($(UVPY) -c "import json; print(' '.join(':'.join(filter(None, (c['label'], c['toml'], c.get('bundle_key')))) for c in json.load(open('articles/paper/data/confirmatory_eval.json'))['cells']))")
 
 # corridor.npz -- 300000 randomized piecewise-constant sims (~1 h) + boundary traces.
