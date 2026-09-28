@@ -1,15 +1,16 @@
-# confirmatory_marginal.py's default cells: label|toml[|model_dir], '#' comments.
-# model_dir (repo-relative) defaults to training_output/<label>; the label names the row in confirmatory_marginal.json.
-ou_marginal/ft_dense_p515|configs/training/ou_marginal/dense_p515.toml
-ou_marginal/ft_mamba_p962|configs/training/ou_marginal/mamba_p962.toml
-ou_marginal/ft_mamba_p962_s2|configs/training/ou_marginal/mamba_p962.toml
-ou_marginal/ft_mamba_p962_s3|configs/training/ou_marginal/mamba_p962.toml
-mamba_p962_long|configs/training/sweep/mamba_p962.toml
-fnpag|configs/training/msr_aller_fnpag_train.toml
+# confirmatory_marginal.py's default cells: label|toml|model_dir, '#' comments; the label names the
+# row in confirmatory_marginal.json. model_dir (repo-relative) is written out even where it is the
+# default training_output/<label>: quote_marginal.py reads an omitted one as a classical cell.
+ou_marginal/ft_dense_p515|configs/training/ou_marginal/dense_p515.toml|training_output/ou_marginal/ft_dense_p515
+ou_marginal/ft_mamba_p962|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962
+ou_marginal/ft_mamba_p962_s2|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962_s2
+ou_marginal/ft_mamba_p962_s3|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962_s3
+mamba_p962_long|configs/training/sweep/mamba_p962.toml|training_output/mamba_p962_long
+fnpag|configs/training/msr_aller_fnpag_train.toml|training_output/fnpag
 # Section 5 RL baseline (issue #101): PPO cells protocol-matched to ft_dense_p515 / ft_gru_p1014
 # (experiments/paper/18_rl_baseline.sh); scaffolding is pinned in their TOMLs, no best_params.json.
-paper/rl/dense_p515_ppo_scratch|configs/training/paper/rl/dense_p515_ppo_scratch.toml
-paper/rl/dense_p515_ppo_warm|configs/training/paper/rl/dense_p515_ppo_warm.toml
-paper/rl/gru_p1014_ppo_scratch|configs/training/paper/rl/gru_p1014_ppo_scratch.toml
-paper/rl/gru_p1014_ppo_warm|configs/training/paper/rl/gru_p1014_ppo_warm.toml
-ou_marginal/ft_gru_p1014|configs/training/ou_marginal/gru_p1014.toml
+paper/rl/dense_p515_ppo_scratch|configs/training/paper/rl/dense_p515_ppo_scratch.toml|training_output/paper/rl/dense_p515_ppo_scratch
+paper/rl/dense_p515_ppo_warm|configs/training/paper/rl/dense_p515_ppo_warm.toml|training_output/paper/rl/dense_p515_ppo_warm
+paper/rl/gru_p1014_ppo_scratch|configs/training/paper/rl/gru_p1014_ppo_scratch.toml|training_output/paper/rl/gru_p1014_ppo_scratch
+paper/rl/gru_p1014_ppo_warm|configs/training/paper/rl/gru_p1014_ppo_warm.toml|training_output/paper/rl/gru_p1014_ppo_warm
+ou_marginal/ft_gru_p1014|configs/training/ou_marginal/gru_p1014.toml|training_output/ou_marginal/ft_gru_p1014

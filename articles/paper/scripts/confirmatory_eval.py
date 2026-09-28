@@ -25,9 +25,10 @@ Stop and resume: Ctrl-C (or a crash, or a shutdown) at any point, then rerun the
 same command. Every finished replicate is on disk under <out>.partial/<label>/
 (r<NN>.npy, then r<NN>.json) and is loaded, not flown again; the cell is
 assembled once all its replicates exist, written into the results file, and its
-partial store deleted. The store refuses a replicate flown under another TOML,
-cell dir, bundle key, model bytes, override set or pool (delete it to re-fly). Every --cells
-label is (re-)flown: a cell already in the file is replaced.
+partial store deleted. The store refuses a replicate flown under another merged
+TOML, override set, model or pool, compared by content (delete it to re-fly). A cell
+already in the file is skipped; --force re-flies it (make mc-confirmatory does, so
+an interrupted mc-confirmatory resumes only its interrupted cell).
 """
 
 import argparse
@@ -116,11 +117,6 @@ def _agg(values: list[float]) -> dict:
     }
 
 
-def _scheme_dir(src: str) -> Path:
-    """training_output/<src>, or training_output/paper/<src> for a study cell named without its prefix."""
-    return REPO / "training_output" / "paper" / src if "/" in src and not (REPO / "training_output" / src).exists() else REPO / "training_output" / src
-
-
 def _partial_store(out: Path, label: str) -> Path:
     return out.parent / f"{out.name}.partial" / label
 
@@ -156,9 +152,10 @@ def _eval_cell(
     """One cell over every pool. Each finished replicate lands in `store` (r<NN>.npy, then r<NN>.json
     as the completion marker), and a replicate found there is loaded instead of flown, so an
     interrupted cell resumes where it stopped. The caller deletes the store once the cell is saved."""
-    from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.cell_eval import _resolve_cell, evaluate_cell
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import _read_constraint_limits
+    from aerocapture.training.toml_utils import load_toml_with_bases
 
     hfl, gll, hll = (None, None, None)
 
@@ -166,14 +163,16 @@ def _eval_cell(
     if bundle_key and (bundle_model is None or not bundle_model.exists()):
         raise SystemExit(f"{label}: bundle key {bundle_key} given but {bundle_model} missing (refusing local fallback)")
     overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
-    # What a stored replicate must have been flown under to be reused; the model by content, since
-    # audit_deployed_models.py --repair rewrites a best_model.json in place.
+    # What a stored replicate must have been flown under to be reused, by content: the merged TOML
+    # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
+    # override, and the pinned model's bytes (audit_deployed_models.py --repair rewrites one in place).
+    eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
     model_file = bundle_model or cell_dir / "best_model.json"
     flight = {
         "toml": toml,
         "bundle_key": bundle_key,
-        "cell_dir": str(cell_dir),
-        "overrides": overrides,
+        "overrides": {**cell_overrides, **overrides},
+        "config_sha256": hashlib.sha256(json.dumps(load_toml_with_bases(eval_toml), sort_keys=True).encode()).hexdigest(),
         "model_sha256": hashlib.sha256(model_file.read_bytes()).hexdigest() if model_file.exists() else None,
     }
 
@@ -285,6 +284,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--out", type=Path, default=OUT, help="output JSON (use a separate file for shallow-pool campaigns - pairing requires all cells on the SAME pools)"
     )
+    parser.add_argument("--force", action="store_true", help="re-fly the --cells already in --out instead of skipping them")
     parser.add_argument(
         "--noise-seeding",
         choices=("legacy", "per_draw"),
@@ -326,13 +326,20 @@ def main(argv: list[str] | None = None) -> None:
     pools = make_confirmatory_pools(base_seed, args.replicates, args.n)
 
     for label, toml, bundle_key in specs:
+        if label in by_label and not args.force:
+            print(f"{label}: already in {out_path.name}, skipping (--force re-flies it)", flush=True)
+            continue
+        src = args.scaffolding_from or label
         by_label[label] = _eval_cell(
             label,
             toml,
             pools,
             bundle_key,
             extra,
-            cell_dir=_scheme_dir(args.scaffolding_from or label),
+            # a study cell may be named without its training_output/paper/ prefix
+            cell_dir=REPO / "training_output" / "paper" / src
+            if "/" in src and not (REPO / "training_output" / src).exists()
+            else REPO / "training_output" / src,
             sim_timeout=args.sim_timeout,
             noise_seeding=args.noise_seeding,
             store=_partial_store(out_path, label),

@@ -13,10 +13,12 @@ SEED_POOL alongside the cells, so the paper's extract can copy it rather than
 restate it) and prints the table. The cells are every deployed run under
 training_output/ou_marginal/ plus CELLS below, or with `--manifest` the file's
 rows instead (one `label|toml[|model_dir]` per line, `#` comments; no model_dir
-= a classical cell flown from its optimized TOML). A `label/regime` already in
-the file is kept, not re-scored, unless `--force`; `--only` re-scores the named
-cells (both regimes). A protocol change (n_sims, regimes, seed pool) needs a full
-`--force` re-quote.
+= a classical cell flown from its optimized TOML, unlike confirmatory_marginal.py).
+A `label/regime` already in the file is kept, not re-scored: `--only` re-scores the
+named cells (both regimes) and keeps the rest, `--force` re-quotes the listed cells
+into a fresh file (required after a protocol change: n_sims, regimes, seed pool).
+A cell whose model changed since its quote (a resumed training,
+audit_deployed_models.py --repair) keeps its old numbers until `--only` re-scores it.
 
 Stop and resume: Ctrl-C at any point, then rerun the command without `--force` /
 `--only`. The file is rewritten after every scored `label/regime`, so only the
@@ -130,7 +132,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--n-sims", type=int, default=1000)
     parser.add_argument("--manifest", type=Path, help="score this file's 'label|toml[|model_dir]' rows instead of the discovered + built-in cells")
     parser.add_argument("--only", nargs="+", metavar="LABEL", help="re-score only these cells and merge them into the existing quote_results.json")
-    parser.add_argument("--force", action="store_true", help="re-score cells already in quote_results.json (required after a protocol change)")
+    parser.add_argument("--force", action="store_true", help="re-quote the listed cells into a fresh quote_results.json (required after a protocol change)")
     args = parser.parse_args(argv)
     seeds = np.random.default_rng(SEED_POOL_RNG_SEED).integers(0, SEED_POOL_HIGH, size=args.n_sims)
 
@@ -139,7 +141,7 @@ def main(argv: list[str] | None = None) -> None:
     same_protocol = prior is not None and (prior["n_sims"], prior["regimes"], prior["seed_pool"]) == (args.n_sims, REGIMES, SEED_POOL)
     if prior is not None and not same_protocol and (args.only or not args.force):
         raise SystemExit(f"{OUT.name} was quoted under another n_sims / protocol: re-quote every cell instead (--force)")
-    out: dict[str, dict] = prior["cells"] if prior is not None and same_protocol else {}
+    out: dict[str, dict] = prior["cells"] if prior is not None and (args.only or not args.force) else {}
     if args.only:
         unknown = set(args.only) - {label for label, _, _ in cells}
         if unknown:
@@ -153,8 +155,8 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
             continue
         for regime in REGIMES:
-            if f"{label}/{regime}" in out and not (args.force or args.only):
-                print(f"{label:<20} {regime:<8} already quoted, skipping")
+            if f"{label}/{regime}" in out and not args.only:
+                print(f"{label:<20} {regime:<8} already quoted, skipping (--only {label} re-scores it)")
                 continue
             m = score(toml, model_dir, seeds, regime)
             out[f"{label}/{regime}"] = m

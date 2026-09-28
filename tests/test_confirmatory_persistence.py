@@ -120,6 +120,18 @@ def test_store_refuses_a_replicate_flown_under_another_config(tmp_path: Path, si
         ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="per_draw", **kw)
 
 
+def test_store_compares_the_flown_toml_by_content(tmp_path: Path, sim: ToySim, ce: ModuleType) -> None:
+    toml = tmp_path / "toy.toml"
+    toml.write_text("[guidance]\ntype = 'fnpag'\n")
+    kw = {"cell_dir": tmp_path / "cell", "sim_timeout": 5.0, "noise_seeding": "per_draw", "store": tmp_path / "store"}
+    ce._eval_cell("toy", str(toml), TOY_POOLS, None, {}, **kw)
+    ce._eval_cell("toy", str(toml), TOY_POOLS, None, {}, **kw)
+    assert len(sim.flown) == 2
+    toml.write_text("[guidance]\ntype = 'fnpag'\n[simulation]\nmax_time = 1.0\n")  # same path, edited in place
+    with pytest.raises(SystemExit, match="r00 was flown under another"):
+        ce._eval_cell("toy", str(toml), TOY_POOLS, None, {}, **kw)
+
+
 def test_interrupted_cell_resumes_without_reflying_a_replicate(tmp_path: Path, sim: ToySim, cm: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     cell = tmp_path / "toy"
     cell.mkdir()
@@ -128,7 +140,6 @@ def test_interrupted_cell_resumes_without_reflying_a_replicate(tmp_path: Path, s
 
     monkeypatch.setattr(cm, "OUT", tmp_path / "straight.json")
     cm.main(argv)
-    straight = json.loads((tmp_path / "straight.json").read_text())["cells"]
     assert not (tmp_path / "straight.json.partial").exists()
 
     out = tmp_path / "resumed.json"
@@ -143,18 +154,23 @@ def test_interrupted_cell_resumes_without_reflying_a_replicate(tmp_path: Path, s
     sim.fail_at = None
     cm.main(argv)
     assert sim.flown[8:] == sim.flown[3:5]  # only r3 and r4 flew again
-    assert json.dumps(json.loads(out.read_text())["cells"]) == json.dumps(straight)
+    assert out.read_bytes() == (tmp_path / "straight.json").read_bytes()
     assert not (tmp_path / "resumed.json.partial").exists()
 
     cm.main(argv)  # a cell present in the results file is skipped
     assert len(sim.flown) == 10
 
 
-def test_confirmatory_eval_drops_the_store_once_the_cell_is_saved(tmp_path: Path, sim: ToySim, ce: ModuleType) -> None:
+def test_confirmatory_eval_skips_a_saved_cell_unless_forced(tmp_path: Path, sim: ToySim, ce: ModuleType) -> None:
     out = tmp_path / "confirmatory.json"
-    ce.main(["--cells", f"joint_reference/toy:{TOY_TOML}", "--replicates", "2", "--n", "30", "--out", str(out), "--noise-seeding", "per_draw"])
+    argv = ["--cells", f"joint_reference/toy:{TOY_TOML}", "--replicates", "2", "--n", "30", "--out", str(out), "--noise-seeding", "per_draw"]
+    ce.main(argv)
     assert [c["label"] for c in json.loads(out.read_text())["cells"]] == ["joint_reference/toy"]
     assert not (tmp_path / "confirmatory.json.partial").exists()
+    ce.main(argv)
+    assert len(sim.flown) == 2
+    ce.main([*argv, "--force"])
+    assert len(sim.flown) == 4
 
 
 def test_manifest_parsing(tmp_path: Path, cm: ModuleType) -> None:
@@ -169,6 +185,8 @@ def test_manifest_parsing(tmp_path: Path, cm: ModuleType) -> None:
     m.write_text("A|a.toml|x|y\n")
     with pytest.raises(SystemExit, match="cells.txt:1"):
         cm.read_manifest(m)
+    with pytest.raises(SystemExit, match="--cells: expected"):
+        cm.parse_cells(["A:"])
 
 
 def test_default_manifest_names_committed_tomls(cm: ModuleType) -> None:
@@ -207,8 +225,17 @@ def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: Mod
     assert scored == ["c.toml/frozen", "c.toml/marginal"]
 
     scored.clear()
-    qm.main([*argv, "--force"])
-    assert len(scored) == 6
+    qm.main([*argv, "--only", "A"])  # --only re-scores a quoted cell and keeps the others
+    assert scored == ["a.toml/frozen", "a.toml/marginal"]
+    assert len(json.loads(qm.OUT.read_text())["cells"]) == 6
+
+    scored.clear()
+    m.write_text("A|a.toml\n")
+    qm.main([*argv, "--force"])  # --force re-quotes the listed cells into a fresh file
+    assert scored == ["a.toml/frozen", "a.toml/marginal"]
+    assert set(json.loads(qm.OUT.read_text())["cells"]) == {"A/frozen", "A/marginal"}
 
     with pytest.raises(SystemExit, match="another n_sims / protocol"):
         qm.main(["--manifest", str(m), "--n-sims", "5"])
+    with pytest.raises(SystemExit, match="another n_sims / protocol"):
+        qm.main(["--manifest", str(m), "--n-sims", "5", "--only", "A"])

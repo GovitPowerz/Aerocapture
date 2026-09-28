@@ -6,7 +6,8 @@ Reuses the paper's confirmatory machinery (`_eval_cell`, `make_confirmatory_pool
 frozen-regime `confirmatory_eval.json` is never mixed with marginal rows.
 
 Cells come from a manifest (one `label|toml[|model_dir]` per line, `#` comments;
-model_dir defaults to training_output/<label>) or from `--cells label:toml[:model_dir]`;
+model_dir defaults to training_output/<label>, unlike quote_marginal.py where an
+omitted model_dir means a classical cell) or from `--cells label:toml[:model_dir]`;
 with neither, the default manifest `confirmatory_cells.txt` (the two fine-tuned
 champions, the frozen-trained headline champion, FNPAG, the Section 5 PPO cells).
 A cell already in confirmatory_marginal.json is skipped; a cell without its
@@ -17,7 +18,7 @@ same command. Every finished replicate is on disk under
 confirmatory_marginal.json.partial/<label>/ and is loaded, not flown again; the
 cell is assembled once all its replicates exist, written into the results file,
 and its partial store deleted. The store refuses a replicate flown under another
-TOML, model dir, model bytes or pool (delete it to re-fly).
+merged TOML, override set, model or pool, compared by content (delete it to re-fly).
 
 Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--manifest FILE | --cells ...] [--n 100000]
 """
@@ -55,7 +56,7 @@ def parse_cells(specs: list[str]) -> list[tuple[str, str, str | None]]:
     rows: list[tuple[str, str, str | None]] = []
     for spec in specs:
         parts = spec.split(":")
-        if len(parts) not in (2, 3):
+        if len(parts) not in (2, 3) or not all(parts[:2]):
             raise SystemExit(f"--cells: expected 'label:toml[:model_dir]', got {spec!r}")
         rows.append((parts[0], parts[1], parts[2] if len(parts) == 3 else None))
     return rows

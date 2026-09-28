@@ -7,9 +7,10 @@ Protocol: paired n=1000 pool (rng 987654321), marginal regime = per-scenario
 quote-marginal sums provenance`, commit, then `make -C articles/paper pdf` from the
 clean HEAD, `make check` fails until then). `quote_marginal.py` keeps every
 `label/regime` already quoted and rewrites the file after each new one: stop it
-with Ctrl-C and rerun the same command (without `--force`) to resume; cells
-outside the discovered `training_output/ou_marginal/*/` runs come in by
-`--manifest` (`label|toml[|model_dir]`). All numbers below are the MARGINAL
+with Ctrl-C and rerun the same command (without `--force`) to resume; a cell whose
+model changed since its quote needs `--only LABEL`; cells outside the discovered
+`training_output/ou_marginal/*/` runs come in by `--manifest` (`label|toml[|model_dir]`).
+All numbers below are the MARGINAL
 regime, DV CVaR95 in m/s; every listed run is 100% capture and heat-load
 feasible unless flagged.
 
