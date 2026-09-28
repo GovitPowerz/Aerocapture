@@ -55,8 +55,12 @@ uv run python -m aerocapture.training.sensitivity configs/training/msr_aller_eqg
 `train.py` CLI: `<config.toml> [--n-gen N] [--n-pop N] [--training-n-sims N] [--resume DIR]
 [--from-scratch] [--seed N] [--sim-timeout S] [--no-tui] [--skip-report] [--final-n-sims N]
 [--algorithm ALG] [--seed-strategy fixed|rotating|adaptive] [--output-dir DIR]`.
-Mission artifacts (corridor, reference trajectory) always live at the canonical
-`training_output/<mission>/`; `--output-dir` / `--resume` relocate only `save_dir`.
+Mission artifacts (corridor, reference trajectory) are read from the canonical
+`training_output/<mission>/`; `--output-dir` / `--resume` relocate only `save_dir`. A
+piecewise_constant run writes them there only from the canonical
+`training_output/piecewise_constant` or as a `reference_only` run; any other output dir keeps
+its corridor and reference in `save_dir` (`artifacts.piecewise_artifact_dir`), so a retune
+cannot replace the tracked reference every ref-tracking scheme flies.
 The NN deploy path is run-local: the checkpoint writer and the end-of-training write deploy the
 model to the TOML's `[data] neural_network` only when that path lies in `save_dir` itself
 (`artifacts.owned_deploy_path`). Any other path belongs to another run (a config that
@@ -174,7 +178,9 @@ aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoin
 `warm_start_bounds.json` weight-spec bounds when present (decoding under rebuilt Xavier bounds
 would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
 the TOML), validates the chromosome width, errors when `validation_n_sims = 0`, then re-runs the
-rule and rewrites artifacts + sidecar + checkpoint (`load_selection_state` reads BOTH checkpoint
+rule and rewrites artifacts + checkpoint, then the sidecar (last, as in `finalize`: a campaign
+runner reads a sidecar newer than the latest checkpoint as a finished selection;
+`load_selection_state` reads BOTH checkpoint
 formats into a `SelectionState`; `patch_checkpoint` atomically rewrites ONLY the best fields,
 temp files `.tmp_`-prefixed so a crashed patch never shadows the real checkpoint in the
 `checkpoint_g*` resume globs); non-NN winners also get `optimized_<scheme>.toml` rewritten and,
@@ -223,7 +229,10 @@ Spec: `docs/design/2026-06-02-resume-enhancements-design.md`.
 
 **Interrupts and headless runs.** Ctrl+C saves a checkpoint and returns cleanly with
 `interrupted: True` on both paths; the islands trainer returns before selection and
-`final_eval`, so an interrupt never launches the post-loop MC sweeps or rewrites artifacts.
+`final_eval`, so an interrupt never launches the post-loop MC sweeps or rewrites artifacts. The
+single-algo interrupt checkpoint is labelled `completed_gen`, not the loop's gen + 1: a Ctrl+C
+inside `algorithm.next()` still holds the previous population, and a zero-generation resume
+interrupted in its final selection re-saves its own label instead of claiming one more gen.
 `--no-tui` / non-tty -> `NoopDisplay` (`is_live = False`) with a plain per-5-gen heartbeat print
 plus checkpoint-saved lines (a silent multi-hour run is indistinguishable from a NaN-hung batch;
 use `--sim-timeout` against NaN hangs).
@@ -625,7 +634,8 @@ use `--sim-timeout` against NaN hangs).
   `delta_za_low` / `delta_za_high`, `ifinal=4` pending crash recognized) and their pdyn envelopes
   updated incrementally (running max/min per energy bin). Produces the schema-v4
   `training_output/<mission>/corridor_boundaries.npz` (4 envelopes: crash, restricted upper/lower,
-  capture; nominal trajectory; DV; Gaussian-smoothed at save) and `ref_trajectory.dat`.
+  capture; nominal trajectory; DV; Gaussian-smoothed at save) and `ref_trajectory.dat` (in
+  `save_dir` instead for an `--output-dir` run, `artifacts.piecewise_artifact_dir`).
 
 ## Reference trajectory and training order
 
@@ -798,6 +808,15 @@ validation_n_sims` sims each).
   because a checkpoint resume restores the saved trainer RNG state and would silently override
   `--seed`). Campaign runs use the sweep config's allocation (GA n_pop 60, training_n_sims 10),
   not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).
+  `classical_campaign.sh` (#172) retunes the nine classical cells of the paper's 01 / 07 scripts
+  under per_draw at their shared-path GA allocation (2000 x 300 x 10, FNPAG 300 gens; configs
+  `configs/training/ou_marginal/classical/`, which state the regime and allocation in the leaf,
+  outputs `training_output/ou_marginal/classical/<cell>/`), same resumable contract, plus: the
+  allocation is read from the TOML and checked against every checkpoint, a cell whose final
+  selection was interrupted is finished by a zero-generation resume (byte-identical to an
+  uninterrupted run), and report.py writes the n = 1000 `final_eval.parquet` per cell;
+  `classical_cells.txt` is the `quote_marginal.py --manifest` sanity set (each retuned cell next
+  to its shared-path parent).
 - `experiments/world_model/`: the learned-dynamics (world model) experiment of issue #113, GRU and
   one-step MLP dynamics models trained on `BatchedSimulation` flights under a random piecewise bank,
   scored on rollout error, calibration, OOD, tail prediction, counterfactuals and FNPAG-style

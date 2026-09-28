@@ -124,6 +124,19 @@ def owned_deploy_path(config: TrainingConfig, save_dir: Path, cwd: str | Path | 
     return nn_path if nn_path.parent == save_dir.resolve() else None
 
 
+def piecewise_artifact_dir(save_dir: Path, mission_dir: Path, cwd: str | Path, reference_only: bool) -> Path:
+    """Where a piecewise_constant run writes corridor_boundaries.npz and ref_trajectory.dat.
+
+    The mission dir from the canonical `training_output/piecewise_constant` and
+    for a `reference_only` run (writing the mission reference is its purpose).
+    The mission ref_trajectory.dat is the tracked reference every ref-tracking
+    scheme flies, so any other `--output-dir` run (a retune under another regime)
+    keeps both files in its own save_dir.
+    """
+    run_dir = (Path(cwd) / save_dir).resolve()
+    return mission_dir if reference_only or run_dir == (Path(cwd) / "training_output/piecewise_constant").resolve() else run_dir
+
+
 def write_best_artifacts(
     best_individual: npt.NDArray[np.float64],
     config: TrainingConfig,

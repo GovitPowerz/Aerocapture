@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from aerocapture.training.artifacts import deploy_optimized_artifacts, owned_deploy_path, write_best_artifacts
+from aerocapture.training.artifacts import deploy_optimized_artifacts, owned_deploy_path, piecewise_artifact_dir, write_best_artifacts
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.cost import build_cost_kwargs
@@ -231,6 +231,9 @@ if __name__ == "__main__":
     # relocate save_dir — deriving this from Path(save_dir).parent broke the
     # ref-trajectory check for any output dir outside training_output/.
     corr_dir = Path(cwd) / "training_output" / mission_name
+    pc_cfg = _toml_data.get("guidance", {}).get("piecewise_constant", {})
+    pc_reference_only = bool(pc_cfg.get("reference_only", False))
+    pc_dir = piecewise_artifact_dir(Path(cfg.save_dir), corr_dir, cwd, pc_reference_only)
 
     if args.from_scratch:
         if args.resume:
@@ -243,10 +246,10 @@ if __name__ == "__main__":
             shutil.rmtree(save_path)
             print(f"Wiped existing output: {save_path}")
 
-        # For piecewise_constant, also wipe corridor/ref trajectory in the mission directory
+        # For piecewise_constant, also wipe what this run will rewrite; a reference_only run never rewrites the corridor
         if cfg.guidance_type == "piecewise_constant":
-            for stale in ("corridor_boundaries.npz", "ref_trajectory.dat"):
-                stale_path = corr_dir / stale
+            for stale in ("ref_trajectory.dat",) if pc_reference_only else ("corridor_boundaries.npz", "ref_trajectory.dat"):
+                stale_path = pc_dir / stale
                 if stale_path.exists():
                     stale_path.unlink()
                     print(f"  Removed stale {stale_path}")
@@ -329,13 +332,11 @@ if __name__ == "__main__":
         # whose sole product is ref_trajectory.dat (e.g. the 1-segment
         # constant-bank reference generator) — it must not clobber the richer
         # corridor_boundaries.npz of the full piecewise baseline run.
-        pc_cfg = _toml_data.get("guidance", {}).get("piecewise_constant", {})
-        reference_only = bool(pc_cfg.get("reference_only", False))
-        if not reference_only:
+        if not pc_reference_only:
             # Save corridor_boundaries.npz from accumulated envelopes
             corr_data = corridor_acc_final.to_corridor_data(nominal=nom_traj)
             corr_data["nominal_dv"] = np.array([nom_dv_total])
-            corr_npz = corr_dir / "corridor_boundaries.npz"
+            corr_npz = pc_dir / "corridor_boundaries.npz"
             _save_corr(corr_data, corr_npz)
 
         # Generate ref_trajectory.dat (7-column format). cos_bank carries the
@@ -350,7 +351,7 @@ if __name__ == "__main__":
                 energy_max_mj=float(pc_cfg.get("energy_max", 5.0)),
             )
             ref_data = ref_trajectory_array(nom_traj, cos_bank=commanded_cos)
-            ref_path = corr_dir / "ref_trajectory.dat"
+            ref_path = pc_dir / "ref_trajectory.dat"
             np.savetxt(str(ref_path), ref_data, fmt="  %.16E")
             print(f"  Reference trajectory saved to {ref_path} ({ref_data.shape[0]} points, commanded-cos feedforward)")
 

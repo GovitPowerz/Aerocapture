@@ -129,7 +129,8 @@ path: every `configs/test/*.toml` and every evaluation script that re-flies a sh
 drivers) pins it through `deploy_overrides.LEGACY_NOISE_REGIME`, `confirmatory_eval.py` records
 it in its JSON, and `report.py` prints the regime it resolved. Unknown values hard-error. The
 goldens and the paper's main-body numbers are legacy-regime; `experiments/ou_marginal/` holds the
-frozen-vs-marginal quantification and the per-draw retrain campaign (see
+frozen-vs-marginal quantification and the per-draw retrain campaigns, NN cells and the classical
+retune of `training/ou_marginal/classical/` (see
 [src/python/aerocapture/training/README.md](../src/python/aerocapture/training/README.md)).
 
 ### Guidance
@@ -290,7 +291,7 @@ each save (default `null` keeps every checkpoint). The pruner
 | `neural_network_gru_pso` / `_magonly` | `msr_aller_gru_pso_train.toml` / `msr_aller_gru_pso_magonly_train.toml` |
 | `neural_network_lstm_pso` / `window_pso` / `transformer_pso` / `mamba_pso` | `msr_aller_{lstm,window,transformer,mamba}_pso_train.toml` |
 | `neural_network_gru_ppo` / `lstm_ppo` / `rl` / `atan2_rl` | `msr_aller_gru_ppo_train.toml` / `msr_aller_lstm_ppo_train.toml` / `msr_aller_rl_train.toml` / `msr_aller_nn_atan2_ppo_train.toml` |
-| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/`, `training/ou_marginal/`, `training/mamba3_962/` |
+| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/`, `training/ou_marginal/` (`classical/`: the nine classical cells retuned under `per_draw`), `training/mamba3_962/` |
 
 `msr_aller_nn_atan2_train.toml` is the paper's atan2 environment (17-input calibrated mask +
 `[network] normalization`, `scaffolding = "live"`) that the sweep, probe and ou_marginal configs

@@ -1,0 +1,15 @@
+# Classical retune under per-scenario noise (#172): msr_aller_eqglide_train re-tuned by the
+# shared-path campaign's GA allocation (experiments/paper/01_classical_baselines.sh,
+# 07_joint_reference.sh) with every scenario on its own density-noise path.
+# Driven by experiments/ou_marginal/classical_campaign.sh into
+# training_output/ou_marginal/classical/equilibrium_glide/; the runner reads n_gen here as its target.
+base = ["../../msr_aller_eqglide_train.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+algorithm = "ga"
+n_gen = 2000
+n_pop = 300
+training_n_sims = 10

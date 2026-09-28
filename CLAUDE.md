@@ -135,7 +135,10 @@ of a config that base-inherits a cell's TOML overwrote that cell's `best_model.j
 row and three other run dirs flew a sibling's weights, and nothing errored. `artifacts.owned_deploy_path` now allows the write only when the
 path lies in the run's own output dir (gate: `tests/test_deploy_path.py`). Before quoting or collecting a model, run
 `experiments/paper/audit_deployed_models.py`: it rebuilds each run's winner from its final checkpoint and byte-compares it with the deployed
-model (`--repair` rewrites a mismatch).
+model (`--repair` rewrites a mismatch). The same trap sat in piecewise_constant training: every run wrote the corridor and
+`ref_trajectory.dat` into `training_output/<mission>/` whatever its `--output-dir`, so a regime retune would have replaced the tracked
+reference every ref-tracking scheme flies. `artifacts.piecewise_artifact_dir` keeps them run-local except for the canonical
+`training_output/piecewise_constant` run and a `reference_only` run (gate: `tests/test_piecewise_artifact_dir.py`).
 
 ### Reference Trajectory Design (open-loop optimum != good reference)
 

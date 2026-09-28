@@ -3,6 +3,7 @@ driven through the trainer seam against a fake evaluator (no simulator)."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -40,6 +41,53 @@ class TestKeyboardInterrupt:
         assert result["interrupted"] is True
         assert result["best_cost"] < float("inf")
         assert list(Path(cfg.save_dir).glob("checkpoint_g*.json"))
+
+
+class TestZeroGenerationResumeInterrupt:
+    """A zero-generation resume (how a campaign runner finishes an interrupted final
+    selection) interrupted again inside that selection re-saves its own label: the
+    interrupt checkpoint is labelled `completed_gen`, where the loop's gen + 1 claimed
+    a generation that never ran (g11 here)."""
+
+    @staticmethod
+    def _resume_from_g10(save_dir: Path, interrupt_after: int | None) -> tuple[FakeProblem, dict]:
+        save_dir.mkdir(parents=True)
+        cfg = _cfg(save_dir)
+        cfg.optimizer.n_pop = 4
+        cfg.optimizer.n_gen = 0  # "N additional" on resume: the loop never runs, only the final selection
+
+        param_specs = PARAM_SPACES[SCHEME]
+        rng_ck = np.random.default_rng(0)
+        population = rng_ck.random((cfg.optimizer.n_pop, len(param_specs)))
+        save_checkpoint(
+            save_dir,
+            generation=10,
+            population=population,
+            costs=np.array([100.0, 200.0, 300.0, 400.0]),
+            best_cost=100.0,
+            best_individual=population[0].copy(),
+            cost_history=[100.0] * 10,
+            rng=rng_ck,
+            config=cfg,
+            cwd=None,
+            param_specs=param_specs,
+            best_val_cost=100.0,
+        )
+        problem = FakeProblem(list(param_specs), seeds=[42], interrupt_after=interrupt_after)
+        _, result = run_trainer(cfg, problem, cwd=str(save_dir.parent), resume_dir=save_dir)
+        return problem, result
+
+    def test_interrupted_final_selection_keeps_the_resumed_label(self, tmp_path: Path) -> None:
+        problem, clean = self._resume_from_g10(tmp_path / "clean", interrupt_after=None)
+        assert clean["interrupted"] is False
+        # The selection simulated fresh candidates, so the run's last evaluation is inside it.
+        assert json.loads((tmp_path / "clean/final_selection.json").read_text())["n_deduped"] > 0
+
+        cut = tmp_path / "cut"
+        _, result = self._resume_from_g10(cut, interrupt_after=problem.n_evals - 1)
+        assert result["interrupted"] is True
+        assert sorted(p.name for p in cut.glob("checkpoint_g*.json")) == ["checkpoint_g00010.json"]
+        assert not (cut / "final_selection.json").exists()
 
 
 class TestResumePreservesCheckpointedBest:
