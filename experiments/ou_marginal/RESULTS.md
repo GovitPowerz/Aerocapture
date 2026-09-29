@@ -204,9 +204,11 @@ Pre-registered decision rule, fixed before any 10^6 score of these runs exists:
   and the standard deviation; nothing is selected on the confirmatory pool.
 - Recipe choice, read on the 10^6 per-scenario confirmatory of #174 with the
   feasibility-first rule of Section 6.2: let S be the three-seed mean CVaR99.9
-  of `hl_mamba_p962` and F the fine-tune's (163.2 +- 1.3). If
-  S <= F + sqrt(sd_S^2 + sd_F^2), v4's recipe is single-stage scratch training
-  and the fine-tunes leave the main body. Otherwise the two-stage recipe
+  of `hl_mamba_p962` and F the fine-tune's (163.2 +- 1.3), with sd_S and sd_F
+  their standard deviations across the three seeds. If
+  S <= F + sqrt((sd_S^2 + sd_F^2) / 3), one standard error of the difference of
+  the two means, v4's recipe is single-stage scratch training and the
+  fine-tunes leave the main body. Otherwise the two-stage recipe
   (shared-path pre-training, then a per-scenario fine-tune) is a stated finding
   with the `hl_*` cells as its control. Either way Section 6's table quotes one
   allocation for every cell.
