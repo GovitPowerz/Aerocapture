@@ -150,9 +150,10 @@ heat-flux violation rate on the same 1000 scenarios (`heat_flux_viol_pct` in
   infeasible (piecewise_constant also 0.6% g-load): the gate rejected 476
   better-RMS infeasible candidates in the piecewise_constant retune and 1715 in
   equilibrium_glide. The ceiling-matched reruns are below.
-- Gated on the validation pool is not feasible out of it: the ftc and
-  equilibrium_glide retunes still exceed the heat-flux limit on 0.2% / 0.4% of
-  these scenarios.
+- Gated on the validation pool is not feasible out of it: the ftc retune still
+  exceeds the heat-flux limit on 0.2% of these scenarios. The equilibrium_glide
+  retune (0.4%) never passed the gate: no candidate was feasible on the
+  validation pool and final selection deployed the best-RMS infeasible one.
 
 ### Ungated reruns (#188, 2026-09-29)
 
@@ -171,12 +172,14 @@ the g-load violation rate.
   One run each, with no seed repeats to size the spread, so this is no
   measurable gain rather than a loss.
 - The ceiling is the whole piecewise_constant regression: opened, the retune
-  goes from 1044.6 back to 445.1. At this allocation the GA found no
-  heat-flux-feasible profile beyond the generation-0 one.
+  goes from 1044.6 back to 445.1. Under the ceiling the GA's last feasible
+  improvement came at generation 258 of 2000 (validation RMS 4.7e8, against
+  3.1e7 for the ungated champion).
 - For equilibrium_glide the ceiling bought nothing: the gated run found no
   feasible candidate and deployed an infeasible one at the same 0.4% flux,
   10.3 m/s above the ungated rerun.
 - Decision (#188): v4 quotes the ungated reruns for both rows, with their
   violation columns; the piecewise_constant row carries a footnote that the
-  only feasible tuning under the strict ceiling was the generation-0 one
-  (1044.6). The other seven rows quote the gated retunes.
+  best feasible tuning under the strict ceiling scores 1044.6 and stopped
+  improving at generation 258 of 2000. The other seven rows quote the gated
+  retunes.

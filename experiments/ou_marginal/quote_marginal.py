@@ -14,6 +14,7 @@ restate it) and prints the table. The cells are every deployed run under
 training_output/ou_marginal/ plus CELLS below, or with `--manifest` the file's
 rows instead (one `label|toml[|model_dir]` per line, `#` comments; no model_dir
 = a classical cell flown from its optimized TOML, unlike confirmatory_marginal.py).
+A row whose best_model.json or optimized TOML does not exist yet is skipped.
 A `label/regime` already in the file is kept, not re-scored: `--only` re-scores the
 named cells (both regimes) and keeps the rest, `--force` re-quotes the listed cells
 into a fresh file (required after a protocol change: n_sims, regimes, seed pool).
@@ -96,6 +97,8 @@ CELLS: list[tuple[str, str, str | None]] = [
 
 
 def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> dict:
+    # The ADR-0005 gate's own limits ([flight.constraints] through read_cost_kwargs), read before the flights.
+    cost_kwargs = read_cost_kwargs(REPO / toml)
     # The ou_marginal configs bake per_draw into the TOML; pin the regime
     # explicitly so BOTH regimes are scored for every cell regardless of
     # which TOML it trained under. The marginal regime re-draws the OU noise
@@ -111,8 +114,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         else None,
         sim_timeout_secs=30.0,
     )
-    # The ADR-0005 gate's own rates: [flight.constraints] limits through read_cost_kwargs.
-    rates = constraint_violation_rates(res.final_records, read_cost_kwargs(REPO / toml))
+    rates = constraint_violation_rates(res.final_records, cost_kwargs)
     assert rates is not None
     cap = res.captured
     dv = res.dv
@@ -155,6 +157,9 @@ def main(argv: list[str] | None = None) -> None:
     for label, toml, model_dir in cells:
         if model_dir is not None and not (REPO / model_dir / "best_model.json").exists():
             print(f"{label:<20} SKIPPED (no best_model.json yet)")
+            continue
+        if model_dir is None and not (REPO / toml).exists():
+            print(f"{label:<20} SKIPPED (no {toml} yet)")
             continue
         for regime in REGIMES:
             if f"{label}/{regime}" in out and not args.only:

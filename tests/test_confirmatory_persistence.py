@@ -245,8 +245,11 @@ def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: Mod
 
     monkeypatch.setattr(qm, "score", fake_score)
     monkeypatch.setattr(qm, "OUT", tmp_path / "quote_results.json")
+    monkeypatch.setattr(qm, "REPO", tmp_path)
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.toml").touch()
     m = tmp_path / "cells.txt"
-    m.write_text("A|a.toml\nB|b.toml\n")
+    m.write_text("A|a.toml\nB|b.toml\nD|d.toml\n")  # d.toml is not written yet: skipped, not flown
     argv = ["--manifest", str(m), "--n-sims", "4"]
 
     qm.main(argv)
