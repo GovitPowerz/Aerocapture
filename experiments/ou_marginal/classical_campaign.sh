@@ -7,6 +7,12 @@
 # training_output/<scheme>/ dirs are the shared-path bundle's inputs and are
 # never written.
 #
+# The optional argument names the campaign: `classical` (default, the nine
+# cells) or `classical_ungated` (#188: piecewise_constant and equilibrium_glide
+# rerun with [optimizer] max_violation_rate = 1.0, the June parents' ungated
+# selection). Configs come from configs/training/ou_marginal/<campaign>/,
+# outputs go to training_output/ou_marginal/<campaign>/<cell>/.
+#
 # Same stoppable/resumable contract as retrain_campaign.sh: run it; stop it any
 # time (Ctrl+C, laptop shutdown: train.py checkpoints every 10 gens with atomic
 # writes and saves on SIGINT); rerun and each cell continues from its latest
@@ -24,15 +30,21 @@
 # cell's optimized_<scheme>.toml.
 #
 # Run from the Terminal panel:
-#   caffeinate -i experiments/ou_marginal/classical_campaign.sh
-# Cost: about 18 h on the M4 Pro (2026-09-29 run), FNPAG about 11.5 h of it.
-# Sanity table afterwards:
+#   caffeinate -i experiments/ou_marginal/classical_campaign.sh [classical|classical_ungated]
+# Cost: about 18 h on the M4 Pro (2026-09-29 run), FNPAG about 11.5 h of it;
+# classical_ungated about 45 min (its two cells took about 20 min each gated).
+# Sanity table afterwards (both campaigns):
 #   uv run python experiments/ou_marginal/quote_marginal.py --manifest experiments/ou_marginal/classical_cells.txt
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+CAMPAIGN=${1:-classical}
 # piecewise_constant first: report.py overlays its sibling's corridor_boundaries.npz on every later cell.
-CELLS="piecewise_constant ftc energy_controller pred_guid ftc_joint energy_controller_joint pred_guid_joint equilibrium_glide fnpag"
+case "$CAMPAIGN" in
+  classical) CELLS="piecewise_constant ftc energy_controller pred_guid ftc_joint energy_controller_joint pred_guid_joint equilibrium_glide fnpag" ;;
+  classical_ungated) CELLS="piecewise_constant equilibrium_glide" ;;
+  *) echo "usage: $0 [classical|classical_ungated]"; exit 2 ;;
+esac
 REF=training_output/mars/ref_trajectory.dat
 
 latest_gen() {
@@ -68,8 +80,8 @@ sys.exit(0 if os.path.exists(sidecar) and os.stat(sidecar).st_mtime_ns > os.stat
 }
 
 for cell in $CELLS; do
-  toml="configs/training/ou_marginal/classical/${cell}.toml"
-  out="training_output/ou_marginal/classical/${cell}"
+  toml="configs/training/ou_marginal/${CAMPAIGN}/${cell}.toml"
+  out="training_output/ou_marginal/${CAMPAIGN}/${cell}"
   mkdir -p "$out"
   # The fixed-reference cells fly the tracked mission reference: never train on a modified one.
   if ! git diff --quiet HEAD -- "$REF"; then
@@ -128,4 +140,4 @@ print(t["guidance"]["type"], o["n_gen"], o["n_pop"], o["training_n_sims"])
     fi
   fi
 done
-echo "Classical campaign pass complete."
+echo "Campaign ${CAMPAIGN} pass complete."

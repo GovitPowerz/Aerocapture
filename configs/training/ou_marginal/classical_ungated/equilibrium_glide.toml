@@ -1,0 +1,9 @@
+# Ungated rerun (#188): the #172 per-scenario retune of equilibrium_glide with the ADR-0005
+# feasibility ceiling opened. Every candidate counts as feasible, so promotion and final selection
+# rank by validation RMS alone, the rule the June shared-path parent was selected by.
+# Driven by experiments/ou_marginal/classical_campaign.sh classical_ungated into
+# training_output/ou_marginal/classical_ungated/equilibrium_glide/.
+base = ["../classical/equilibrium_glide.toml"]
+
+[optimizer]
+max_violation_rate = 1.0

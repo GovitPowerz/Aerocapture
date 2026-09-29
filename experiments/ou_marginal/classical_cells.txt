@@ -2,6 +2,8 @@
 # (experiments/ou_marginal/classical_campaign.sh) next to its shared-path-tuned parent, all flown from their
 # optimized TOMLs (label|toml, no model_dir). The fixed-reference parents are the labels quote_results.json
 # already holds, so they are not re-flown; the joint parents get their first per-scenario number here.
+# The two classical_ungated rows (#188: the same retune without the feasibility ceiling) are scored once
+# `classical_campaign.sh classical_ungated` has written their optimized TOMLs.
 ftc|training_output/ftc/optimized_ftc.toml
 energy_controller|training_output/energy_controller/optimized_energy_controller.toml
 pred_guid|training_output/pred_guid/optimized_pred_guid.toml
@@ -20,3 +22,5 @@ ou_marginal/classical/pred_guid_joint|training_output/ou_marginal/classical/pred
 ou_marginal/classical/equilibrium_glide|training_output/ou_marginal/classical/equilibrium_glide/optimized_equilibrium_glide.toml
 ou_marginal/classical/piecewise_constant|training_output/ou_marginal/classical/piecewise_constant/optimized_piecewise_constant.toml
 ou_marginal/classical/fnpag|training_output/ou_marginal/classical/fnpag/optimized_fnpag.toml
+ou_marginal/classical_ungated/piecewise_constant|training_output/ou_marginal/classical_ungated/piecewise_constant/optimized_piecewise_constant.toml
+ou_marginal/classical_ungated/equilibrium_glide|training_output/ou_marginal/classical_ungated/equilibrium_glide/optimized_equilibrium_glide.toml
