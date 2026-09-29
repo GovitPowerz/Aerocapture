@@ -1,0 +1,14 @@
+# Headline-allocation campaign (#173), in value order. name|target_gen|seed|checkpoint_source_dir
+# ("" = scratch). hl_* = scratch under per_draw at GA 512 x 2; ft_* = fine-tune (the source's
+# g20000 checkpoint + 2000 gens at 60 x 10). Run: campaign.sh experiments/ou_marginal/jobs_headline.txt
+hl_mamba_p962|20000|1|
+hl_dense_p515|20000|1|
+hl_mamba_p962_s2|20000|2|
+hl_dense_p515_s2|20000|2|
+hl_mamba_p962_s3|20000|3|
+hl_dense_p515_s3|20000|3|
+ft_dense_p515_s2|22000|2|training_output/dense_p515_ga_paper_best
+ft_dense_p515_s3|22000|3|training_output/dense_p515_ga_paper_best
+hl_lstm_p1082|20000|1|
+hl_gru_p1014|20000|1|
+hl_dense_p972|20000|1|

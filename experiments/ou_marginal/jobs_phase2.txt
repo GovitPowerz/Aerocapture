@@ -1,0 +1,22 @@
+# OU-marginal phase 2 (2026-08), in value order. name|target_gen|seed|checkpoint_source_dir
+# ("" = scratch). ft_<cell> = the frozen champion's g20000 checkpoint + 2000 per_draw gens (the
+# pilot showed this beats scratch retraining, ~25 min each); <cell>_s2/_s3 = scratch per_draw
+# repeats (sigma_run for the marginal architecture ranking, ~3.7 h each). All at the sweep
+# config's 60 x 10. Run: campaign.sh experiments/ou_marginal/jobs_phase2.txt
+ft_mamba_p962|22000|1|training_output/mamba_p962_long
+ft_mamba_p962_s2|22000|2|training_output/mamba_p962_long
+ft_mamba_p962_s3|22000|3|training_output/mamba_p962_long
+ft_lstm_p1082|22000|1|training_output/lstm_p1082_long
+ft_gru_p1014|22000|1|training_output/gru_p1014_long
+ft_dense_p972|22000|1|training_output/dense_p972_ga_paper_best
+ft_dense_p515|22000|1|training_output/dense_p515_ga_paper_best
+mamba_p962_s2|20000|2|
+lstm_p1082_s2|20000|2|
+gru_p1014_s2|20000|2|
+dense_p972_s2|20000|2|
+dense_p515_s2|20000|2|
+mamba_p962_s3|20000|3|
+lstm_p1082_s3|20000|3|
+gru_p1014_s3|20000|3|
+dense_p972_s3|20000|3|
+dense_p515_s3|20000|3|

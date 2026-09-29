@@ -183,3 +183,32 @@ the g-load violation rate.
   best feasible tuning under the strict ceiling scores 1044.6 and stopped
   improving at generation 258 of 2000. The other seven rows quote the gated
   retunes.
+
+## Headline allocation (#173)
+
+Every NN cell above trained at GA 60 x 10, and the per-scenario headline is a
+fine-tune of a 512 x 2 shared-path checkpoint, so no cell was trained from
+scratch under per-scenario noise at the allocation the paper's methodology
+recommends. `campaign.sh experiments/ou_marginal/jobs_headline.txt` trains that
+control: `hl_<cell>` is the family config under per_draw at GA n_pop 512,
+training_n_sims 2, adaptive curation, cubed transform, 20000 gens from scratch
+(three seeds for mamba_962 and dense_515, one for lstm_1082, gru_1014,
+dense_972); `ft_dense_p515_s2` / `_s3` add the two missing dense fine-tune seeds
+at the fine-tune recipe (60 x 10, 2000 gens), comparable with the three
+ft_mamba seeds. About 68 h sequential (7.5 h per `hl_*` job, 25 min per
+fine-tune).
+
+Pre-registered decision rule, fixed before any 10^6 score of these runs exists:
+
+- The deployed v4 seed of every cell is seed 1. Seeds 2 and 3 report the mean
+  and the standard deviation; nothing is selected on the confirmatory pool.
+- Recipe choice, read on the 10^6 per-scenario confirmatory of #174 with the
+  feasibility-first rule of Section 6.2: let S be the three-seed mean CVaR99.9
+  of `hl_mamba_p962` and F the fine-tune's (163.2 +- 1.3). If
+  S <= F + sqrt(sd_S^2 + sd_F^2), v4's recipe is single-stage scratch training
+  and the fine-tunes leave the main body. Otherwise the two-stage recipe
+  (shared-path pre-training, then a per-scenario fine-tune) is a stated finding
+  with the `hl_*` cells as its control. Either way Section 6's table quotes one
+  allocation for every cell.
+
+The n = 1000 per-scenario numbers per job land here when the campaign finishes.
