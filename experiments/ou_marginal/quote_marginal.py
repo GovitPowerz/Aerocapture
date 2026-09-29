@@ -33,11 +33,11 @@ import argparse
 import json
 from pathlib import Path
 
-import aerocapture_rs
 import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.report import _read_constraint_limits
+from aerocapture.training.evaluate import constraint_violation_rates
+from aerocapture.training.report import read_cost_kwargs
 from confirmatory_marginal import read_manifest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -96,9 +96,6 @@ CELLS: list[tuple[str, str, str | None]] = [
 
 
 def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> dict:
-    idx = aerocapture_rs.final_record_indices()
-    _, _, heat_load_limit_kj = _read_constraint_limits(REPO / toml)  # [flight.constraints] is authoritative
-    assert heat_load_limit_kj is not None
     # The ou_marginal configs bake per_draw into the TOML; pin the regime
     # explicitly so BOTH regimes are scored for every cell regardless of
     # which TOML it trained under. The marginal regime re-draws the OU noise
@@ -114,10 +111,11 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         else None,
         sim_timeout_secs=30.0,
     )
-    fr = res.final_records
+    # The ADR-0005 gate's own rates: [flight.constraints] limits through read_cost_kwargs.
+    rates = constraint_violation_rates(res.final_records, read_cost_kwargs(REPO / toml))
+    assert rates is not None
     cap = res.captured
     dv = res.dv
-    hl = fr[:, idx["heat_load_mjm2"]]
     p50, p95, p99 = np.percentile(dv, [50, 95, 99])
     return {
         "capture_pct": round(100.0 * cap.mean(), 2),
@@ -125,7 +123,9 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         "dv_p95": round(float(p95), 2),
         "dv_p99": round(float(p99), 2),
         "dv_cvar95": round(float(dv[dv >= p95].mean()), 2),
-        "heat_load_viol_pct": round(100.0 * float((hl * 1e3 > heat_load_limit_kj).mean()), 2),
+        "heat_load_viol_pct": round(100.0 * rates["heat_load"], 2),
+        "heat_flux_viol_pct": round(100.0 * rates["heat_flux"], 2),
+        "g_load_viol_pct": round(100.0 * rates["g_load"], 2),
     }
 
 
@@ -167,7 +167,8 @@ def main(argv: list[str] | None = None) -> None:
             tmp.replace(OUT)
             print(
                 f"{label:<20} {regime:<8} capture {m['capture_pct']:6.1f}%  p50 {m['dv_p50']:7.1f}  "
-                f"p95 {m['dv_p95']:7.1f}  cvar95 {m['dv_cvar95']:7.1f}  hl_viol {m['heat_load_viol_pct']:.1f}%"
+                f"p95 {m['dv_p95']:7.1f}  cvar95 {m['dv_cvar95']:7.1f}  viol hl/flux/g {m['heat_load_viol_pct']:.1f}/"
+                f"{m['heat_flux_viol_pct']:.1f}/{m['g_load_viol_pct']:.1f}%"
             )
     print(f"\nWritten {OUT}")
 

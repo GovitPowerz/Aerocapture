@@ -123,8 +123,8 @@ The nine classical cells of `experiments/paper/01_classical_baselines.sh` and
 shared-path-tuned parents (`quote_marginal.py --manifest
 experiments/ou_marginal/classical_cells.txt`; the joint parents are
 `paper/joint_reference/<scheme>`). Marginal regime, CVaR95 in m/s; flux is the
-heat-flux violation rate on the same 1000 scenarios, from a separate pass
-(`quote_results.json` carries heat-load violations only, 0.0% on every row here).
+heat-flux violation rate on the same 1000 scenarios (`heat_flux_viol_pct` in
+`quote_results.json`; heat-load violations are 0.0% on every row here).
 
 | cell                    | parent capture / CVaR95 / flux | retuned capture / CVaR95 / flux |
 |-------------------------|--------------------------------|---------------------------------|
