@@ -562,6 +562,198 @@
    "dv_p99": 460.47,
    "dv_cvar95": 435.18,
    "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/ftc/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 125.24,
+   "dv_p95": 137.8,
+   "dv_p99": 146.87,
+   "dv_cvar95": 144.1,
+   "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/ftc/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 124.16,
+   "dv_p95": 141.42,
+   "dv_p99": 157.74,
+   "dv_cvar95": 151.98,
+   "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/energy_controller/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 138.88,
+   "dv_p95": 166.19,
+   "dv_p99": 175.91,
+   "dv_cvar95": 172.98,
+   "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/energy_controller/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 143.05,
+   "dv_p95": 197.05,
+   "dv_p99": 341.74,
+   "dv_cvar95": 279.37,
+   "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/pred_guid/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 143.03,
+   "dv_p95": 163.17,
+   "dv_p99": 175.98,
+   "dv_cvar95": 169.48,
+   "heat_load_viol_pct": 0.0
+  },
+  "paper/joint_reference/pred_guid/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 148.41,
+   "dv_p95": 203.58,
+   "dv_p99": 285.31,
+   "dv_cvar95": 254.6,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/ftc/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 167.55,
+   "dv_p95": 208.52,
+   "dv_p99": 234.26,
+   "dv_cvar95": 225.91,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/ftc/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 171.67,
+   "dv_p95": 217.99,
+   "dv_p99": 251.41,
+   "dv_cvar95": 241.18,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/energy_controller/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 175.55,
+   "dv_p95": 228.41,
+   "dv_p99": 241.73,
+   "dv_cvar95": 237.62,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/energy_controller/marginal": {
+   "capture_pct": 99.8,
+   "dv_p50": 188.84,
+   "dv_p95": 238.48,
+   "dv_p99": 277.85,
+   "dv_cvar95": 259.7,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/pred_guid/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 177.66,
+   "dv_p95": 221.27,
+   "dv_p99": 243.55,
+   "dv_cvar95": 237.57,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/pred_guid/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 177.09,
+   "dv_p95": 223.5,
+   "dv_p99": 252.53,
+   "dv_cvar95": 242.86,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/ftc_joint/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 127.42,
+   "dv_p95": 139.19,
+   "dv_p99": 145.17,
+   "dv_cvar95": 143.24,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/ftc_joint/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 125.55,
+   "dv_p95": 139.67,
+   "dv_p99": 152.83,
+   "dv_cvar95": 149.56,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/energy_controller_joint/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 131.02,
+   "dv_p95": 166.32,
+   "dv_p99": 252.09,
+   "dv_cvar95": 206.01,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/energy_controller_joint/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 133.14,
+   "dv_p95": 175.15,
+   "dv_p99": 230.2,
+   "dv_cvar95": 203.19,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/pred_guid_joint/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 133.62,
+   "dv_p95": 166.66,
+   "dv_p99": 185.42,
+   "dv_cvar95": 181.77,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/pred_guid_joint/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 135.11,
+   "dv_p95": 174.35,
+   "dv_p99": 208.63,
+   "dv_cvar95": 195.65,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/equilibrium_glide/frozen": {
+   "capture_pct": 99.8,
+   "dv_p50": 173.85,
+   "dv_p95": 283.0,
+   "dv_p99": 354.46,
+   "dv_cvar95": 330.7,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/equilibrium_glide/marginal": {
+   "capture_pct": 99.8,
+   "dv_p50": 178.36,
+   "dv_p95": 298.4,
+   "dv_p99": 372.85,
+   "dv_cvar95": 346.52,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/piecewise_constant/frozen": {
+   "capture_pct": 99.9,
+   "dv_p50": 463.67,
+   "dv_p95": 984.7,
+   "dv_p99": 1126.79,
+   "dv_cvar95": 1060.1,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/piecewise_constant/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 446.64,
+   "dv_p95": 969.21,
+   "dv_p99": 1108.35,
+   "dv_cvar95": 1044.64,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/fnpag/frozen": {
+   "capture_pct": 100.0,
+   "dv_p50": 125.01,
+   "dv_p95": 139.49,
+   "dv_p99": 144.82,
+   "dv_cvar95": 142.59,
+   "heat_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical/fnpag/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 122.9,
+   "dv_p95": 138.44,
+   "dv_p99": 145.71,
+   "dv_cvar95": 143.62,
+   "heat_load_viol_pct": 0.0
   }
  }
 }

@@ -10,6 +10,9 @@ clean HEAD, `make check` fails until then). `quote_marginal.py` keeps every
 with Ctrl-C and rerun the same command (without `--force`) to resume; a cell whose
 model changed since its quote needs `--only LABEL`; cells outside the discovered
 `training_output/ou_marginal/*/` runs come in by `--manifest` (`label|toml[|model_dir]`).
+The file holds both lists, so a protocol re-quote is two runs: `--force`, then
+`--manifest experiments/ou_marginal/classical_cells.txt` without `--force` (with
+it, the fresh file would drop every default row, the paper's included).
 All numbers below are the MARGINAL
 regime, DV CVaR95 in m/s; every listed run is 100% capture and heat-load
 feasible unless flagged.
@@ -111,3 +114,42 @@ replays, caught by md5 of the deployed weights). Far-tail confirmatory
 CVaR999 three-seed mean 163.2 +- 1.3 -- the 73 m/s margin over dense/FNPAG is
 seed-robust; capture is seed-dependent at the 1e-4 level, so deployed policies
 must be confirmatory-screened (as the protocol already requires).
+
+## Classical retunes under per-scenario noise (#172, 2026-09-29)
+
+The nine classical cells of `experiments/paper/01_classical_baselines.sh` and
+`07_joint_reference.sh`, re-tuned under per_draw at the same GA allocation
+(`classical_campaign.sh`), quoted on this file's paired pool next to their
+shared-path-tuned parents (`quote_marginal.py --manifest
+experiments/ou_marginal/classical_cells.txt`; the joint parents are
+`paper/joint_reference/<scheme>`). Marginal regime, CVaR95 in m/s; flux is the
+heat-flux violation rate on the same 1000 scenarios, from a separate pass
+(`quote_results.json` carries heat-load violations only, 0.0% on every row here).
+
+| cell                    | parent capture / CVaR95 / flux | retuned capture / CVaR95 / flux |
+|-------------------------|--------------------------------|---------------------------------|
+| ftc                     | 100.0% / 261.3 / 0.3%          | 100.0% / 241.2 / 0.2%           |
+| energy_controller       |  99.6% / 265.0 / 0.0%          |  99.8% / 259.7 / 0.0%           |
+| pred_guid               |  99.9% / 243.6 / 0.0%          | 100.0% / 242.9 / 0.0%           |
+| ftc_joint               | 100.0% / 152.0 / 0.0%          | 100.0% / 149.6 / 0.0%           |
+| energy_controller_joint | 100.0% / 279.4 / 0.0%          | 100.0% / 203.2 / 0.0%           |
+| pred_guid_joint         | 100.0% / 254.6 / 0.0%          | 100.0% / 195.7 / 0.0%           |
+| equilibrium_glide       |  99.6% / 331.4 / 0.8%          |  99.8% / 346.5 / 0.4%           |
+| piecewise_constant      | 100.0% / 435.2 / 4.7%          | 100.0% / 1044.6 / 0.0%          |
+| fnpag                   |  99.4% / 154.3 / 0.0%          | 100.0% / 143.6 / 0.0%           |
+
+- Conclusion 4 above is superseded against the per-scenario-tuned FNPAG: 143.6
+  is below every scratch mean (148.1-158.7) and ft_dense_972 (145.2); only
+  ft_dense_515 (129.8), ft_mamba_962 (138.6) and the infeasible ft_lstm_1082
+  stay below it. The far-tail table above flies the shared-path-tuned FNPAG.
+- The pairs differ in two variables, not one: the retunes trained under
+  ADR-0005's strict ceiling (`max_violation_rate = 0.0` from
+  `configs/training/common.toml`, 1000-sim validation pool) and the June parents
+  were never gated. piecewise_constant and equilibrium_glide score worse than
+  their parents (the #172 suspect-run signal), and both parents are heat-flux
+  infeasible (piecewise_constant also 0.6% g-load): the gate rejected 476
+  better-RMS infeasible candidates in the piecewise_constant retune and 1715 in
+  equilibrium_glide. A regime-only delta needs a ceiling-matched rerun.
+- Gated on the validation pool is not feasible out of it: the ftc and
+  equilibrium_glide retunes still exceed the heat-flux limit on 0.2% / 0.4% of
+  these scenarios.

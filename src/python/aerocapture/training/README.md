@@ -799,7 +799,7 @@ validation_n_sims` sims each).
   the 20000-gen target; configs `configs/training/ou_marginal/`, outputs
   `training_output/ou_marginal/<cell>/`), `quote_marginal.py` (the quote table, auto-discovering
   every `training_output/ou_marginal/*/best_model.json`, or `--manifest` rows; keeps a
-  `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file),
+  `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file; the committed file also holds the `classical_cells.txt` rows, so a protocol re-quote is `--force` then `--manifest classical_cells.txt` without it),
   `confirmatory_marginal.py` (the per_draw 10 x 100k far-tail pools, cells from
   `confirmatory_cells.txt` or `--manifest` / `--cells`, resumable per replicate),
   `phase2_campaign.sh` (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw gens,
