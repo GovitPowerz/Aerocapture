@@ -25,7 +25,7 @@
 #
 # Run from the Terminal panel:
 #   caffeinate -i experiments/ou_marginal/classical_campaign.sh
-# Cost: about 8 h on the M4 Pro, FNPAG about 3 h of it.
+# Cost: about 18 h on the M4 Pro (2026-09-29 run), FNPAG about 11.5 h of it.
 # Sanity table afterwards:
 #   uv run python experiments/ou_marginal/quote_marginal.py --manifest experiments/ou_marginal/classical_cells.txt
 set -euo pipefail
