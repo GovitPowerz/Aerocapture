@@ -69,6 +69,8 @@ def test_every_job_is_runnable(jobs: Path) -> None:
     for name, target, seed, src in read_jobs(jobs):
         cfg = load_toml_with_bases(CONFIG_DIR / f"{name}.toml")
         assert cfg["monte_carlo"]["noise_seeding"] == "per_draw", name
+        # campaign.sh's allocation check reads the checkpoint's seed curator
+        assert cfg["optimizer"]["seed_strategy"] == "adaptive", name
         assert cfg["data"]["neural_network"] == f"training_output/ou_marginal/{name}/best_model.json", name
         suffix = re.search(r"_s(\d)$", name)
         assert seed == (int(suffix.group(1)) if suffix else 1), name

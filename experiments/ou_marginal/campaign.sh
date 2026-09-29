@@ -25,7 +25,7 @@
 # training_n_sims bins; after a job, its best_model.json differs from every
 # sibling seed's (<cell>, <cell>_sN). A pass checks its allocation only when it
 # ends: to check a fresh job at its first checkpoint, Ctrl+C once
-# checkpoint_g00010 exists and rerun (the resume checks it).
+# checkpoint_g00010 exists (the interrupted pass checks it) and rerun.
 # After a job reaches its target, report.py writes the n = 1000 per-scenario
 # final_eval.parquet when it is missing or older than best_model.json.
 set -euo pipefail
@@ -35,13 +35,15 @@ if [ $# -ne 1 ] || [ ! -f "$1" ]; then
   exit 2
 fi
 JOBS=$(grep -v '^[[:space:]]*#' "$1" | grep -v '^[[:space:]]*$' || true)
+cd "$(dirname "$0")/../.."
+# Every line is checked before the first job trains: a typo must not surface hours in.
+job_re='^[A-Za-z0-9_]+[|][1-9][0-9]*[|][1-9][0-9]*[|][^|[:space:]]*$'
 for job in $JOBS; do
-  if [ "$(echo "$job" | tr -cd '|')" != "|||" ]; then
-    echo "== $1: '${job}' is not name|target_gen|seed|checkpoint_source_dir"
+  if ! [[ "$job" =~ $job_re ]] || [ ! -f "configs/training/ou_marginal/${job%%|*}.toml" ]; then
+    echo "== $1: '${job}' is not name|target_gen|seed|checkpoint_source_dir with configs/training/ou_marginal/<name>.toml"
     exit 2
   fi
 done
-cd "$(dirname "$0")/../.."
 SEED_GEN=20000
 
 latest_gen() {
@@ -101,15 +103,17 @@ print(t["optimizer"]["n_pop"], t["optimizer"]["training_n_sims"], t["data"]["neu
   if [ -n "$src" ] && [ "$last" -eq 0 ]; then
     # The .json goes in last and whole: latest_gen keys on it, so a crash mid-seed
     # reseeds on rerun instead of resuming a copy that still holds the source RNG.
+    # The staging name is the trainer's hidden .tmp_ prefix: ls and the resume glob skip it.
     ckpt="$out/checkpoint_g${SEED_GEN}.json"
+    tmp="$out/.tmp_checkpoint_g${SEED_GEN}.json"
     cp "$src/checkpoint_g${SEED_GEN}.npz" "$out/"
-    cp "$src/checkpoint_g${SEED_GEN}.json" "$ckpt.tmp"
+    cp "$src/checkpoint_g${SEED_GEN}.json" "$tmp"
     if [ "$seed" != "1" ]; then
       uv run python -c 'import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["rng_state"] = None; json.dump(d, open(p, "w"))' \
-        "$ckpt.tmp"
+        "$tmp"
       echo "== ${name}: stripped rng_state (trainer seed ${seed} takes effect)"
     fi
-    mv "$ckpt.tmp" "$ckpt"
+    mv "$tmp" "$ckpt"
     last=$SEED_GEN
     echo "== ${name}: seeded checkpoint g${SEED_GEN} from ${src}"
   fi
