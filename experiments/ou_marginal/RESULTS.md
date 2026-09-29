@@ -123,8 +123,8 @@ The nine classical cells of `experiments/paper/01_classical_baselines.sh` and
 shared-path-tuned parents (`quote_marginal.py --manifest
 experiments/ou_marginal/classical_cells.txt`; the joint parents are
 `paper/joint_reference/<scheme>`). Marginal regime, CVaR95 in m/s; flux is the
-heat-flux violation rate on the same 1000 scenarios, from a separate pass
-(`quote_results.json` carries heat-load violations only, 0.0% on every row here).
+heat-flux violation rate on the same 1000 scenarios (`heat_flux_viol_pct` in
+`quote_results.json`; heat-load violations are 0.0% on every row here).
 
 | cell                    | parent capture / CVaR95 / flux | retuned capture / CVaR95 / flux |
 |-------------------------|--------------------------------|---------------------------------|
@@ -149,7 +149,37 @@ heat-flux violation rate on the same 1000 scenarios, from a separate pass
   their parents (the #172 suspect-run signal), and both parents are heat-flux
   infeasible (piecewise_constant also 0.6% g-load): the gate rejected 476
   better-RMS infeasible candidates in the piecewise_constant retune and 1715 in
-  equilibrium_glide. A regime-only delta needs a ceiling-matched rerun.
-- Gated on the validation pool is not feasible out of it: the ftc and
-  equilibrium_glide retunes still exceed the heat-flux limit on 0.2% / 0.4% of
-  these scenarios.
+  equilibrium_glide. The ceiling-matched reruns are below.
+- Gated on the validation pool is not feasible out of it: the ftc retune still
+  exceeds the heat-flux limit on 0.2% of these scenarios. The equilibrium_glide
+  retune (0.4%) never passed the gate: no candidate was feasible on the
+  validation pool and final selection deployed the best-RMS infeasible one.
+
+### Ungated reruns (#188, 2026-09-29)
+
+piecewise_constant and equilibrium_glide rerun with `max_violation_rate = 1.0`
+(`classical_campaign.sh classical_ungated`), so each rerun selects by validation
+RMS alone, the rule its June parent was selected by. Same pool and columns; g is
+the g-load violation rate.
+
+| cell               | parent capture / CVaR95 / flux / g | gated retune                  | ungated rerun                |
+|--------------------|------------------------------------|-------------------------------|------------------------------|
+| equilibrium_glide  |  99.6% / 331.4 / 0.8% / 0.0%       |  99.8% / 346.5 / 0.4% / 0.0%  |  99.7% / 336.2 / 0.4% / 0.0% |
+| piecewise_constant | 100.0% / 435.2 / 4.7% / 0.6%       | 100.0% / 1044.6 / 0.0% / 0.0% | 100.0% / 445.1 / 3.1% / 0.3% |
+
+- The regime alone gains nothing for these two: the ungated reruns sit 4.8
+  (equilibrium_glide) and 9.9 (piecewise_constant) m/s above their parents.
+  One run each, with no seed repeats to size the spread, so this is no
+  measurable gain rather than a loss.
+- The ceiling is the whole piecewise_constant regression: opened, the retune
+  goes from 1044.6 back to 445.1. Under the ceiling the GA's last feasible
+  improvement came at generation 258 of 2000 (validation RMS 4.7e8, against
+  3.1e7 for the ungated champion).
+- For equilibrium_glide the ceiling bought nothing: the gated run found no
+  feasible candidate and deployed an infeasible one at the same 0.4% flux,
+  10.3 m/s above the ungated rerun.
+- Decision (#188): v4 quotes the ungated reruns for both rows, with their
+  violation columns; the piecewise_constant row carries a footnote that the
+  best feasible tuning under the strict ceiling scores 1044.6 and stopped
+  improving at generation 258 of 2000. The other seven rows quote the gated
+  retunes.

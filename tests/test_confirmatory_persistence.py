@@ -241,12 +241,15 @@ def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: Mod
 
     def fake_score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> dict:
         scored.append(f"{toml}/{regime}")
-        return {k: 1.0 for k in ("capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "heat_load_viol_pct")}
+        return {k: 1.0 for k in ("capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "heat_load_viol_pct", "heat_flux_viol_pct", "g_load_viol_pct")}
 
     monkeypatch.setattr(qm, "score", fake_score)
     monkeypatch.setattr(qm, "OUT", tmp_path / "quote_results.json")
+    monkeypatch.setattr(qm, "REPO", tmp_path)
+    for name in ("a", "b", "c"):
+        (tmp_path / f"{name}.toml").touch()
     m = tmp_path / "cells.txt"
-    m.write_text("A|a.toml\nB|b.toml\n")
+    m.write_text("A|a.toml\nB|b.toml\nD|d.toml\n")  # d.toml is not written yet: skipped, not flown
     argv = ["--manifest", str(m), "--n-sims", "4"]
 
     qm.main(argv)
