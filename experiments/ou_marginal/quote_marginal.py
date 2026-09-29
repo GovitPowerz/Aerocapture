@@ -17,6 +17,8 @@ rows instead (one `label|toml[|model_dir]` per line, `#` comments; no model_dir
 A `label/regime` already in the file is kept, not re-scored: `--only` re-scores the
 named cells (both regimes) and keeps the rest, `--force` re-quotes the listed cells
 into a fresh file (required after a protocol change: n_sims, regimes, seed pool).
+The committed file holds the default cells and the classical_cells.txt manifest's:
+re-quote with `--force`, then `--manifest classical_cells.txt` without `--force`.
 A cell whose model changed since its quote (a resumed training,
 audit_deployed_models.py --repair) keeps its old numbers until `--only` re-scores it.
 
