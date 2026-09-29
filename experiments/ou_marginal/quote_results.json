@@ -826,6 +826,46 @@
    "heat_load_viol_pct": 0.0,
    "heat_flux_viol_pct": 0.0,
    "g_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical_ungated/piecewise_constant/frozen": {
+   "capture_pct": 99.9,
+   "dv_p50": 244.06,
+   "dv_p95": 389.56,
+   "dv_p99": 444.44,
+   "dv_cvar95": 431.01,
+   "heat_load_viol_pct": 0.0,
+   "heat_flux_viol_pct": 0.7,
+   "g_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical_ungated/piecewise_constant/marginal": {
+   "capture_pct": 100.0,
+   "dv_p50": 248.27,
+   "dv_p95": 397.02,
+   "dv_p99": 470.05,
+   "dv_cvar95": 445.09,
+   "heat_load_viol_pct": 0.0,
+   "heat_flux_viol_pct": 3.1,
+   "g_load_viol_pct": 0.3
+  },
+  "ou_marginal/classical_ungated/equilibrium_glide/frozen": {
+   "capture_pct": 99.6,
+   "dv_p50": 180.85,
+   "dv_p95": 285.33,
+   "dv_p99": 346.69,
+   "dv_cvar95": 324.87,
+   "heat_load_viol_pct": 0.0,
+   "heat_flux_viol_pct": 0.0,
+   "g_load_viol_pct": 0.0
+  },
+  "ou_marginal/classical_ungated/equilibrium_glide/marginal": {
+   "capture_pct": 99.7,
+   "dv_p50": 181.69,
+   "dv_p95": 297.19,
+   "dv_p99": 361.62,
+   "dv_cvar95": 336.18,
+   "heat_load_viol_pct": 0.0,
+   "heat_flux_viol_pct": 0.4,
+   "g_load_viol_pct": 0.0
   }
  }
 }
