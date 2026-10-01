@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -376,7 +375,6 @@ def generate_animation(
     if not checkpoints:
         msg = f"No checkpoints found in {training_dir}"
         raise FileNotFoundError(msg)
-    nn_path = Path(tempfile.gettempdir()) / f"animate_frame_model_{os.getpid()}.json"  # NN frames' scratch model
 
     # Load TOML for guidance type and constraint limits
     from aerocapture.training.toml_utils import load_toml_with_bases
@@ -392,90 +390,94 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    # Step 1: Pre-compute axis ranges from the final checkpoint
-    # NOTE: Axis ranges are computed from the final (most converged) checkpoint's trajectories.
-    # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
-    # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
-    last = checkpoints[-1]
-    last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims, nn_path)
-    last_results = fly_mc(None, toml_path, extra_overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
-    assert last_results.trajectories is not None
-    all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
-    axis_ranges = _compute_axis_ranges(last_results.trajectories, all_costs_for_range)
+    with tempfile.TemporaryDirectory(prefix="animate_frame_model_") as scratch_dir:  # NN frames' scratch model, never the TOML's deploy path
+        nn_path = Path(scratch_dir) / "model.json"
+        # Step 1: Pre-compute axis ranges from the final checkpoint
+        # NOTE: Axis ranges are computed from the final (most converged) checkpoint's trajectories.
+        # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
+        # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
+        last = checkpoints[-1]
+        last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims, nn_path)
+        last_results = fly_mc(None, toml_path, extra_overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+        assert last_results.trajectories is not None
+        all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
+        axis_ranges = _compute_axis_ranges(last_results.trajectories, all_costs_for_range)
 
-    # Step 2: Render frames with progress bar
-    try:
-        from rich.progress import Progress
+        # Step 2: Render frames with progress bar
+        try:
+            from rich.progress import Progress
 
-        progress_ctx = Progress()
-    except ImportError:
-        progress_ctx = None  # type: ignore[assignment]
+            progress_ctx = Progress()
+        except ImportError:
+            progress_ctx = None  # type: ignore[assignment]
 
-    matplotlib.use("Agg")
-    apply_theme()
+        matplotlib.use("Agg")
+        apply_theme()
 
-    from matplotlib.animation import PillowWriter
+        from matplotlib.animation import PillowWriter
 
-    fig_placeholder = plt.figure()  # PillowWriter needs a figure to init
-    writer = PillowWriter(fps=fps)
-    writer.setup(fig_placeholder, str(output), dpi=100)
-    plt.close(fig_placeholder)
+        fig_placeholder = plt.figure()  # PillowWriter needs a figure to init
+        writer = PillowWriter(fps=fps)
+        writer.setup(fig_placeholder, str(output), dpi=100)
+        plt.close(fig_placeholder)
 
-    if progress_ctx is not None:
-        progress_ctx.start()
-        task_id = progress_ctx.add_task("Rendering frames", total=len(checkpoints))
+        if progress_ctx is not None:
+            progress_ctx.start()
+            task_id = progress_ctx.add_task("Rendering frames", total=len(checkpoints))
 
-    try:
-        for ckpt in checkpoints:
-            gen = ckpt["generation"]
-            best_chrom = ckpt["best_chromosome"]
-            if best_chrom is None:
+        try:
+            for ckpt in checkpoints:
+                gen = ckpt["generation"]
+                best_chrom = ckpt["best_chromosome"]
+                if best_chrom is None:
+                    if progress_ctx is not None:
+                        progress_ctx.advance(task_id)
+                    continue
+
+                # Decode + run MC (the last checkpoint was flown above for the axis ranges)
+                if ckpt is last:
+                    results = last_results
+                else:
+                    overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims, nn_path)
+                    results = fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+                assert results.trajectories is not None
+                trajectories = results.trajectories
+                final_records = results.final_records
+
+                # Classify trajectories and derive capture rate (avoids magic column indices)
+                traj_class = classify_trajectories(
+                    final_records,
+                    heat_flux_limit=heat_flux_limit,
+                    g_load_limit=g_load_limit,
+                    heat_load_limit=heat_load_limit,
+                )
+                captured = traj_class != TRAJ_FAILED
+                capture_rate = float(np.mean(captured))
+
+                # Corridor from checkpoint
+                corridor_data = _reconstruct_corridor(ckpt["npz_data"])
+
+                # Render frame
+                fig = _render_frame(
+                    generation=gen,
+                    best_cost=ckpt["best_cost"],
+                    capture_rate=capture_rate,
+                    trajectories=trajectories,
+                    traj_class=traj_class,
+                    costs=ckpt["costs"],
+                    corridor_data=corridor_data,
+                    axis_ranges=axis_ranges,
+                )
+                writer.fig = fig  # Point writer at the actual frame
+                writer.grab_frame()
+                plt.close(fig)
+
                 if progress_ctx is not None:
                     progress_ctx.advance(task_id)
-                continue
-
-            # Decode + run MC
-            overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims, nn_path)
-            results = fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
-            assert results.trajectories is not None
-            trajectories = results.trajectories
-            final_records = results.final_records
-
-            # Classify trajectories and derive capture rate (avoids magic column indices)
-            traj_class = classify_trajectories(
-                final_records,
-                heat_flux_limit=heat_flux_limit,
-                g_load_limit=g_load_limit,
-                heat_load_limit=heat_load_limit,
-            )
-            captured = traj_class != TRAJ_FAILED
-            capture_rate = float(np.mean(captured))
-
-            # Corridor from checkpoint
-            corridor_data = _reconstruct_corridor(ckpt["npz_data"])
-
-            # Render frame
-            fig = _render_frame(
-                generation=gen,
-                best_cost=ckpt["best_cost"],
-                capture_rate=capture_rate,
-                trajectories=trajectories,
-                traj_class=traj_class,
-                costs=ckpt["costs"],
-                corridor_data=corridor_data,
-                axis_ranges=axis_ranges,
-            )
-            writer.fig = fig  # Point writer at the actual frame
-            writer.grab_frame()
-            plt.close(fig)
-
+        finally:
+            writer.finish()
             if progress_ctx is not None:
-                progress_ctx.advance(task_id)
-    finally:
-        writer.finish()
-        nn_path.unlink(missing_ok=True)
-        if progress_ctx is not None:
-            progress_ctx.stop()
+                progress_ctx.stop()
 
     return output
 

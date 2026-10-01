@@ -139,8 +139,8 @@ deployed recurrent headline is the selective SSM.
    The GRU and LSTM reference rows were re-scored on 2026-09-26 (#170): the first
    scoring flew `gru_p1014_long` (20,000 generations, GRU 117.3) and the LSTM repeat
    s3, which had overwritten the two sweep cells' `best_model.json`. The Mamba and
-   LSTM gaps are a training-budget effect (the 962 cells had ~3.4x the
-   individual-evaluations), NOT architecture; the GRU sweep cell lands on the other
+   LSTM gaps are a training-budget effect (the 962 reference had ~3.4x the
+   individual-evaluations, the LSTM sweep cell 1.7x), NOT architecture; the GRU sweep cell lands on the other
    side, so one larger-budget run can fall either way. It is exactly why the probes retrain
    in-regime baselines rather than comparing treatments against the deployed
    champions - and it validates that design choice. Any paper sentence must

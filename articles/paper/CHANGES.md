@@ -200,7 +200,7 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
     Discussion, the conclusion, Appendix A's timing paragraph, Appendix C) now reads the file;
     Appendix A names its spread as the standard deviation over the five repeats, 0.6--2.0% of the
     median (0.1--2.2% on the old run). `fig_classical_vs_nn` moves with the four timings.
-  - The "2--4 times" of the abstract, Section 1 and the regime-table caption is now asserted as
+  - The "2--4 times" of the abstract, Section 2 and the regime-table caption is now asserted as
     each network's tail loss over the classical laws' mean loss (2.5--4.0; the overwritten dense
     row had put it at 4.8). The colophon lists `compute_benchmark.json` and `data/probes/`. The
     committed `paper.pdf` is not recompiled here.

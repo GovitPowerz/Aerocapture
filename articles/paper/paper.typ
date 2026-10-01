@@ -106,11 +106,11 @@
 #let ou_nets = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515")
 #let ou_laws = ("fnpag", "pred_guid", "ftc")
 #let ou_shift(label) = R.ou(label).cvar95 - R.ou(label, regime: "frozen").cvar95
-// The "2--4 times" of the abstract, Section 1 and the regime-table caption: each network's tail
+// The "2--4 times" of the abstract, Section 2 and the regime-table caption: each network's tail
 // loss over the classical laws' mean loss.
 #let ou_law_shift = ou_laws.map(ou_shift).sum() / ou_laws.len()
 #assert(ou_nets.all(l => ou_shift(l) >= 2 * ou_law_shift and ou_shift(l) <= 4 * ou_law_shift),
-  message: "the abstract, Section 1 and the regime-table caption state that the networks give up 2--4 times the classical schemes' tail")
+  message: "the abstract, Section 2 and the regime-table caption state that the networks give up 2--4 times the classical schemes' tail")
 #let ou_fnpag1k = R.ou("fnpag")
 #assert(ou_fnpag1k.viol_pct == 0, message: "the prose states clean constraints for the deployed FNPAG under per-scenario noise")
 #let ou_scratch(label) = ("", "_s2", "_s3").map(s => R.ou("ou_" + label + s))
