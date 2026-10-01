@@ -802,7 +802,8 @@ validation_n_sims` sims each).
   `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file; the committed file also holds the `classical_cells.txt` rows, so a protocol re-quote is `--force` then `--manifest classical_cells.txt` without it),
   `confirmatory_marginal.py` (the per_draw 10 x 100k far-tail pools, cells from
   `confirmatory_cells.txt` or `--manifest` / `--cells`, resumable per replicate),
-  `campaign.sh <jobs file>` (the NN campaign runner: one `name|target_gen|seed|checkpoint_source_dir`
+  `campaign.sh <jobs file>` (the NN campaign runner, helpers shared with `classical_campaign.sh` in
+  `campaign_lib.sh`: one `name|target_gen|seed|checkpoint_source_dir`
   per line trains `configs/training/ou_marginal/<name>.toml` into `training_output/ou_marginal/<name>/`
   with `--seed`, from scratch or from the source's copied `checkpoint_g20000`; every repeat job
   strips `rng_state` from its copied checkpoint, because a checkpoint resume restores the saved

@@ -151,9 +151,9 @@ def main(argv: list[str] | None = None) -> None:
         if unknown:
             raise SystemExit(f"unknown cell label(s): {', '.join(sorted(unknown))}")
         cells = [c for c in cells if c[0] in args.only]
-        missing = [label for label, _, model_dir in cells if model_dir is not None and not (REPO / model_dir / "best_model.json").exists()]
+        missing = [label for label, toml, model_dir in cells if not (REPO / (toml if model_dir is None else f"{model_dir}/best_model.json")).exists()]
         if missing:
-            raise SystemExit(f"no best_model.json for {', '.join(missing)}: nothing to re-quote")
+            raise SystemExit(f"no best_model.json / optimized TOML for {', '.join(missing)}: nothing to re-quote")
     for label, toml, model_dir in cells:
         if model_dir is not None and not (REPO / model_dir / "best_model.json").exists():
             print(f"{label:<20} SKIPPED (no best_model.json yet)")

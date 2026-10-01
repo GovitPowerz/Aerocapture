@@ -261,6 +261,9 @@ def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: Mod
     qm.main(argv)
     assert scored == []
     assert qm.OUT.read_text() == first
+    with pytest.raises(SystemExit, match="nothing to re-quote"):  # an explicit re-score of the unwritten row is an error, not a skip
+        qm.main([*argv, "--only", "D"])
+    assert scored == []
 
     m.write_text("A|a.toml\nB|b.toml\nC|c.toml\n")
     qm.main(argv)

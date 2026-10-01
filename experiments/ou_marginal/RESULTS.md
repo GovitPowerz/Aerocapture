@@ -246,15 +246,15 @@ Readings at n = 1000 (the 10^6 numbers of #174 decide; nothing here selects):
 
 - Three-seed CVaR95 at 512 x 2: mamba 124.9 +- 6.4 (119.7 / 132.0 / 122.9),
   dense_515 127.2 +- 2.8 (124.1 / 129.4 / 128.0). The mamba seed spread is
-  about three times the 60 x 10 campaign's (+- 1.6 on the paired pool above).
+  four times the 60 x 10 campaign's (+- 1.6 on the paired pool above).
 - The ceiling is the active constraint: heat-load p95 sits at 23.9-24.3 MJ/m2
-  and max at 24.6-25.3 on every row, nine of eleven runs rejected hundreds of
+  and max at 24.6-25.3 on every row, seven of eleven runs rejected hundreds of
   better-RMS candidates, and the three dense_515 scratch seeds and dense_972
   deploy with 0.2-0.3% violations on this pool after clearing the 0% gate on
   the 1000-scenario validation pool (the rule-of-three floor of that gate is
   0.3%). The seed that fought the gate least (mamba s2, 95 rejections) has the
   worst DV and the cleanest heat load. #192 measures the slope.
-- The LSTM cell rejected 5089 candidates, five times any other run, and
+- The LSTM cell rejected 5089 candidates, 3.5 times any other run, and
   deploys with the cleanest heat-load tail of the campaign (max 24.6) and a
   182.8 m/s DV max; its 60 x 10 s1 was 10.8% heat-load infeasible.
 - The dense fine-tune's far tail shows on a second seed: ft_dense_p515_s3
