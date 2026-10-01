@@ -22,8 +22,9 @@
 # Checks, each stopping the campaign: the resolved TOML's [data] neural_network
 # is the run-local <out>/best_model.json; the job's latest checkpoint, before and
 # after each pass, holds the TOML's population and a seed curator with
-# training_n_sims bins; after a job, its best_model.json differs from every
-# sibling's (<cell>, <cell>_sN, <cell>_qNN). A pass checks its allocation only when it
+# training_n_sims bins; after a job, its best_model.json differs from every seed
+# sibling's (<cell>, <cell>_sN) and its latest checkpoint from every ceiling leg's
+# (<cell>_qNN, whose models may match). A pass checks its allocation only when it
 # ends: to check a fresh job at its first checkpoint, Ctrl+C once
 # checkpoint_g00010 exists (the interrupted pass checks it) and rerun.
 # After a job reaches its target, report.py writes the n = 1000 per-scenario
@@ -123,12 +124,16 @@ print(t["optimizer"]["n_pop"], t["optimizer"]["training_n_sims"], t["data"]["neu
     echo "== ${name}: trained (g${last} >= ${target})"
   fi
 
-  # Siblings: the seed repeats <cell>_sN and the #192 ceiling legs <cell>_qNN (same checkpoint
-  # and RNG, so a leg whose ceiling never reached the trainer replays its sibling exactly).
+  # Siblings: the seed repeats <cell>_sN must deploy distinct models. The #192 ceiling legs
+  # <cell>_qNN start from one checkpoint and RNG and may all keep its champion, so a leg is
+  # compared on its latest checkpoint: one whose ceiling never reached the trainer replays a
+  # sibling's byte for byte (cost history, best_val_cost, RNG state).
   cell="${name%_s[0-9]}"; cell="${cell%_q[0-9][0-9]}"
+  final=$(printf 'checkpoint_g%05d.json' "$(latest_gen "$out")")
   for sib in "training_output/ou_marginal/${cell}" "training_output/ou_marginal/${cell}"_s[0-9] "training_output/ou_marginal/${cell}"_q[0-9][0-9]; do
-    if [ "$sib" != "$out" ] && [ -f "$sib/best_model.json" ] && cmp -s "$sib/best_model.json" "$out/best_model.json"; then
-      echo "== ${name}: best_model.json is byte-identical to ${sib}'s (a sibling run replayed this one); stopping."
+    case "$sib" in *_q[0-9][0-9]) f="$final" ;; *) f=best_model.json ;; esac
+    if [ "$sib" != "$out" ] && [ -f "$sib/$f" ] && cmp -s "$sib/$f" "$out/$f"; then
+      echo "== ${name}: ${f} is byte-identical to ${sib}'s (a sibling run replayed this one); stopping."
       exit 1
     fi
   done

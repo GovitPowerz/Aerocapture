@@ -13,9 +13,10 @@ spread the slope (CVaR95 at q30 minus q25, per MJ/m2) is read against.
 Usage: uv run python experiments/ou_marginal/heat_load_slope.py [--n-sims 1000]
 Writes experiments/ou_marginal/heat_load_slope.json and prints the RESULTS.md table; a leg or
 source not yet deployed is skipped. Two wiring checks stop the script: a q25 leg must score
-identically with and without the override (the override path is the TOML path), and the legs
-of a cell must deploy distinct models (a byte-identical pair is a replay: the ceiling never
-reached the trainer, since the legs share the copied checkpoint's RNG and population).
+identically with and without the override (the override path is the TOML path), and no two
+legs of a cell may end on byte-identical checkpoints (a replay: the ceiling never reached the
+trainer, since the legs share the copied checkpoint's RNG and population). Two legs may deploy
+the same model when neither beat the copied champion; the script prints a note.
 """
 
 from __future__ import annotations
@@ -28,10 +29,10 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+from aerocapture.training import charts
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 from aerocapture.training.evaluate import constraint_violation_rates
-from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
 from aerocapture.training.report import read_cost_kwargs
 from quote_marginal import MARGINAL_SEED_BASE, MARGINAL_SEED_STEP, REGIMES, SEED_POOL, SEED_POOL_HIGH, SEED_POOL_RNG_SEED
 
@@ -47,7 +48,6 @@ CEILING_KEY = "flight.constraints.max_heat_load"
 CELLS = ("mamba_p962", "dense_p515")
 LEGS = {"q25": 25000.0, "q27": 27500.0, "q30": 30000.0}
 SOURCE_SEEDS = ("", "_s2", "_s3")  # hl_<cell>, hl_<cell>_s2, hl_<cell>_s3: the #173 seed spread
-FR_INTEGRATED_FLUX = FINAL_RECORD_INDICES[FINAL_COLUMNS.index("integrated_flux_mj_m2")]
 
 
 def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float | None) -> dict[str, float]:
@@ -68,7 +68,7 @@ def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float
     )
     rates = constraint_violation_rates(res.final_records, cost_kwargs)
     assert rates is not None
-    heat_load = res.final_records[:, FR_INTEGRATED_FLUX]
+    heat_load = res.final_records[:, charts._FR_INTEGRATED_FLUX]
     dv = res.dv
     p50, p95 = np.percentile(dv, [50, 95])
     return {
@@ -120,9 +120,11 @@ def _print_table(rows: Mapping[str, Mapping[str, float]], summary: Mapping[str, 
         seed_cvar = s["source_seed_cvar95"]
         assert isinstance(seed_cvar, list)
         seeds = " / ".join(f"{v:.1f}" for v in seed_cvar)
+        outside = s["outside_seed_spread"]
+        verdict = "no seed spread (fewer than two source seeds)" if outside is None else f"{'OUTSIDE' if outside else 'inside'} the seed spread"
         print(
             f"\n{cell}: CVaR95 q30 - q25 = {s['cvar95_q30_minus_q25']} m/s ({s['slope_m_s_per_mj_m2']} m/s per MJ/m2); "
-            f"source seeds {seeds}, sd {s['source_seed_sd']}: {'OUTSIDE' if s['outside_seed_spread'] else 'inside'} the seed spread"
+            f"source seeds {seeds}, sd {s['source_seed_sd']}: {verdict}"
         )
 
 
@@ -142,12 +144,21 @@ def main(argv: list[str] | None = None) -> None:
                 continue
             rows[f"{name}/own"] = fly(CONFIG_DIR / f"{name}.toml", RUNS / name, seeds, ceiling=None)
             print(f"{name:<20} own  CVaR95 {rows[f'{name}/own']['dv_cvar95']:7.1f}")
+        final_ckpt: dict[str, bytes] = {}
         for leg, ceiling in LEGS.items():
             name = f"hs_{cell}_{leg}"
             toml, run = CONFIG_DIR / f"{name}.toml", RUNS / name
             if not (run / "best_model.json").exists():
                 print(f"{name:<20} SKIPPED (no best_model.json yet)")
                 continue
+            ckpt = max(run.glob("checkpoint_g*.json")).read_bytes()
+            model_md5 = hashlib.md5((run / "best_model.json").read_bytes()).hexdigest()
+            for prev, prev_ckpt in final_ckpt.items():
+                if prev_ckpt == ckpt:
+                    raise SystemExit(f"{prev} and {name} end on byte-identical checkpoints: a replay, the ceiling never reached the trainer")
+                if md5[prev] == model_md5:
+                    print(f"{name:<20} deploys {prev}'s model (neither beat the copied champion): their flights differ through NN input 7 only")
+            final_ckpt[name], md5[name] = ckpt, model_md5
             own = fly(toml, run, seeds, ceiling=None)
             if own["ceiling_kj_m2"] != ceiling:
                 raise SystemExit(f"{name}: {toml} resolves max_heat_load = {own['ceiling_kj_m2']}, the leg says {ceiling}")
@@ -155,16 +166,10 @@ def main(argv: list[str] | None = None) -> None:
             if leg == "q25" and v4 != own:
                 raise SystemExit(f"{name}: the explicit {CEILING_KEY} = {V4_MAX_HEAT_LOAD} override scores differently from the TOML path:\n{own}\n{v4}")
             rows[f"{name}/own"], rows[f"{name}/v4"] = own, v4
-            md5[name] = hashlib.md5((run / "best_model.json").read_bytes()).hexdigest()
             print(
                 f"{name:<20} own  CVaR95 {own['dv_cvar95']:7.1f}  viol {own['heat_load_viol_pct']:.1f}%"
                 f"   at v4  CVaR95 {v4['dv_cvar95']:7.1f}  viol {v4['heat_load_viol_pct']:.1f}%"
             )
-        legs = [n for n in md5 if n.startswith(f"hs_{cell}_")]
-        for i, a in enumerate(legs):
-            for b in legs[i + 1 :]:
-                if md5[a] == md5[b]:
-                    raise SystemExit(f"{a} and {b} deploy byte-identical models: a replay, the ceiling never reached the trainer")
 
     summary = summarize(rows)
     OUT.write_text(

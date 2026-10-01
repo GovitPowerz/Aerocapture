@@ -816,7 +816,7 @@ validation_n_sims` sims each).
   strips `rng_state` from its copied checkpoint, because a checkpoint resume restores the saved
   trainer RNG state and would silently override `--seed`; same resumable contract as below, plus
   the run-local deploy path, the checkpoint allocation against the TOML, a byte-identical
-  `best_model.json` across a cell's seeds and ceiling legs, and report.py's n = 1000 `final_eval.parquet` per job).
+  `best_model.json` across a cell's seeds or latest checkpoint across its ceiling legs, and report.py's n = 1000 `final_eval.parquet` per job).
   `jobs_phase2.txt` is phase 2 (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw
   gens, and `<cell>_s2` / `_s3` scratch seed repeats), at the sweep config's allocation (GA n_pop 60,
   training_n_sims 10), not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).

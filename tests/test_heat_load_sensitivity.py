@@ -19,30 +19,21 @@ from typing import Any
 
 import numpy as np
 import pytest
+from aerocapture.training import charts
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
 from aerocapture.training.toml_utils import load_toml_with_bases
+
+from tests.test_headline_campaign_configs import read_jobs
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIG_DIR = REPO / "configs/training/ou_marginal"
 JOBS = REPO / "experiments/ou_marginal/jobs_heat_load.txt"
-FR_INTEGRATED_FLUX = FINAL_RECORD_INDICES[FINAL_COLUMNS.index("integrated_flux_mj_m2")]
 
 CELLS = ("mamba_p962", "dense_p515")
 LEGS = {"q25": 25000.0, "q27": 27500.0, "q30": 30000.0}
 REGISTERED_JOBS = [(f"hs_{cell}_{leg}", 22000, 1, f"training_output/ou_marginal/hl_{cell}") for cell in CELLS for leg in LEGS]
 HS_NAMES = [name for name, *_ in REGISTERED_JOBS]
-
-
-def read_jobs(path: Path) -> list[tuple[str, int, int, str]]:
-    rows = []
-    for line in path.read_text().splitlines():
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        name, target, seed, src = line.split("|")
-        rows.append((name, int(target), int(seed), src))
-    return rows
 
 
 def split(name: str) -> tuple[str, str]:
@@ -111,7 +102,7 @@ class FakeRs:
         fr[:, FR_IFINAL] = 3.0
         fr[:, FR_ECC] = 0.5
         fr[:, FR_DV_TOTAL] = 100.0 + np.arange(n)
-        fr[:, FR_INTEGRATED_FLUX] = 26.0
+        fr[:, charts._FR_INTEGRATED_FLUX] = 26.0
         return SimpleNamespace(final_records=fr, dispersions=np.zeros((n, 26)), trajectories=[np.empty((0, 17)) for _ in range(n)])
 
 
@@ -182,6 +173,29 @@ def test_summarize_reads_the_slope_against_the_source_seed_spread(hs: ModuleType
     assert m["source_seed_cvar95"] == [119.7, 132.0, 122.9]
     assert m["source_seed_sd"] == pytest.approx(6.38, abs=0.01)  # ddof=1, the RESULTS.md convention
     assert m["outside_seed_spread"] is True
+
+
+def test_main_stops_on_a_replayed_leg_not_on_a_shared_champion(
+    hs: ModuleType, fake_rs: FakeRs, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    configs, runs = tmp_path / "configs", tmp_path / "runs"
+    configs.mkdir()
+    for leg, ceiling in LEGS.items():
+        name = f"hs_mamba_p962_{leg}"
+        (configs / f"{name}.toml").write_text(f"[flight.constraints]\nmax_heat_flux = 200.0\nmax_load_factor = 4.0\nmax_heat_load = {ceiling}\n")
+        (runs / name).mkdir(parents=True)
+        (runs / name / "best_model.json").write_text("{}")  # every leg kept the copied champion
+        (runs / name / "checkpoint_g22000.json").write_text(json.dumps({"cost_history": [ceiling]}))
+    monkeypatch.setattr(hs, "CONFIG_DIR", configs)
+    monkeypatch.setattr(hs, "RUNS", runs)
+    monkeypatch.setattr(hs, "OUT", tmp_path / "out.json")
+    hs.main(["--n-sims", "4"])
+    notes = [line.split()[0] for line in capsys.readouterr().out.splitlines() if "deploys hs_mamba_p962_q25's model" in line]
+    assert notes == ["hs_mamba_p962_q27", "hs_mamba_p962_q30"]
+    assert list(json.loads((tmp_path / "out.json").read_text())["summary"]) == ["mamba_p962"]
+    (runs / "hs_mamba_p962_q30/checkpoint_g22000.json").write_text(json.dumps({"cost_history": [25000.0]}))
+    with pytest.raises(SystemExit, match="hs_mamba_p962_q25 and hs_mamba_p962_q30 end on byte-identical checkpoints"):
+        hs.main(["--n-sims", "4"])
 
 
 # ---------------------------------------------------------------------------
