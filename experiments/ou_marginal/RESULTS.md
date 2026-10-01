@@ -213,4 +213,49 @@ Pre-registered decision rule, fixed before any 10^6 score of these runs exists:
   with the `hl_*` cells as its control. Either way Section 6's table quotes one
   allocation for every cell.
 
-The n = 1000 per-scenario numbers per job land here when the campaign finishes.
+Ran 2026-09-29 20:11 to 2026-10-01 14:35 (about 42 h; the `hl_*` jobs took
+0.56 to 0.9 s per generation, dense 3.2 h and mamba 5 to 7.6 h per run). Every
+job trained at its TOML's allocation (512 x 2 curator bins for `hl_*`, 60 x 10
+for the fine-tunes, read from the final checkpoint), deploys run-local, and the
+eleven `best_model.json` md5s are distinct; the checks are posted on #173.
+
+n = 1000 per-scenario eval per job (report.py's pool, seed offset 2M, so these
+rows are NOT on this file's paired pool above; `quote_marginal.py` auto-discovers
+the run dirs for that). Capture 100% on every row. DV in m/s over captured
+scenarios, CVaR95 = mean of the scenarios at or above p95; the last two columns
+are violation rates on the same 1000 scenarios (g-load 0.0% everywhere).
+
+| job              | p50   | p95   | CVaR95 | max   | heat load > 25 | flux > 200 | gate rejections |
+|------------------|-------|-------|--------|-------|----------------|------------|-----------------|
+| hl_mamba_p962    | 110.2 | 116.4 | 119.7  | 148.3 | 0.1%           | 0.0%       |  931            |
+| hl_mamba_p962_s2 | 116.4 | 127.0 | 132.0  | 144.8 | 0.0%           | 0.0%       |   95            |
+| hl_mamba_p962_s3 | 112.5 | 120.2 | 122.9  | 128.2 | 0.1%           | 0.0%       |  462            |
+| hl_dense_p515    | 112.7 | 120.6 | 124.1  | 135.9 | 0.2%           | 0.0%       | 1078            |
+| hl_dense_p515_s2 | 112.2 | 121.1 | 129.4  | 171.8 | 0.3%           | 0.0%       | 1261            |
+| hl_dense_p515_s3 | 114.3 | 124.7 | 128.0  | 141.2 | 0.3%           | 0.0%       |  758            |
+| ft_dense_p515_s2 | 111.6 | 121.7 | 126.1  | 135.9 | 0.0%           | 0.0%       |    9            |
+| ft_dense_p515_s3 | 112.7 | 126.1 | 134.8  | 232.8 | 0.0%           | 0.0%       |   68            |
+| hl_lstm_p1082    | 114.0 | 123.8 | 130.8  | 182.8 | 0.0%           | 0.0%       | 5089            |
+| hl_gru_p1014     | 112.4 | 119.4 | 122.1  | 139.9 | 0.0%           | 0.0%       |   86            |
+| hl_dense_p972    | 112.2 | 120.8 | 125.7  | 154.6 | 0.3%           | 0.0%       | 1443            |
+
+Gate rejections count the `REJECTED (infeasible ...)` validations in each
+`campaign.log`: better-RMS candidates the ADR-0005 ceiling refused.
+
+Readings at n = 1000 (the 10^6 numbers of #174 decide; nothing here selects):
+
+- Three-seed CVaR95 at 512 x 2: mamba 124.9 +- 6.4 (119.7 / 132.0 / 122.9),
+  dense_515 127.2 +- 2.8 (124.1 / 129.4 / 128.0). The mamba seed spread is
+  about three times the 60 x 10 campaign's (+- 1.6 on the paired pool above).
+- The ceiling is the active constraint: heat-load p95 sits at 23.9-24.3 MJ/m2
+  and max at 24.6-25.3 on every row, nine of eleven runs rejected hundreds of
+  better-RMS candidates, and the three dense_515 scratch seeds and dense_972
+  deploy with 0.2-0.3% violations on this pool after clearing the 0% gate on
+  the 1000-scenario validation pool (the rule-of-three floor of that gate is
+  0.3%). The seed that fought the gate least (mamba s2, 95 rejections) has the
+  worst DV and the cleanest heat load. #192 measures the slope.
+- The LSTM cell rejected 5089 candidates, five times any other run, and
+  deploys with the cleanest heat-load tail of the campaign (max 24.6) and a
+  182.8 m/s DV max; its 60 x 10 s1 was 10.8% heat-load infeasible.
+- The dense fine-tune's far tail shows on a second seed: ft_dense_p515_s3
+  max 232.8 (3-sigma 167), next to s1's confirmatory max 405.
