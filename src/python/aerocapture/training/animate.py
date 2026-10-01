@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 
 import matplotlib
@@ -293,11 +295,13 @@ def _decode_and_build_overrides(
     guidance_type: str,
     toml_data: dict,
     n_sims: int,
+    nn_path: Path,
 ) -> dict[str, object]:
     """Decode a checkpoint's best individual into TOML overrides.
 
-    Handles both neural_network (writes JSON file, returns minimal overrides)
-    and guidance-parameter schemes (returns full dot-path overrides).
+    Handles both neural_network (writes the model to the scratch `nn_path` and pins it; the
+    TOML's `[data] neural_network` path belongs to the config's default run and is never
+    written) and guidance-parameter schemes (returns full dot-path overrides).
     Supports both new real-valued (float64) and legacy binary (int8) checkpoints.
     """
     from aerocapture.training.config import TrainingConfig
@@ -315,13 +319,11 @@ def _decode_and_build_overrides(
     if guidance_type == "neural_network":
         from aerocapture.training.evaluate import write_nn_json
 
-        cfg.sim.nn_param_file = toml_data.get("data", {}).get("neural_network", "data/neural_network/nn_model.json")
         specs = nn_param_specs_from_architecture(cfg.network.layer_sizes, cfg.network.activations)
         x = best_individual.astype(np.float64)
         weights = np.array([s.p_min + float(x[i]) * (s.p_max - s.p_min) for i, s in enumerate(specs)])
-        nn_path = Path(cfg.sim.nn_param_file)
         write_nn_json(weights, cfg.network, nn_path)
-        return {"simulation.n_sims": n_sims}
+        return {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path)}
 
     from aerocapture.training.param_spaces import PARAM_SPACES
 
@@ -374,6 +376,7 @@ def generate_animation(
     if not checkpoints:
         msg = f"No checkpoints found in {training_dir}"
         raise FileNotFoundError(msg)
+    nn_path = Path(tempfile.gettempdir()) / f"animate_frame_model_{os.getpid()}.json"  # NN frames' scratch model
 
     # Load TOML for guidance type and constraint limits
     from aerocapture.training.toml_utils import load_toml_with_bases
@@ -394,7 +397,7 @@ def generate_animation(
     # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
     # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
     last = checkpoints[-1]
-    last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims)
+    last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims, nn_path)
     last_results = fly_mc(None, toml_path, extra_overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
     assert last_results.trajectories is not None
     all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
@@ -432,7 +435,7 @@ def generate_animation(
                 continue
 
             # Decode + run MC
-            overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims)
+            overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims, nn_path)
             results = fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
             assert results.trajectories is not None
             trajectories = results.trajectories
@@ -470,6 +473,7 @@ def generate_animation(
                 progress_ctx.advance(task_id)
     finally:
         writer.finish()
+        nn_path.unlink(missing_ok=True)
         if progress_ctx is not None:
             progress_ctx.stop()
 

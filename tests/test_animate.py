@@ -94,6 +94,24 @@ class TestBuildOverrides:
         assert overrides["guidance.lateral.tau"] == 15.0
         assert "guidance.equilibrium_glide.lateral.tau" not in overrides
 
+    def test_nn_frame_flies_a_scratch_model_not_the_toml_deploy_path(self, tmp_path: Path) -> None:
+        # Each NN frame used to overwrite the TOML's [data] neural_network, the deployed model of
+        # the config's default run, with a checkpoint's decode.
+        from aerocapture.training.animate import _decode_and_build_overrides
+        from aerocapture.training.config import NetworkConfig
+        from aerocapture.training.encoding import nn_param_specs_from_architecture
+
+        deployed = tmp_path / "run" / "best_model.json"
+        deployed.parent.mkdir()
+        deployed.write_text("the deployed model")
+        net = NetworkConfig()
+        n = len(nn_param_specs_from_architecture(net.layer_sizes, net.activations))
+        frame = tmp_path / "frame_model.json"
+        overrides = _decode_and_build_overrides(np.full(n, 0.5), "neural_network", {"data": {"neural_network": str(deployed)}}, 10, frame)
+        assert deployed.read_text() == "the deployed model"
+        assert overrides["data.neural_network"] == str(frame)
+        assert frame.exists()
+
 
 class TestComputeAxisRanges:
     def test_returns_dict_with_expected_keys(self) -> None:
