@@ -212,6 +212,17 @@ Pre-registered decision rule, fixed before any 10^6 score of these runs exists:
   (shared-path pre-training, then a per-scenario fine-tune) is a stated finding
   with the `hl_*` cells as its control. Either way Section 6's table quotes one
   allocation for every cell.
+- Amendment (2026-10-01, posted on #173 before any 10^6 score of an `hl_*`
+  cell existed): every trainer seed counts in S and F. Section 6.2's
+  feasibility-first exclusion would already drop `hl_mamba_p962` s1 and s3 on
+  their 1-in-1000 heat-load violations at n = 1000 (s2: 0 of 1000), which is
+  Poisson noise at that pool size, leaving one seed and no sd_S, so the rule
+  could not compare the recipes it was written to compare. Every S and F seed
+  passed the same 0% validation gate (ADR-0005); each seed's violation counts
+  on the 10^6 pool are quoted next to its CVaR99.9, so a scratch win bought
+  with heat shows. The formula is unchanged:
+  S <= F + sqrt((sd_S^2 + sd_F^2) / 3) on pooled CVaR99.9
+  (`confirmatory_marginal.py --table` evaluates it).
 
 Ran 2026-09-29 20:11 to 2026-10-01 14:35 (about 42 h; the `hl_*` jobs took
 0.56 to 0.9 s per generation, dense 3.2 h and mamba 5 to 7.6 h per run). Every
@@ -259,3 +270,42 @@ Readings at n = 1000 (the 10^6 numbers of #174 decide; nothing here selects):
   182.8 m/s DV max; its 60 x 10 s1 was 10.8% heat-load infeasible.
 - The dense fine-tune's far tail shows on a second seed: ft_dense_p515_s3
   max 232.8 (3-sigma 167), next to s1's confirmatory max 405.
+
+## v4 confirmatory: every paper row at 10^6 per-scenario (#174)
+
+Same ten pools and estimators as the far-tail section above, every row of the
+v4 performance table once, `eval_commit` per row. Rows:
+`confirmatory_cells_v4.txt`, 47 cells: the eleven #173 cells (nine `hl_*`, two
+dense fine-tune seeds), the seven other fine-tunes, the fifteen 60 x 10 scratch
+repeats, `mamba_p962_long`, the four PPO cells, the nine classical rows with
+#188's ungated reruns. Run, and rerun the same command to resume:
+
+    caffeinate -i uv run python -u experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/confirmatory_cells_v4.txt 2>&1 | tee -a experiments/ou_marginal/confirmatory_v4.log
+
+- A run is scored once it has finished: its `final_eval.parquet`, or the
+  population trainer's end-only `final_selection.json`, written after its last
+  checkpoint (the 60 x 10 campaign trained with `--skip-report`, so 17 of its
+  dirs have no parquet).
+- Violations: rows scored from #174 on carry exact per-replicate counts
+  (`viol_n`, `heat_flux_viol_n`, `g_load_viol_n`, `heat_load_viol_n`, summed in
+  `pooled`) and the table quotes them at four decimals. Older rows carry only
+  means of 2-decimal per-replicate rates, so their pooled 0.00 bounds the rate
+  below 0.01% of the 10^6 scenarios, not at zero; the five scored before
+  ADR-0005 (the three ft_mamba seeds, ft_dense_p515, mamba_p962_long) have only
+  the any-constraint and heat-load rates (`-` for heat flux and g-load).
+- Non-captures: each scored cell's recorded `failed_seeds` (the first 50 per
+  replicate) are re-flown with no wall-clock limit at the current commit, and
+  their terminal outcomes land in the cell's `non_captures` (crash, pending
+  crash, hyperbolic, timeout at the simulation's own max_time, or capture,
+  meaning the non-capture was the scorer's 5 s timeout). "All genuine crashes,
+  none a timeout" is quotable for a cell only when `timeout`, `capture` and
+  `hyperbolic` are 0 and every non-capture was re-flown. A row scored at an
+  older commit re-flies at the current one, so a nonzero `capture` there needs
+  a look before it is read as a scorer timeout.
+- `--table` (same manifest) prints the table, capture from the pooled
+  `n_captured / n` (never the per-replicate 2-decimal `capture_pct`), and the
+  #173 recipe rule as amended (headline section).
+- `eval_commit`: six rows predate the per-row field (#171) and carry none. They
+  were first committed in 4e231643 (ft_mamba_p962, ft_dense_p515,
+  mamba_p962_long, fnpag), fd62090b (ft_mamba_p962_s2 / _s3) and 42aa397a
+  (ft_gru_p1014); each was flown at that commit's parent tree or earlier.

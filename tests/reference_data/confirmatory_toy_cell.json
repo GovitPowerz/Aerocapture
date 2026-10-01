@@ -23,6 +23,10 @@
    "heat_flux_viol_pct": 12.5,
    "g_load_viol_pct": 5.0,
    "heat_load_viol_pct": 10.0,
+   "viol_n": 10,
+   "heat_flux_viol_n": 5,
+   "g_load_viol_n": 2,
+   "heat_load_viol_n": 4,
    "failed_seeds": [
     2147483648,
     2147483650,
@@ -47,6 +51,10 @@
    "heat_flux_viol_pct": 7.5,
    "g_load_viol_pct": 7.5,
    "heat_load_viol_pct": 5.0,
+   "viol_n": 7,
+   "heat_flux_viol_n": 3,
+   "g_load_viol_n": 3,
+   "heat_load_viol_n": 2,
    "failed_seeds": [
     2147483694,
     2147483696,
@@ -72,7 +80,11 @@
   "viol_pct": 21.25,
   "heat_flux_viol_pct": 10.0,
   "g_load_viol_pct": 6.25,
-  "heat_load_viol_pct": 7.5
+  "heat_load_viol_pct": 7.5,
+  "viol_n": 17,
+  "heat_flux_viol_n": 8,
+  "g_load_viol_n": 5,
+  "heat_load_viol_n": 6
  },
  "replicate_stats": {
   "capture_pct": {

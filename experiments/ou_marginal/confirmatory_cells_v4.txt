@@ -1,0 +1,58 @@
+# v4's 10^6 per-scenario confirmatory (#174): every row of the paper's performance table, label|toml|model_dir,
+# in value order (the #173 cells decide the recipe; FNPAG, about 2 h, runs last). Run:
+#   uv run python -u experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/confirmatory_cells_v4.txt
+# Rows already in confirmatory_marginal.json keep the TOML they were flown with (the ft_mamba seeds flew their
+# parent mamba_p962.toml; the cell's own best_model.json is pinned either way).
+# Headline allocation (#173): 512 x 2 scratch, three seeds for mamba_p962 and dense_p515; the two new dense fine-tune seeds.
+ou_marginal/hl_mamba_p962|configs/training/ou_marginal/hl_mamba_p962.toml|training_output/ou_marginal/hl_mamba_p962
+ou_marginal/hl_mamba_p962_s2|configs/training/ou_marginal/hl_mamba_p962_s2.toml|training_output/ou_marginal/hl_mamba_p962_s2
+ou_marginal/hl_mamba_p962_s3|configs/training/ou_marginal/hl_mamba_p962_s3.toml|training_output/ou_marginal/hl_mamba_p962_s3
+ou_marginal/hl_dense_p515|configs/training/ou_marginal/hl_dense_p515.toml|training_output/ou_marginal/hl_dense_p515
+ou_marginal/hl_dense_p515_s2|configs/training/ou_marginal/hl_dense_p515_s2.toml|training_output/ou_marginal/hl_dense_p515_s2
+ou_marginal/hl_dense_p515_s3|configs/training/ou_marginal/hl_dense_p515_s3.toml|training_output/ou_marginal/hl_dense_p515_s3
+ou_marginal/ft_dense_p515_s2|configs/training/ou_marginal/ft_dense_p515_s2.toml|training_output/ou_marginal/ft_dense_p515_s2
+ou_marginal/ft_dense_p515_s3|configs/training/ou_marginal/ft_dense_p515_s3.toml|training_output/ou_marginal/ft_dense_p515_s3
+ou_marginal/hl_lstm_p1082|configs/training/ou_marginal/hl_lstm_p1082.toml|training_output/ou_marginal/hl_lstm_p1082
+ou_marginal/hl_gru_p1014|configs/training/ou_marginal/hl_gru_p1014.toml|training_output/ou_marginal/hl_gru_p1014
+ou_marginal/hl_dense_p972|configs/training/ou_marginal/hl_dense_p972.toml|training_output/ou_marginal/hl_dense_p972
+# Fine-tunes of the shared-path champions (60 x 10, 2000 per_draw gens).
+ou_marginal/ft_mamba_p962|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962
+ou_marginal/ft_mamba_p962_s2|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962_s2
+ou_marginal/ft_mamba_p962_s3|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/ft_mamba_p962_s3
+ou_marginal/ft_dense_p515|configs/training/ou_marginal/dense_p515.toml|training_output/ou_marginal/ft_dense_p515
+ou_marginal/ft_gru_p1014|configs/training/ou_marginal/gru_p1014.toml|training_output/ou_marginal/ft_gru_p1014
+ou_marginal/ft_dense_p972|configs/training/ou_marginal/ft_dense_p972.toml|training_output/ou_marginal/ft_dense_p972
+ou_marginal/ft_lstm_p1082|configs/training/ou_marginal/ft_lstm_p1082.toml|training_output/ou_marginal/ft_lstm_p1082
+# Scratch repeats at the sweep allocation (60 x 10, 20000 per_draw gens), three seeds per family.
+ou_marginal/mamba_p962|configs/training/ou_marginal/mamba_p962.toml|training_output/ou_marginal/mamba_p962
+ou_marginal/mamba_p962_s2|configs/training/ou_marginal/mamba_p962_s2.toml|training_output/ou_marginal/mamba_p962_s2
+ou_marginal/mamba_p962_s3|configs/training/ou_marginal/mamba_p962_s3.toml|training_output/ou_marginal/mamba_p962_s3
+ou_marginal/dense_p515|configs/training/ou_marginal/dense_p515.toml|training_output/ou_marginal/dense_p515
+ou_marginal/dense_p515_s2|configs/training/ou_marginal/dense_p515_s2.toml|training_output/ou_marginal/dense_p515_s2
+ou_marginal/dense_p515_s3|configs/training/ou_marginal/dense_p515_s3.toml|training_output/ou_marginal/dense_p515_s3
+ou_marginal/lstm_p1082|configs/training/ou_marginal/lstm_p1082.toml|training_output/ou_marginal/lstm_p1082
+ou_marginal/lstm_p1082_s2|configs/training/ou_marginal/lstm_p1082_s2.toml|training_output/ou_marginal/lstm_p1082_s2
+ou_marginal/lstm_p1082_s3|configs/training/ou_marginal/lstm_p1082_s3.toml|training_output/ou_marginal/lstm_p1082_s3
+ou_marginal/gru_p1014|configs/training/ou_marginal/gru_p1014.toml|training_output/ou_marginal/gru_p1014
+ou_marginal/gru_p1014_s2|configs/training/ou_marginal/gru_p1014_s2.toml|training_output/ou_marginal/gru_p1014_s2
+ou_marginal/gru_p1014_s3|configs/training/ou_marginal/gru_p1014_s3.toml|training_output/ou_marginal/gru_p1014_s3
+ou_marginal/dense_p972|configs/training/ou_marginal/dense_p972.toml|training_output/ou_marginal/dense_p972
+ou_marginal/dense_p972_s2|configs/training/ou_marginal/dense_p972_s2.toml|training_output/ou_marginal/dense_p972_s2
+ou_marginal/dense_p972_s3|configs/training/ou_marginal/dense_p972_s3.toml|training_output/ou_marginal/dense_p972_s3
+# The shared-path headline champion (Section 6.4 conditioning table) and the Section 5 PPO cells.
+mamba_p962_long|configs/training/sweep/mamba_p962.toml|training_output/mamba_p962_long
+paper/rl/dense_p515_ppo_scratch|configs/training/paper/rl/dense_p515_ppo_scratch.toml|training_output/paper/rl/dense_p515_ppo_scratch
+paper/rl/dense_p515_ppo_warm|configs/training/paper/rl/dense_p515_ppo_warm.toml|training_output/paper/rl/dense_p515_ppo_warm
+paper/rl/gru_p1014_ppo_scratch|configs/training/paper/rl/gru_p1014_ppo_scratch.toml|training_output/paper/rl/gru_p1014_ppo_scratch
+paper/rl/gru_p1014_ppo_warm|configs/training/paper/rl/gru_p1014_ppo_warm.toml|training_output/paper/rl/gru_p1014_ppo_warm
+# Classical retunes under per-scenario noise (#172); #188: piecewise_constant and equilibrium_glide quote the
+# ungated reruns. The model_dir's optimized_<scheme>.toml is what flies (cell_eval._resolve_cell).
+ou_marginal/classical/ftc|configs/training/ou_marginal/classical/ftc.toml|training_output/ou_marginal/classical/ftc
+ou_marginal/classical/energy_controller|configs/training/ou_marginal/classical/energy_controller.toml|training_output/ou_marginal/classical/energy_controller
+ou_marginal/classical/pred_guid|configs/training/ou_marginal/classical/pred_guid.toml|training_output/ou_marginal/classical/pred_guid
+ou_marginal/classical/ftc_joint|configs/training/ou_marginal/classical/ftc_joint.toml|training_output/ou_marginal/classical/ftc_joint
+ou_marginal/classical/energy_controller_joint|configs/training/ou_marginal/classical/energy_controller_joint.toml|training_output/ou_marginal/classical/energy_controller_joint
+ou_marginal/classical/pred_guid_joint|configs/training/ou_marginal/classical/pred_guid_joint.toml|training_output/ou_marginal/classical/pred_guid_joint
+ou_marginal/classical_ungated/piecewise_constant|configs/training/ou_marginal/classical_ungated/piecewise_constant.toml|training_output/ou_marginal/classical_ungated/piecewise_constant
+ou_marginal/classical_ungated/equilibrium_glide|configs/training/ou_marginal/classical_ungated/equilibrium_glide.toml|training_output/ou_marginal/classical_ungated/equilibrium_glide
+ou_marginal/classical/fnpag|configs/training/ou_marginal/classical/fnpag.toml|training_output/ou_marginal/classical/fnpag

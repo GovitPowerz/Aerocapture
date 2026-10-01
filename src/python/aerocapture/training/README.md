@@ -785,7 +785,8 @@ validation_n_sims` sims each).
   `tests/test_paper_figures.py`.
 - `articles/paper/scripts/*.py` evaluate deployed cells on the reserved pools
   (`confirmatory_eval.py`: 10 replicate pools sharing seeds across schemes, paired replicate
-  deltas, t-based SEs, per-cell `failed_seeds`, `--extra-override` / `--scaffolding-from` for
+  deltas, t-based SEs, per-cell `failed_seeds`, per-replicate violation rates with their exact
+  counts (`*_viol_n`, summed in `pooled`), `--extra-override` / `--scaffolding-from` for
   ablation cells; each finished replicate persists under `<out>.partial/<label>/` keyed by the
   merged TOML, overrides, sim timeout, model bytes and pool, so an interrupted cell resumes
   without re-flying one and a store flown under anything else is refused; a saved cell is skipped
@@ -801,7 +802,10 @@ validation_n_sims` sims each).
   every `training_output/ou_marginal/*/best_model.json`, or `--manifest` rows; keeps a
   `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file; the committed file also holds the `classical_cells.txt` rows, so a protocol re-quote is `--force` then `--manifest classical_cells.txt` without it),
   `confirmatory_marginal.py` (the per_draw 10 x 100k far-tail pools, cells from
-  `confirmatory_cells.txt` or `--manifest` / `--cells`, resumable per replicate),
+  `confirmatory_cells.txt` or `--manifest` / `--cells` (v4's rows: `confirmatory_cells_v4.txt`),
+  resumable per replicate, exact violation counts per replicate; re-flies each cell's recorded
+  non-captures without the sim timeout into `non_captures`; `--table` prints the 10^6 table and
+  the #173 recipe rule),
   `campaign.sh <jobs file>` (the NN campaign runner, helpers shared with `classical_campaign.sh` in
   `campaign_lib.sh`: one `name|target_gen|seed|checkpoint_source_dir`
   per line trains `configs/training/ou_marginal/<name>.toml` into `training_output/ou_marginal/<name>/`
