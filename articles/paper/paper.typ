@@ -836,8 +836,8 @@ from a few hundred to a few thousand parameters ($515 arrow.r 972 arrow.r 1957$ 
 $117.4 arrow.r 116.9 arrow.r 116.8$ m/s) and a #box[$3998$-weight] network gains nothing further -- it is
 over-parameterized for the genetic search, consistent with the plateau result of the training
 methodology (Section 4).
-At a matched budget the recurrent and state-space families edge the best dense cell (GRU $112.8$,
-Mamba $114.9$, LSTM $116.0$ versus the best dense $116.8$), while the Transformer pays an
+At a matched budget the recurrent and state-space families edge the best dense cell (LSTM $112.0$,
+GRU $112.8$, Mamba $114.9$ versus the best dense $116.8$), while the Transformer pays an
 attention-overhead penalty at small budgets -- its worst cell, at $762$ parameters, is the worst in
 the whole sweep ($121.9$ m/s), and not for lack of parameters ($762 > 515$): a small budget forces the
 attention block to a tiny model width and two dimensions per head, which the genetic algorithm trains
@@ -859,7 +859,7 @@ each once on the frozen confirmatory pool ($10 times 100\,000$ scenarios; the de
 $n = 10\,000$ pool guided the campaign and agrees within $1$--$2$ m/s throughout). Because a single
 run carries real run-to-run scatter, we
 repeated the deciding cells over three independent seeds and report the mean and range (@fig-archtail).
-(The GRU, which had the best sweep mean, was also taken to convergence; its single confirmatory run
+(The GRU's $1014$-parameter cell was also taken to convergence; its single confirmatory run
 lands between the Mamba and the LSTM three-seed means -- $"CVaR"_(99.9)$ $126.4$ $[126.0, 126.8]$
 -- but we did not repeat it over seeds, so it stays out of the three-seed comparison.)
 

@@ -1,7 +1,7 @@
 # Changes since arxiv-v3
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
-last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag.
+last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is the `arxiv-v3` tag.
 
 - 2026-09-16 (#108, ADR-0006): the abstract and the conclusion lead with the per-scenario-noise
   result (fine-tuned Mamba, three-seed means: CVaR99.9 163.2 +- 1.3 m/s, 99.996% capture of 10^6,
@@ -161,3 +161,24 @@ last on 2026-09-26 with #156 and #166); the arxiv-v3 build is the `arxiv-v3` tag
   when it lies inside the run's output dir, and `experiments/paper/audit_deployed_models.py`
   rebuilds every run's winner from its final checkpoint: every rebuildable run under
   `training_output/` deploys its own winner, including the three other overwritten directories.
+- 2026-10-01 (Pareto sweep cells): the Section 6 Pareto panel plots all 28 sweep cells.
+  `sweep_gru_p1014`, `sweep_lstm_p1082` and `sweep_mamba_p962` had never been bundled:
+  `collect_runs.py` skips a run dir whose `best_model.json` is newer than its
+  `final_eval.parquet`. The GRU and LSTM dirs held another run's model from 2026-06-25 and
+  2026-06-27 (the trainer copied every checkpoint's network to the config's `[data]
+  neural_network`, so `gru_p1014_long` and the LSTM repeat s3 overwrote them) until their
+  restoration on 2026-09-26 (#170); the Mamba dir's final selection was re-run on 2026-08-27 (same
+  champion, not promoted). `fig_pareto.py` had excused the three as extended in place by
+  `10b_arch_long_challengers.sh`, which seeds separate `*_long` dirs. Re-flown on the
+  1000-scenario pool (shared-path noise), each current model reproduces its June
+  `final_eval.parquet` bit for bit except the five #141 time-label columns, which move the same
+  way for a bundled control cell per family; the June parquets are bundled and `fig_pareto.py`
+  errors on any missing cell. The panel gains LSTM 1082 (dv99 124.3), Mamba 962 (127.3) and GRU
+  1014 (132.8). Section 6's best mean per family becomes LSTM 112.0, GRU 112.8, Mamba 114.9
+  against the best dense 116.8 (was GRU 112.8, Mamba 114.9, LSTM 116.0): LSTM 1082 has the best
+  mean of the sweep, so the tail-reversal aside no longer credits the GRU with it and names the
+  1014-parameter GRU cell taken to convergence.
+  Every cell still captures 100% and Transformer 762 stays the worst (121.9). `results.json`
+  gains the three runs and no other entry moves. `runs/headline/dense_p515/ablation_results.json`
+  (2026-06-19, skipped by the same guard while that dir held a clobbered model; read by no
+  figure) is bundled with them, so a full `12_collect_results.sh` leaves the tracked bundle as is.
