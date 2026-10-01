@@ -137,6 +137,11 @@ def _drop_partial(out: Path, label: str) -> None:
         d.rmdir()
 
 
+def _model_sha256(model_path: object) -> str | None:
+    """The flown model's bytes (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path."""
+    return hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None
+
+
 def _write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(f".tmp_{path.name}")
     tmp.write_text(text)
@@ -171,8 +176,7 @@ def _eval_cell(
     overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
     # What a stored replicate must have been flown under to be reused, by content: the merged TOML
     # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
-    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes
-    # (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path.
+    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes.
     eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
     flown = {**cell_overrides, **overrides}
     model_path = flown.pop("data.neural_network", None)
@@ -182,7 +186,7 @@ def _eval_cell(
         "sim_timeout": sim_timeout,
         "overrides": flown,
         "config_sha256": hashlib.sha256(json.dumps(load_toml_with_bases(eval_toml), sort_keys=True).encode()).hexdigest(),
-        "model_sha256": hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None,
+        "model_sha256": _model_sha256(model_path),
     }
 
     reps: list[dict] = []
@@ -237,6 +241,7 @@ def _eval_cell(
         "toml": toml,
         "bundle_key": bundle_key,
         "model": model_used,
+        "model_sha256": flight["model_sha256"],  # a later re-fly of the row (its non-captures) refuses another model
         "extra_overrides": extra or None,
         "replicates": reps,
         "pooled": {

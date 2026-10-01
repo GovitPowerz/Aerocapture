@@ -284,8 +284,8 @@ repeats, `mamba_p962_long`, the four PPO cells, the nine classical rows with
 
 - A run is scored once it has finished: its `final_eval.parquet`, or the
   population trainer's end-only `final_selection.json`, written after its last
-  checkpoint (the 60 x 10 campaign trained with `--skip-report`, so 17 of its
-  dirs have no parquet).
+  checkpoint (the 60 x 10 campaign trained with `--skip-report`, so 20 of its
+  22 dirs have no parquet, 17 of them still to score).
 - Violations: rows scored from #174 on carry exact per-replicate counts
   (`viol_n`, `heat_flux_viol_n`, `g_load_viol_n`, `heat_load_viol_n`, summed in
   `pooled`) and the table quotes them at four decimals. Older rows carry only
@@ -299,13 +299,17 @@ repeats, `mamba_p962_long`, the four PPO cells, the nine classical rows with
   crash, hyperbolic, timeout at the simulation's own max_time, or capture,
   meaning the non-capture was the scorer's 5 s timeout). "All genuine crashes,
   none a timeout" is quotable for a cell only when `timeout`, `capture` and
-  `hyperbolic` are 0 and every non-capture was re-flown. A row scored at an
-  older commit re-flies at the current one, so a nonzero `capture` there needs
-  a look before it is read as a scorer timeout.
+  `hyperbolic` are 0 and every non-capture was re-flown. Rows scored from #174
+  on record `model_sha256`, and the re-fly refuses a `best_model.json` whose
+  bytes differ; a row scored before it re-flies whatever the dir holds at the
+  current commit, so a nonzero `capture` there needs a look before it is read
+  as a scorer timeout.
 - `--table` (same manifest) prints the table, capture from the pooled
   `n_captured / n` (never the per-replicate 2-decimal `capture_pct`), and the
   #173 recipe rule as amended (headline section).
-- `eval_commit`: six rows predate the per-row field (#171) and carry none. They
-  were first committed in 4e231643 (ft_mamba_p962, ft_dense_p515,
-  mamba_p962_long, fnpag), fd62090b (ft_mamba_p962_s2 / _s3) and 42aa397a
-  (ft_gru_p1014); each was flown at that commit's parent tree or earlier.
+- `eval_commit`: seven rows of the file predate the per-row field (#171) and
+  carry none, six of them v4 rows (`fnpag`, the earlier manifests' untuned
+  FNPAG, is not one). They were first committed in 4e231643 (ft_mamba_p962,
+  ft_dense_p515, mamba_p962_long, fnpag), fd62090b (ft_mamba_p962_s2 / _s3)
+  and 42aa397a (ft_gru_p1014); each was flown at that commit's parent tree or
+  earlier.

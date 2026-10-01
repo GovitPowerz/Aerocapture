@@ -3,6 +3,7 @@
  "toml": "configs/training/ou_marginal/mamba_p962.toml",
  "bundle_key": null,
  "model": "toy/best_model.json",
+ "model_sha256": null,
  "extra_overrides": null,
  "replicates": [
   {

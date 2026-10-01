@@ -20,7 +20,9 @@ Non-captures: once scored, a cell's recorded failed_seeds (the first 50 per
 replicate) are re-flown with no wall-clock limit, and their terminal outcomes
 (crash, pending crash, hyperbolic, timeout at the simulation's own max_time, or a
 capture: the non-capture was the scorer's 5 s timeout) land in the cell as
-`non_captures`.
+`non_captures`. The re-fly refuses a best_model.json whose bytes differ from the
+row's recorded `model_sha256` (rows scored before the field re-fly at the current
+model, as RESULTS.md notes).
 
 Stop and resume: Ctrl-C (or a crash, or a shutdown) at any point, then rerun the
 same command. Every finished replicate is on disk under
@@ -28,7 +30,7 @@ confirmatory_marginal.json.partial/<label>/ and is loaded, not flown again; the
 cell is assembled once all its replicates exist, written into the results file,
 and its partial store deleted. The store refuses a replicate flown under another
 merged TOML, override set, model or pool, compared by content (delete it to re-fly).
-A cell is classified after it is saved, so an interrupted re-fly reruns on its own.
+A cell is classified right after it is saved, so an interrupted re-fly reruns on its own.
 
 `--table` flies nothing: it prints the manifest's scored cells as the 10^6 table
 (capture from the pooled counts) and evaluates the #173 recipe rule as amended.
@@ -134,15 +136,21 @@ def recipe_rule(by_label: dict[str, dict]) -> dict | None:
 def classify_non_captures(cell: dict, cell_dir: Path, commit: str) -> dict:
     """Terminal outcomes of a cell's recorded `failed_seeds` (the first 50 per replicate) re-flown
     with no wall-clock limit: ifinal 1 / 4 a crash / pending crash, 2 a timeout (the simulation's own
-    max_time now), 3 an exit, hyperbolic or a capture (the non-capture was the scorer's 5 s timeout)."""
+    max_time now), 3 an exit, hyperbolic or a capture (the non-capture was the scorer's 5 s timeout).
+    Refuses a model whose bytes differ from the row's `model_sha256` (absent on rows scored before #174)."""
+    import confirmatory_eval as ce  # type: ignore[import-not-found]
     from aerocapture.training import cell_eval
     from aerocapture.training.cell_eval import FR_ECC, FR_IFINAL
 
+    toml = REPO / cell["toml"]
+    sha = ce._model_sha256(cell_eval._resolve_cell(cell_dir, toml, None)[1].get("data.neural_network"))
+    if cell.get("model_sha256", sha) != sha:
+        raise SystemExit(f"{cell['label']}: {cell_dir}/best_model.json is not the model the row was scored with: audit it or delete the row to re-score")
     seeds = [s for rep in cell["replicates"] for s in rep.get("failed_seeds", [])]
-    res = cell_eval.evaluate_cell(cell_dir, REPO / cell["toml"], seeds, extra_overrides={"monte_carlo.noise_seeding": "per_draw"}, sim_timeout_secs=None)
+    res = cell_eval.evaluate_cell(cell_dir, toml, seeds, extra_overrides={"monte_carlo.noise_seeding": "per_draw"}, sim_timeout_secs=None)
     ifinal, ecc = res.final_records[:, FR_IFINAL], res.final_records[:, FR_ECC]
     outcomes = {"crash": ifinal == 1, "pending_crash": ifinal == 4, "hyperbolic": (ifinal == 3) & (ecc >= 1.0), "timeout": ifinal == 2, "capture": res.captured}
-    return {"n_reflown": len(seeds), "outcomes": {k: int(m.sum()) for k, m in outcomes.items()}, "eval_commit": commit}
+    return {"n_reflown": len(seeds), "outcomes": {k: int(m.sum()) for k, m in outcomes.items()}, "eval_commit": commit, "model_sha256": sha}
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -207,28 +215,27 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  written {OUT.name}", flush=True)
 
     for label, toml, model_dir in cells:
+        cell_dir = REPO / (model_dir or f"training_output/{label}")
         if label in by_label:
             print(f"{label}: already done, skipping")
-            continue
-        cell_dir = REPO / (model_dir or f"training_output/{label}")
-        # Quotable only once the run is over (an RL dir carries a best_model.json from the first
-        # promotion): its final eval, or a population run's end-only final selection, written after
-        # its last checkpoint (a run extended past its target keeps the old final_selection.json).
-        last_checkpoint = max((f.stat().st_mtime_ns for f in cell_dir.glob("checkpoint*")), default=0)
-        if not any((cell_dir / f).exists() and (cell_dir / f).stat().st_mtime_ns > last_checkpoint for f in ("final_eval.parquet", "final_selection.json")):
-            print(f"{label}: run not finished (no final_eval.parquet or final_selection.json after its last checkpoint), skipping")
-            continue
-        print(f"== {label} ({toml})", flush=True)
-        cell = ce._eval_cell(label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=ce._partial_store(OUT, label))
-        cell["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
-        save(label, cell)
-        ce._drop_partial(OUT, label)
-    for label, _, model_dir in cells:
-        cell = by_label.get(label)
-        if cell is None or "non_captures" in cell or cell["pooled"]["n_captured"] == cell["pooled"]["n"]:
-            continue
-        print(f"== {label}: re-flying the recorded non-captures without the sim timeout", flush=True)
-        save(label, {**cell, "non_captures": classify_non_captures(cell, REPO / (model_dir or f"training_output/{label}"), freeze_commit)})
+        else:
+            # Quotable only once the run is over (an RL dir carries a best_model.json from the first
+            # promotion): its final eval, or a population run's end-only final selection, written after
+            # its last checkpoint (a run extended past its target keeps the old final_selection.json).
+            last_checkpoint = max((f.stat().st_mtime_ns for f in cell_dir.glob("checkpoint*")), default=0)
+            if not any((cell_dir / f).exists() and (cell_dir / f).stat().st_mtime_ns > last_checkpoint for f in ("final_eval.parquet", "final_selection.json")):
+                print(f"{label}: run not finished (no final_eval.parquet or final_selection.json after its last checkpoint), skipping")
+                continue
+            print(f"== {label} ({toml})", flush=True)
+            store = ce._partial_store(OUT, label)
+            cell = ce._eval_cell(label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=store)
+            cell["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
+            save(label, cell)
+            ce._drop_partial(OUT, label)
+        cell = by_label[label]
+        if "non_captures" not in cell and cell["pooled"]["n_captured"] < cell["pooled"]["n"]:
+            print(f"== {label}: re-flying the recorded non-captures without the sim timeout", flush=True)
+            save(label, {**cell, "non_captures": classify_non_captures(cell, cell_dir, freeze_commit)})
     for label in sorted(by_label):
         p = by_label[label]["pooled"]
         print(f"{label:<28} cap {100 * p['n_captured'] / p['n']:8.4f}%  cvar95 {p['cvar95']:7.2f}  cvar999 {p['cvar999']:7.2f}")

@@ -3,6 +3,7 @@
 No simulator: `evaluate_cell` is stubbed with a deterministic toy flight keyed on the pool.
 """
 
+import hashlib
 import json
 import os
 from collections.abc import Iterator
@@ -317,6 +318,27 @@ def test_non_captures_are_reflown_without_the_sim_timeout_and_classified(cm: Mod
 
     cm.main(argv)  # scored and classified: nothing flies
     assert len(sim.calls) == 3
+
+
+def test_non_capture_reflight_refuses_a_changed_model(tmp_path: Path, cm: ModuleType, outcomes: tuple[OutcomeSim, list[str]]) -> None:
+    """The row records the scored model's bytes: a best_model.json repaired or retrained since
+    (audit_deployed_models.py --repair, a rerun into the dir) must not classify as that row."""
+    sim, argv = outcomes
+    model = tmp_path / "toy/best_model.json"
+    model.write_text('{"v": 1}')
+    cm.main(argv)
+    d = json.loads(cm.OUT.read_text())
+    (rec,) = d["cells"]
+    assert rec["model_sha256"] == rec["non_captures"]["model_sha256"] == hashlib.sha256(b'{"v": 1}').hexdigest()
+    del rec["non_captures"]
+    cm.OUT.write_text(json.dumps(d))
+    model.write_text('{"v": 2}')
+    with pytest.raises(SystemExit, match="is not the model the row was scored with"):
+        cm.main(argv)
+    assert len(sim.calls) == 3  # refused before flying
+    model.write_text('{"v": 1}')
+    cm.main(argv)
+    assert len(sim.calls) == 4 and sim.calls[3][1] is None
 
 
 def _scored(label: str, n_captured: int, cvar999: float, viol: tuple[float, float, float] = (0.0, 0.0, 0.0), **extra: Any) -> dict:
