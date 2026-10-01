@@ -94,6 +94,24 @@ class TestBuildOverrides:
         assert overrides["guidance.lateral.tau"] == 15.0
         assert "guidance.equilibrium_glide.lateral.tau" not in overrides
 
+    def test_nn_frame_flies_a_scratch_model_not_the_toml_deploy_path(self, tmp_path: Path) -> None:
+        # Each NN frame used to overwrite the TOML's [data] neural_network, the deployed model of
+        # the config's default run, with a checkpoint's decode.
+        from aerocapture.training.animate import _decode_and_build_overrides
+        from aerocapture.training.config import NetworkConfig
+        from aerocapture.training.encoding import nn_param_specs_from_architecture
+
+        deployed = tmp_path / "run" / "best_model.json"
+        deployed.parent.mkdir()
+        deployed.write_text("the deployed model")
+        net = NetworkConfig()
+        n = len(nn_param_specs_from_architecture(net.layer_sizes, net.activations))
+        frame = tmp_path / "frame_model.json"
+        overrides = _decode_and_build_overrides(np.full(n, 0.5), "neural_network", {"data": {"neural_network": str(deployed)}}, 10, frame)
+        assert deployed.read_text() == "the deployed model"
+        assert overrides["data.neural_network"] == str(frame)
+        assert frame.exists()
+
 
 class TestComputeAxisRanges:
     def test_returns_dict_with_expected_keys(self) -> None:
@@ -231,3 +249,40 @@ class TestGenerateAnimation:
         assert gif_path.exists()
         assert gif_path.suffix == ".gif"
         assert gif_path.stat().st_size > 0
+
+    def test_scratch_model_is_removed_even_when_a_frame_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The NN frames' scratch model lives in a temp dir that dies with the run, exception or not.
+        import tempfile
+
+        from aerocapture.training.animate import generate_animation
+
+        d = tmp_path / "scheme"
+        d.mkdir()
+        prefix = "checkpoint_r000_g00000"
+        (d / f"{prefix}.json").write_text(json.dumps({"run": 0, "generation": 0, "best_cost": 100.0, "cost_history": [100.0]}))
+        np.savez_compressed(
+            d / f"{prefix}.npz",
+            pop_0=np.zeros((5, 80), dtype=np.int8),
+            costs_0=np.full(5, 100.0),
+            n_subpops=np.array([1]),
+            best_chromosome=np.zeros(80, dtype=np.int8),
+        )
+        toml_path = tmp_path / "config.toml"
+        toml_path.write_text('[guidance]\ntype = "neural_network"\n')
+        scratch_root = tmp_path / "tmp"
+        scratch_root.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(scratch_root))
+
+        def decode(best: object, guidance_type: str, toml_data: dict[str, object], n_sims: int, nn_path: Path) -> dict[str, object]:
+            assert nn_path.is_relative_to(scratch_root)
+            nn_path.write_text("a frame's model")
+            return {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path)}
+
+        with (
+            patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
+            patch("aerocapture.training.animate._decode_and_build_overrides", side_effect=decode),
+            patch("aerocapture.training.animate.fly_mc", side_effect=RuntimeError("sim exploded")),
+            pytest.raises(RuntimeError, match="sim exploded"),
+        ):
+            generate_animation(d, toml_path=toml_path, n_sims=4, fps=2)
+        assert list(scratch_root.iterdir()) == []

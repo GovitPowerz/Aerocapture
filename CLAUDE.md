@@ -132,8 +132,9 @@ noise walk for months; the dead-code lint on allow-free runtime structs is that 
 
 Until #170 the trainer wrote every NN run's model to the TOML's `[data] neural_network` as well as to its output dir, so an `--output-dir` repeat
 of a config that base-inherits a cell's TOML overwrote that cell's `best_model.json` while its `best_params.json` stayed: Appendix E's Dense 515
-row and three other run dirs flew a sibling's weights, and nothing errored. `artifacts.owned_deploy_path` now allows the write only when the
-path lies in the run's own output dir (gate: `tests/test_deploy_path.py`). Before quoting or collecting a model, run
+row, Appendix B's GRU / LSTM probe references and the dense compute timing flew a sibling's weights, and nothing errored.
+`artifacts.owned_deploy_path` now allows the write only when the path lies in the run's own output dir (gate: `tests/test_deploy_path.py`);
+`animate` overwrote the same path with every frame's decode until it got a scratch model (gate: `tests/test_animate.py`). Before quoting or collecting a model, run
 `experiments/paper/audit_deployed_models.py`: it rebuilds each run's winner from its final checkpoint and byte-compares it with the deployed
 model (`--repair` rewrites a mismatch). The same trap sat in piecewise_constant training: every run wrote the corridor and
 `ref_trajectory.dat` into `training_output/<mission>/` whatever its `--output-dir`, so a regime retune would have replaced the tracked

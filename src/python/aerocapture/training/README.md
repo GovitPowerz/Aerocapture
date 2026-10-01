@@ -627,7 +627,8 @@ use `--sim-timeout` against NaN hangs).
   `lib.typ` (page style, colors, headings). External dependency: the `typst` CLI (`brew install
   typst` / `cargo install typst-cli`); without it charts are still generated, no PDF.
 - `animate.py` — GIF of the training evolution: replays checkpoints, re-runs MC per frame, 2x2
-  panels (corridor with envelope fills, inclination, bank angle, cost CDF with ECDF overlay).
+  panels (corridor with envelope fills, inclination, bank angle, cost CDF with ECDF overlay). An NN
+  frame flies a scratch model file, never the TOML's `[data] neural_network`.
 - `corridor.py` — `CorridorAccumulator`: during `piecewise_constant` training each generation's
   trajectories (plus 11 constant-bank sentinel chromosomes from 0° to 180° in 18° steps, tracing
   the full lift-up / lift-down range) are classified (`classify_trajectories`, asymmetric

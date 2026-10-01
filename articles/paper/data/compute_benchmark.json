@@ -2,8 +2,8 @@
   "single_core": true,
   "meta": {
     "cpu": "Apple M4 Pro",
-    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
-    "python": "3.14.6",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "python": "3.14.7",
     "profile": "release (lto), f64 throughout, n_threads=1, idle box",
     "timing": "median of 5 batch repeats after 1 warmup; per-scheme repeat spread in ms_per_sim_repeats",
     "guidance_cadence_s": 1.0
@@ -12,72 +12,72 @@
     {
       "label": "NN-mamba",
       "n_sims": 200,
-      "ms_per_sim": 3.137,
+      "ms_per_sim": 3.0701,
       "ms_per_sim_repeats": [
-        3.1119,
-        3.1253,
-        3.137,
-        3.1397,
-        3.1729
+        3.0074,
+        3.0642,
+        3.0701,
+        3.0837,
+        3.0887
       ],
-      "sims_per_s": 318.8,
+      "sims_per_s": 325.7,
       "mean_sim_time_s": 734.1,
       "n_guidance_updates": 734,
-      "us_per_update_incl_sim": 4.27,
-      "slowdown_vs_fastest": 3.5
+      "us_per_update_incl_sim": 4.18,
+      "slowdown_vs_fastest": 3.4
     },
     {
       "label": "NN-dense",
       "n_sims": 200,
-      "ms_per_sim": 1.8814,
+      "ms_per_sim": 1.9847,
       "ms_per_sim_repeats": [
-        1.8624,
-        1.8709,
-        1.8814,
-        1.8824,
-        1.8996
+        1.9441,
+        1.974,
+        1.9847,
+        2.0251,
+        2.0428
       ],
-      "sims_per_s": 531.5,
+      "sims_per_s": 503.9,
       "mean_sim_time_s": 771.6,
       "n_guidance_updates": 772,
-      "us_per_update_incl_sim": 2.44,
-      "slowdown_vs_fastest": 2.1
+      "us_per_update_incl_sim": 2.57,
+      "slowdown_vs_fastest": 2.2
     },
     {
       "label": "FTC",
       "n_sims": 200,
-      "ms_per_sim": 0.903,
+      "ms_per_sim": 0.9063,
       "ms_per_sim_repeats": [
-        0.8937,
-        0.9002,
-        0.903,
-        0.9052,
-        0.945
+        0.8921,
+        0.8934,
+        0.9063,
+        0.9133,
+        0.9262
       ],
-      "sims_per_s": 1107.5,
+      "sims_per_s": 1103.4,
       "mean_sim_time_s": 480.1,
       "n_guidance_updates": 480,
-      "us_per_update_incl_sim": 1.88,
+      "us_per_update_incl_sim": 1.89,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "ms_per_sim": 87.0781,
+      "ms_per_sim": 85.5379,
       "ms_per_sim_repeats": [
-        86.9909,
-        87.0145,
-        87.0781,
-        87.0893,
-        87.1277
+        84.9249,
+        85.3625,
+        85.5379,
+        86.0031,
+        86.3452
       ],
-      "sims_per_s": 11.5,
+      "sims_per_s": 11.7,
       "mean_sim_time_s": 636.1,
       "n_guidance_updates": 636,
-      "us_per_update_incl_sim": 136.89,
-      "slowdown_vs_fastest": 96.4,
+      "us_per_update_incl_sim": 134.46,
+      "slowdown_vs_fastest": 94.4,
       "n_replans": 318,
-      "ms_per_replan_derived": 0.2709
+      "ms_per_replan_derived": 0.2661
     }
   ]
 }

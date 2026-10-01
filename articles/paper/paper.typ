@@ -5,8 +5,8 @@
 // Data: articles/paper/data/ (results.json + the eval JSONs). The headline tables (tbl-perf,
 // tbl-paired, tbl-quant-finalists, tbl-ou-confirmatory), Section 7.3's depth tables
 // (tbl-centered-sp, tbl-centered-pd), Appendix E's tables (tbl-ou-regimes, tbl-ou-retrain),
-// the per-scenario quotes and the colophon read them at compile time through
-// results.typ; the rest of the prose still quotes transcribed numbers. Rebuild everything:
+// the per-scenario quotes, the compute quotes, Appendix B's budget caveat and the colophon read
+// them at compile time through results.typ; the rest of the prose still quotes transcribed numbers. Rebuild everything:
 // make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). Abstract leads with the architecture
 // result. dense_515 carried as a full efficiency-reference row throughout.
@@ -83,6 +83,21 @@
 // The integer the dense fine-tune and FNPAG "sit near" at CVaR99.9: both within 1 m/s of it.
 #let ou_near = int(calc.round(calc.max(ou_dense.cvar999, ou_fnpag.cvar999)))
 #assert((ou_dense, ou_fnpag).all(c => calc.abs(c.cvar999 - ou_near) < 1), message: "the dense fine-tune and FNPAG do not both sit within 1 m/s of " + str(ou_near))
+// The single-core compute quotes (data/compute_benchmark.json). The benchmark is wall-clock, so a
+// re-run moves every row and the prose reads them: ms per simulation, the network's factor below
+// FNPAG, its cost of state over the dense network, and at the 100x flight-processor scaling
+// FNPAG's derived per-replan cost and the network's whole-simulation cost per 1 s update.
+#let ms(label) = R.bench(label).ms_per_sim
+#let ms_vs_fnpag = int(calc.round(ms("FNPAG") / ms("NN-mamba")))
+#let ms_state = ms("NN-mamba") / ms("NN-dense")
+#assert(calc.abs(ms("NN-mamba") / ms("FTC") - 3.5) < 0.25, message: "the Compute paragraph states the network costs roughly three and a half times FTC")
+#let fl_replan_ms = 100 * R.bench("FNPAG").ms_per_replan_derived
+#let fl_update_ms = 100 * R.bench("NN-mamba").us_per_update_incl_sim / 1000
+#assert(calc.abs((1000 / fl_update_ms) / (2000 / fl_replan_ms) - 30) < 5, message: "the Compute paragraph states the two deadline margins differ by a factor of thirty")
+// The Timing paragraph of Appendix A: the compiler's major.minor version and each scheme's repeat
+// standard deviation as a percentage of its median.
+#let bench_rustc = R.benchmark.meta.rustc.split(" ").at(1).split(".").slice(0, 2).join(".")
+#let bench_spread = ("NN-mamba", "NN-dense", "FTC", "FNPAG").map(l => 100 * R.mean_sd(R.bench(l).ms_per_sim_repeats).sd / ms(l))
 // The n = 1000 paired quotes of Appendix E (data/quote_marginal.json): the five shared-path-trained
 // champions and three classical laws scored under both regimes (ou_shift = per-scenario minus
 // shared-path CVaR95), then the three scratch repeats and the fine-tune of each of the same five
@@ -91,6 +106,11 @@
 #let ou_nets = ("mamba_p962", "lstm_p1082", "gru_p1014", "dense_p972", "dense_p515")
 #let ou_laws = ("fnpag", "pred_guid", "ftc")
 #let ou_shift(label) = R.ou(label).cvar95 - R.ou(label, regime: "frozen").cvar95
+// The "2--4 times" of the abstract, Section 2 and the regime-table caption: each network's tail
+// loss over the classical laws' mean loss.
+#let ou_law_shift = ou_laws.map(ou_shift).sum() / ou_laws.len()
+#assert(ou_nets.all(l => ou_shift(l) >= 2 * ou_law_shift and ou_shift(l) <= 4 * ou_law_shift),
+  message: "the abstract, Section 2 and the regime-table caption state that the networks give up 2--4 times the classical schemes' tail")
 #let ou_fnpag1k = R.ou("fnpag")
 #assert(ou_fnpag1k.viol_pct == 0, message: "the prose states clean constraints for the deployed FNPAG under per-scenario noise")
 #let ou_scratch(label) = ("", "_s2", "_s3").map(s => R.ou("ou_" + label + s))
@@ -195,8 +215,8 @@
   confirmatory scenarios at full constraint feasibility and holds a far-tail $"CVaR"_(99.9)$ of
   #box[$#R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s] (both three-fine-tune-seed means, the $plus.minus$ one seed
   standard deviation; the deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$) -- $#ou_margin(ou_ft3.mean)$ m/s below both the best
-  classical scheme (FNPAG) and the best dense network, which sit near $#ou_near$ -- at #box[$3.1$ ms] per
-  simulation, $28 times$ faster than FNPAG. That number replaces the one an earlier version of this
+  classical scheme (FNPAG) and the best dense network, which sit near $#ou_near$ -- at #box[$#R.fixed(ms("NN-mamba"))$ ms] per
+  simulation, $#ms_vs_fnpag times$ faster than FNPAG. That number replaces the one an earlier version of this
   paper led with: the historical evaluation pipeline conditioned every scenario on a single sample
   path of the density noise, and the networks exploit that conditioning $2$--$4 times$ more than the
   classical schemes. The shared-path champion's $"CVaR"_(99.9)$ of $123.3 plus.minus 0.1$ m/s at
@@ -276,7 +296,7 @@ We make three contributions:
   against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under
   a far-tail correction-$Delta v$ risk metric. On
   identical dispersions, the deployed network beats the best classical scheme by $16.4$ m/s in mean
-  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $28 times$ below the numerical
+  and $27.6$ m/s at $"CVaR"_95$, at a per-simulation compute cost $#ms_vs_fnpag times$ below the numerical
   predictor--corrector -- with the caveat that the analytic law is more robust off-nominal, under a
   deliberately harsh stress regime we return to in Section 7.3.
 
@@ -552,7 +572,7 @@ Mamba-3 @lahoti2026mamba3 -- against these cells at matched budget; none improve
   ),
   caption: [The benchmarked schemes. "Reference" marks dependence on a tabulated reference trajectory
   ("inputs": the network reads two reference interpolations as observations but does not enslave to
-  them); "Compute" classes are quantified in @sec-deployability (fast: $1$--$3$ ms/sim; slow: $87$ ms/sim).
+  them); "Compute" classes are quantified in @sec-deployability (fast: $#int(calc.round(ms("FTC")))$--$#int(calc.round(ms("NN-mamba")))$ ms/sim; slow: $#int(calc.round(ms("FNPAG")))$ ms/sim).
   Signed-bank schemes (full-neural, piecewise-constant) bypass the shared roll-reversal, exit-phase,
   and thermal-limiter logic.],
 ) <tbl-schemes>
@@ -1045,19 +1065,19 @@ scenarios; against FNPAG the margins are $14.4$ / $23.4$ / $28.7$ m/s, winning $
 (@tbl-paired). The tail margin is consistently *larger* than the mean margin -- the network's
 advantage is precisely where the mission is sized.
 
-*Compute.* On a single idle core, the dense network runs at $1.88$ ms per simulation and the stateful
-Mamba at $3.14$ ms, against $0.90$ ms for FTC and $87.1$ ms for FNPAG (@fig-classical). The network is
-roughly three and a half times FTC -- the same fast class -- and $28 times$ faster than the numerical
+*Compute.* On a single idle core, the dense network runs at $#R.fixed(ms("NN-dense"), d: 2)$ ms per simulation and the stateful
+Mamba at $#R.fixed(ms("NN-mamba"), d: 2)$ ms, against $#R.fixed(ms("FTC"), d: 2)$ ms for FTC and $#R.fixed(ms("FNPAG"))$ ms for FNPAG (@fig-classical). The network is
+roughly three and a half times FTC -- the same fast class -- and $#ms_vs_fnpag times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
-below keeps robustness a separate axis. The selective-state-space core costs about $1.7 times$ the
+below keeps robustness a separate axis. The selective-state-space core costs about $#R.fixed(ms_state) times$ the
 dense network, the price of the tail it buys. Per control action rather than per trajectory: the
-network's forward pass costs $approx 4$ µs per $1$ s guidance update (whole-simulation cost
-divided by the $approx 734$ updates flown -- an upper bound on pure inference), while FNPAG's
-predictor work amounts to $approx 0.27$ ms per $2$ s replan cycle. Flight processors run one to
+network's forward pass costs $approx #int(calc.round(R.bench("NN-mamba").us_per_update_incl_sim))$ µs per $1$ s guidance update (whole-simulation cost
+divided by the $approx #R.bench("NN-mamba").n_guidance_updates$ updates flown -- an upper bound on pure inference), while FNPAG's
+predictor work amounts to $approx #R.fixed(R.bench("FNPAG").ms_per_replan_derived, d: 2)$ ms per $2$ s replan cycle. Flight processors run one to
 two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
-scaling neither scheme breaches its own deadline ($approx 27$ ms per replan against $2$ s;
-$approx 0.4$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+scaling neither scheme breaches its own deadline ($approx #int(calc.round(fl_replan_ms))$ ms per replan against $2$ s;
+$approx #R.fixed(fl_update_ms)$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
 and the relative cost ordering is host-independent. None of these measurements establish worst-case
 execution time or memory on qualified hardware (Section 9).
 
@@ -1377,8 +1397,8 @@ is the same: the network is exactly as good as the distribution it trains on, an
 training environment recovers what the narrow one gave away (the centered cells of @sec-objcenter,
 trained on the shared path, lose their reversal under per-scenario noise for the same reason).
 
-A second tradeoff is the cost of state. The deployed Mamba runs at $3.14$ ms per simulation against
-$1.88$ ms for the dense network -- about $1.7 times$ for the selective-state-space core -- which is
+A second tradeoff is the cost of state. The deployed Mamba runs at $#R.fixed(ms("NN-mamba"), d: 2)$ ms per simulation against
+$#R.fixed(ms("NN-dense"), d: 2)$ ms for the dense network -- about $#R.fixed(ms_state) times$ for the selective-state-space core -- which is
 the price of the tighter tail. The head itself accounts for $approx 1.2$ ms of that cost;
 single-precision arithmetic would roughly halve it, while integer quantization buys memory rather
 than speed at this scale (Appendix C). Both remain in the fast compute class, an order of magnitude below the
@@ -1426,7 +1446,7 @@ recurrent (Mamba) policy fine-tuned in that regime captures $#R.fixed(ou_ft3_cap
 confirmatory scenarios at full constraint feasibility and, on the far tail that sizes the propellant
 tanks, holds $"CVaR"_(99.9) = #R.fixed(ou_ft3.mean) plus.minus #R.fixed(ou_ft3.sd)$ m/s (both three-seed means, the $plus.minus$ one
 seed standard deviation; the deployed seed captures $#R.fixed(ou_ft.capture_pct, d: 4)%$) -- $#ou_margin(ou_ft3.mean)$ m/s below both the best
-classical scheme and the best dense network -- running $28 times$ faster than the numerical
+classical scheme and the best dense network -- running $#ms_vs_fnpag times$ faster than the numerical
 predictor--corrector.
 
 Two findings carry beyond the headline number. The first is methodological: a genetic algorithm is the
@@ -1598,10 +1618,10 @@ absolute forward-pass difference near machine epsilon ($10^(-16)$--$10^(-14)$) o
 stateful sequences.
 
 *Timing.* Wall-clock per complete simulation over $200$ sequential runs of each deployed scheme on
-one idle core of an Apple M4 Pro laptop (native code compiled with rustc 1.97 at the release
+one idle core of an Apple M4 Pro laptop (native code compiled with rustc #bench_rustc at the release
 profile with link-time optimization; $64$-bit floats throughout; single-threaded). Quoted values
-are the median of five timed batch repeats after one warm-up; repeat spreads are $0.1$--$2.2%$ of
-the median. A flown simulation spans $approx 480$--$770$ guidance updates depending on the scheme,
+are the median of five timed batch repeats after one warm-up; the standard deviation over the
+repeats is #R.span(bench_spread, d: 1)% of the median. A flown simulation spans $approx 480$--$770$ guidance updates depending on the scheme,
 giving the per-update and per-replan shares quoted in Section 7.2 (whole-simulation cost divided by
 update count -- a loose upper bound on pure guidance inference). These are
 implementation-and-host measurements supporting the relative comparison; flight-processor
@@ -1698,13 +1718,23 @@ anchors differ slightly ($962$/$1014$/$1082$ parameters), so the ranking is sugg
 matched: the plain Mamba tops the field (tied with its own complex arms), about $2$ m/s ahead of the
 GRU and $2.7$ ahead of the LSTM at $p_95$ -- consistent with the deployed headline.
 
-One caveat is load-bearing. Each probe also scored a higher-budget reference row -- the Section 6
+// The budget caveat's reference rows (data/probes/): each probe's higher-budget reference against
+// its retrained in-regime baseline, p95 in m/s. The Mamba and LSTM references beat their
+// baselines; the GRU sweep cell does not.
+#let pr_mamba = R.probe_ref("mamba3", "962_baseline", "baseline")
+#let pr_lstm = R.probe_ref("xlstm", "lstm_p1082_sweep", "lstm")
+#let pr_gru = R.probe_ref("cfc", "gru_p1014_sweep", "gru")
+#assert(pr_mamba.ref < pr_mamba.base and pr_lstm.ref < pr_lstm.base and pr_gru.ref > pr_gru.base,
+  message: "the budget caveat states that the Mamba and LSTM references beat their baselines at p95 and the GRU sweep cell does not")
+One caveat is load-bearing. Each probe also scored a higher-budget reference row: the Section 6
 sweep cell for the GRU and the LSTM (population $512$ for the same $5000$ generations,
 $1.7 times$ the probe evaluations) and a full-budget plain-Mamba run ($512 times 10\,000$,
-$3.4 times$) for the Mamba -- and those sit $4$--$6.5$ m/s better at $p_95$ than the retrained
-in-regime baselines (Mamba $121.6$ versus $116.6$; GRU $123.7$ versus $117.3$; LSTM $124.3$ versus
-$120.2$): a training-budget effect, not architecture. That gap is exactly why every treatment
-compares against its retrained in-regime baseline and never against a higher-budget reference. Two
+$3.4 times$) for the Mamba. The Mamba and LSTM references sit #R.span((pr_mamba, pr_lstm).map(r => r.base - r.ref)) m/s better at
+$p_95$ than their retrained in-regime baselines (Mamba $#R.fixed(pr_mamba.base)$ versus $#R.fixed(pr_mamba.ref)$; LSTM
+$#R.fixed(pr_lstm.base)$ versus $#R.fixed(pr_lstm.ref)$), a training-budget effect, not architecture. The GRU sweep cell
+sits $#R.fixed(pr_gru.ref - pr_gru.base)$ m/s worse than its baseline ($#R.fixed(pr_gru.base) plus.minus #R.fixed(pr_gru.sd)$ versus
+$#R.fixed(pr_gru.ref)$), so one larger-budget run can land on either side. Every treatment therefore compares
+against its retrained in-regime baseline and never against a higher-budget reference. Two
 smaller caveats: the probe cells are trained through the gradient-free path only (no warm-start),
 and the sLSTM's $40$-parameter deficit against the LSTM is a cell-definition cost (single bias),
 not a budget mismatch -- it does not explain its null.
@@ -1854,7 +1884,7 @@ The deployment benefit, stated honestly, is memory -- not compute:
   by the $968$ B of dynamics parameters the sensitivity study says must stay in floating point.],
 ) <tbl-quant-memory>
 
-On compute, the head accounts for $approx 1.22$ ms of the deployed policy's $3.14$ ms
+On compute, the head accounts for $approx 1.22$ ms of the deployed policy's $#R.fixed(ms("NN-mamba"), d: 2)$ ms
 whole-simulation cost (Section 7.2):
 
 #figure(
@@ -2130,11 +2160,12 @@ feasibility validation (@tbl-ou-retrain).
   #set par(justify: false)
   *Provenance.* Every cell of @tbl-perf, @tbl-paired, @tbl-quant-finalists, @tbl-centered-sp,
   @tbl-centered-pd, @tbl-ou-regimes, @tbl-ou-retrain and @tbl-ou-confirmatory, the sizing-depth
-  quotes of Section 7.3, and the per-scenario quotes of the abstract, Section 9,
-  the conclusion and Appendix E, are read at compile time from `data/results.json`,
-  `data/confirmatory_eval.json`, `data/quant/finalists_results.json`, `data/centered_depth.json`,
-  `data/confirmatory_marginal.json`
-  and `data/quote_marginal.json` through `results.typ` (the Viol. column of @tbl-perf is transcribed:
+  quotes of Section 7.3, the per-scenario quotes of the abstract, Section 9,
+  the conclusion and Appendix E, the compute quotes and the budget caveat of Appendix B are read at
+  compile time from `data/results.json`, `data/confirmatory_eval.json`,
+  `data/quant/finalists_results.json`, `data/centered_depth.json`, `data/confirmatory_marginal.json`,
+  `data/quote_marginal.json`, `data/compute_benchmark.json` and `data/probes/` through `results.typ`
+  (the Viol. column of @tbl-perf is transcribed:
   `results.json` carries no violation field). Paper inputs digest (SHA-256 over every
   tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release
   #raw(prov.release_tag). Simulator crate #prov.simulator_crate_version, Typst #prov.typst_version,
