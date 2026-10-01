@@ -1,0 +1,13 @@
+# Heat-load ceiling sensitivity (#192), in value order. name|target_gen|seed|checkpoint_source_dir.
+# hs_<cell>_q<NN> = the #173 seed-1 champion's g20000 checkpoint + 2000 gens at 60 x 10 (the
+# fine-tune recipe) under its TOML's [flight.constraints] max_heat_load: q25 = 25000 (the v4
+# limit, the control), q27 = 27500, q30 = 30000 kJ/m2. Seed 1 throughout: the copied checkpoint's
+# rng_state is kept, so the three legs of a cell start from one RNG and population and diverge only
+# through the ceiling. Run: campaign.sh experiments/ou_marginal/jobs_heat_load.txt (~25 min per job);
+# then heat_load_slope.py.
+hs_mamba_p962_q25|22000|1|training_output/ou_marginal/hl_mamba_p962
+hs_mamba_p962_q27|22000|1|training_output/ou_marginal/hl_mamba_p962
+hs_mamba_p962_q30|22000|1|training_output/ou_marginal/hl_mamba_p962
+hs_dense_p515_q25|22000|1|training_output/ou_marginal/hl_dense_p515
+hs_dense_p515_q27|22000|1|training_output/ou_marginal/hl_dense_p515
+hs_dense_p515_q30|22000|1|training_output/ou_marginal/hl_dense_p515

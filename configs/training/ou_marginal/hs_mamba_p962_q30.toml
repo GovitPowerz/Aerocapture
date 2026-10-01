@@ -1,0 +1,16 @@
+# Heat-load ceiling sensitivity (#192): the #173 seed-1 champion hl_mamba_p962 (g20000 checkpoint)
+# continued 2000 gens at the fine-tune recipe (GA 60 x 10, adaptive seeds, per_draw) under
+# [flight.constraints] max_heat_load = 30000.0 kJ/m2; a relaxed leg; NN input 7 (heat_load_fraction) rescales with the ceiling, so the policy re-adapts to both.
+# The ceiling here is the source of truth for the ADR-0005 gate and report.py's eval. Driven by
+# experiments/ou_marginal/campaign.sh experiments/ou_marginal/jobs_heat_load.txt; scored by heat_load_slope.py.
+base = ["hl_mamba_p962.toml"]
+
+[optimizer]
+n_pop = 60
+training_n_sims = 10
+
+[flight.constraints]
+max_heat_load = 30000.0
+
+[data]
+neural_network = "training_output/ou_marginal/hs_mamba_p962_q30/best_model.json"

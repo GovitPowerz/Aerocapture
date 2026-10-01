@@ -74,7 +74,7 @@ def test_every_job_is_runnable(jobs: Path) -> None:
         assert cfg["data"]["neural_network"] == f"training_output/ou_marginal/{name}/best_model.json", name
         suffix = re.search(r"_s(\d)$", name)
         assert seed == (int(suffix.group(1)) if suffix else 1), name
-        assert (src != "") == name.startswith("ft_"), name
+        assert (src != "") == name.startswith(("ft_", "hs_")), name  # fine-tunes: ft_* (#173), hs_* (#192)
         assert target == (22000 if src else 20000), name
 
 

@@ -23,7 +23,7 @@
 # is the run-local <out>/best_model.json; the job's latest checkpoint, before and
 # after each pass, holds the TOML's population and a seed curator with
 # training_n_sims bins; after a job, its best_model.json differs from every
-# sibling seed's (<cell>, <cell>_sN). A pass checks its allocation only when it
+# sibling's (<cell>, <cell>_sN, <cell>_qNN). A pass checks its allocation only when it
 # ends: to check a fresh job at its first checkpoint, Ctrl+C once
 # checkpoint_g00010 exists (the interrupted pass checks it) and rerun.
 # After a job reaches its target, report.py writes the n = 1000 per-scenario
@@ -123,10 +123,12 @@ print(t["optimizer"]["n_pop"], t["optimizer"]["training_n_sims"], t["data"]["neu
     echo "== ${name}: trained (g${last} >= ${target})"
   fi
 
-  cell="${name%_s[0-9]}"
-  for sib in "training_output/ou_marginal/${cell}" "training_output/ou_marginal/${cell}"_s[0-9]; do
+  # Siblings: the seed repeats <cell>_sN and the #192 ceiling legs <cell>_qNN (same checkpoint
+  # and RNG, so a leg whose ceiling never reached the trainer replays its sibling exactly).
+  cell="${name%_s[0-9]}"; cell="${cell%_q[0-9][0-9]}"
+  for sib in "training_output/ou_marginal/${cell}" "training_output/ou_marginal/${cell}"_s[0-9] "training_output/ou_marginal/${cell}"_q[0-9][0-9]; do
     if [ "$sib" != "$out" ] && [ -f "$sib/best_model.json" ] && cmp -s "$sib/best_model.json" "$out/best_model.json"; then
-      echo "== ${name}: best_model.json is byte-identical to ${sib}'s (a seed repeat replayed its sibling); stopping."
+      echo "== ${name}: best_model.json is byte-identical to ${sib}'s (a sibling run replayed this one); stopping."
       exit 1
     fi
   done
