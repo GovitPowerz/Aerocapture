@@ -5,7 +5,7 @@ the shared-path champion checkpoint (`training_output/mamba_p962_long/`, the his
 headline cell) fine-tuned for 2000 further GA generations under per-scenario density noise
 (`noise_seeding = "per_draw"`) via `configs/training/ou_marginal/ft_mamba_p962.toml`
 (GA population 60, ten scenarios per individual, adaptive seed strategy;
-`experiments/ou_marginal/phase2_campaign.sh`). Architecture unchanged: 962 parameters,
+`experiments/ou_marginal/phase2_campaign.sh`, now `campaign.sh jobs_phase2.txt`). Architecture unchanged: 962 parameters,
 Dense(17->16, swish) -> Mamba(d_inner=16, d_state=12) -> Dense head. `best_model.json`
 md5 `1ecc77e492b4f2caa4229b6b69dc2e4b`.
 

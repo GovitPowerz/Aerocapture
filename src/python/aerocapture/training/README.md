@@ -802,12 +802,21 @@ validation_n_sims` sims each).
   `label/regime` already quoted, `--only` re-scores, `--force` re-quotes into a fresh file; the committed file also holds the `classical_cells.txt` rows, so a protocol re-quote is `--force` then `--manifest classical_cells.txt` without it),
   `confirmatory_marginal.py` (the per_draw 10 x 100k far-tail pools, cells from
   `confirmatory_cells.txt` or `--manifest` / `--cells`, resumable per replicate),
-  `phase2_campaign.sh` (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw gens,
-  and `<cell>_s2` / `_s3` scratch
-  seed repeats with `--seed 2/3`; every repeat job strips `rng_state` from its copied checkpoint,
-  because a checkpoint resume restores the saved trainer RNG state and would silently override
-  `--seed`). Campaign runs use the sweep config's allocation (GA n_pop 60, training_n_sims 10),
-  not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).
+  `campaign.sh <jobs file>` (the NN campaign runner, helpers shared with `classical_campaign.sh` in
+  `campaign_lib.sh`: one `name|target_gen|seed|checkpoint_source_dir`
+  per line trains `configs/training/ou_marginal/<name>.toml` into `training_output/ou_marginal/<name>/`
+  with `--seed`, from scratch or from the source's copied `checkpoint_g20000`; every repeat job
+  strips `rng_state` from its copied checkpoint, because a checkpoint resume restores the saved
+  trainer RNG state and would silently override `--seed`; same resumable contract as below, plus
+  the run-local deploy path, the checkpoint allocation against the TOML, a byte-identical
+  `best_model.json` across a cell's seeds, and report.py's n = 1000 `final_eval.parquet` per job).
+  `jobs_phase2.txt` is phase 2 (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw
+  gens, and `<cell>_s2` / `_s3` scratch seed repeats), at the sweep config's allocation (GA n_pop 60,
+  training_n_sims 10), not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).
+  `jobs_headline.txt` (#173) is that headline allocation under per_draw from scratch: `hl_<cell>`
+  configs state 512 x 2 in the TOML (mamba_962 and dense_515 at three seeds, the other three
+  families at one), plus the dense_515 fine-tune seeds 2 and 3; the pre-registered recipe decision
+  is in `RESULTS.md`.
   `classical_campaign.sh` (#172) retunes the nine classical cells of the paper's 01 / 07 scripts
   under per_draw at their shared-path GA allocation (2000 x 300 x 10, FNPAG 300 gens; configs
   `configs/training/ou_marginal/classical/`, which state the regime and allocation in the leaf,
