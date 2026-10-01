@@ -66,8 +66,10 @@ PAIRS = [
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
 
 REP_KEYS = ("capture_pct", "p50", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
-# Per-constraint violation rates ride along per replicate (ADR-0005: quote feasibility next to the tail).
+# Per-constraint violation rates ride along per replicate (ADR-0005: quote feasibility next to the tail),
+# with their exact counts: a 2-decimal rate reads fewer than 5 violations per 100,000 as 0.00.
 VIOL_KEYS = ("viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "heat_load_viol_pct")
+VIOL_COUNT_KEYS = ("viol_n", "heat_flux_viol_n", "g_load_viol_n", "heat_load_viol_n")
 
 
 def _r2(v: float) -> float:
@@ -135,6 +137,11 @@ def _drop_partial(out: Path, label: str) -> None:
         d.rmdir()
 
 
+def _model_sha256(model_path: object) -> str | None:
+    """The flown model's bytes (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path."""
+    return hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None
+
+
 def _write_atomic(path: Path, text: str) -> None:
     tmp = path.with_name(f".tmp_{path.name}")
     tmp.write_text(text)
@@ -169,8 +176,7 @@ def _eval_cell(
     overrides = {"monte_carlo.noise_seeding": noise_seeding, **extra}
     # What a stored replicate must have been flown under to be reused, by content: the merged TOML
     # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
-    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes
-    # (audit_deployed_models.py --repair rewrites one in place) rather than its checkout-specific path.
+    # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes.
     eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
     flown = {**cell_overrides, **overrides}
     model_path = flown.pop("data.neural_network", None)
@@ -180,7 +186,7 @@ def _eval_cell(
         "sim_timeout": sim_timeout,
         "overrides": flown,
         "config_sha256": hashlib.sha256(json.dumps(load_toml_with_bases(eval_toml), sort_keys=True).encode()).hexdigest(),
-        "model_sha256": hashlib.sha256(Path(str(model_path)).read_bytes()).hexdigest() if model_path else None,
+        "model_sha256": _model_sha256(model_path),
     }
 
     reps: list[dict] = []
@@ -211,13 +217,9 @@ def _eval_cell(
         over_flux = col["max_heat_flux_kw_m2"] > hfl
         over_g = col["max_load_factor_g"] > gll
         over_hl = col["integrated_flux_mj_m2"] * 1e3 > hll
-        viol = {
-            "viol_pct": 100 * float((over_flux | over_g | over_hl).mean()),
-            "heat_flux_viol_pct": 100 * float(over_flux.mean()),
-            "g_load_viol_pct": 100 * float(over_g.mean()),
-            "heat_load_viol_pct": 100 * float(over_hl.mean()),
-        }
-        rep = {"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol)}
+        over = {"viol": over_flux | over_g | over_hl, "heat_flux_viol": over_flux, "g_load_viol": over_g, "heat_load_viol": over_hl}
+        viol = {f"{k}_pct": 100 * float(m.mean()) for k, m in over.items()}
+        rep = {"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol), **{f"{k}_n": int(m.sum()) for k, m in over.items()}}
         failed = [int(s) for s, ok in zip(seeds, cap, strict=True) if not ok][:50]
         if failed:
             rep["failed_seeds"] = failed  # for post-hoc classification (timeout vs physical)
@@ -239,6 +241,7 @@ def _eval_cell(
         "toml": toml,
         "bundle_key": bundle_key,
         "model": model_used,
+        "model_sha256": flight["model_sha256"],  # a later re-fly of the row (its non-captures) refuses another model
         "extra_overrides": extra or None,
         "replicates": reps,
         "pooled": {
@@ -250,6 +253,7 @@ def _eval_cell(
             "max": _r2(pooled_x.max()),
             "n_tail_obs_cvar999": max(1, int(round(0.001 * n_cap))),
             **{k: _r2(float(np.mean([rp[k] for rp in reps]))) for k in VIOL_KEYS},
+            **{k: sum(rp[k] for rp in reps) for k in VIOL_COUNT_KEYS},
         },
         "replicate_stats": {k: _agg([rp[k] for rp in reps]) for k in REP_KEYS + VIOL_KEYS},
         "survival_sample": [_r2(v) for v in pooled_x[::step]],
