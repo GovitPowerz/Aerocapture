@@ -128,17 +128,20 @@ deployed recurrent headline is the selective SSM.
 ## Caveats a writer must preserve
 
 1. **Reference rows are budget-confounded; do not cross-compare against them.**
-   Each probe also scored its deployed sweep cell / 962 arms as reference rows.
-   Those are systematically better than the in-regime baselines:
+   Each probe also scored its deployed sweep cell / 962 arms as reference rows:
 
    | in-regime baseline (300 x 5000) | reference (higher budget) | dvP95 gap |
    |---|---|---|
    | mamba baseline 121.6 | 962_baseline 116.6 (512 x 10000) | +5.0 |
-   | gru 123.7 | gru_p1014_sweep 117.3 | +6.4 |
+   | gru 123.7 | gru_p1014_sweep 125.4 | -1.6 |
    | lstm 124.3 | lstm_p1082_sweep 120.2 | +4.1 |
 
-   This 4-6 m/s gap is a pure training-budget effect (the 962 cells had ~3.4x the
-   individual-evaluations), NOT architecture. It is exactly why the probes retrain
+   The GRU and LSTM reference rows were re-scored on 2026-09-26 (#170): the first
+   scoring flew `gru_p1014_long` (20,000 generations, GRU 117.3) and the LSTM repeat
+   s3, which had overwritten the two sweep cells' `best_model.json`. The Mamba and
+   LSTM gaps are a training-budget effect (the 962 cells had ~3.4x the
+   individual-evaluations), NOT architecture; the GRU sweep cell lands on the other
+   side, so one larger-budget run can fall either way. It is exactly why the probes retrain
    in-regime baselines rather than comparing treatments against the deployed
    champions - and it validates that design choice. Any paper sentence must
    compare treatment-vs-in-regime-baseline, never treatment-vs-champion.

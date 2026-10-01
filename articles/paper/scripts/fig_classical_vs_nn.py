@@ -41,10 +41,10 @@ def main():
     }
     # compute label -> the actual per-sim ms; joint-FTC rides FTC's compute cost.
     x = {
-        "Mamba-962": ms["NN-mamba"],  # 3.14
-        "Dense-515": ms["NN-dense"],  # 1.88
-        "joint-FTC": ms["FTC"],  # 0.90
-        "FNPAG": ms["FNPAG"],  # 87.1
+        "Mamba-962": ms["NN-mamba"],
+        "Dense-515": ms["NN-dense"],
+        "joint-FTC": ms["FTC"],
+        "FNPAG": ms["FNPAG"],
     }
 
     fig, ax = plt.subplots(figsize=fl.SIZE_HALF)

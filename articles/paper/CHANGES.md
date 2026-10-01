@@ -182,3 +182,25 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   gains the three runs and no other entry moves. `runs/headline/dense_p515/ablation_results.json`
   (2026-06-19, skipped by the same guard while that dir held a clobbered model; read by no
   figure) is bundled with them, so a full `12_collect_results.sh` leaves the tracked bundle as is.
+- 2026-10-01 (#170 follow-up): two more consumers of the overwritten models are re-flown.
+  - Appendix B: the CfC and xLSTM probes' GRU and LSTM reference rows (scored 2026-07-10 from
+    `training_output/sweep_*/best_model.json`) had flown `gru_p1014_long` and the LSTM repeat s3,
+    not the 5000-generation sweep cells the budget caveat describes. Re-scored on the restored
+    cells with the nine arms reproducing bit-identically: the LSTM sweep cell stays at 120.2 p95
+    and the GRU sweep cell moves from 117.3 to 125.4, 1.6 m/s worse than its in-regime baseline
+    (123.7 +- 1.5). The caveat now states that the Mamba and LSTM references sit 4--5 m/s better
+    and the GRU one 1.6 worse, reads `data/probes/` and asserts that ordering.
+  - Compute: the NN-dense row of `compute_benchmark.json` (2026-07-12) flew the overwritten model,
+    whose flights are 7% shorter than the champion's (721 s against 778 s mean on the benchmark's
+    200 scenarios). Re-run on one idle core (rustc 1.98.1, no simulator change since): dense 1.98
+    ms (was 1.88), Mamba 3.07 (3.14), FTC 0.91 (0.90), FNPAG 85.5 (87.1). The Mamba's cost over
+    the dense network is 1.5x (was 1.7x); the 3.1 ms, the 28x, the three and a half times FTC,
+    the 4 us per update, the 0.27 ms per replan and the factor of thirty between deadline margins
+    hold. Every compute quote (abstract, Section 1, the scheme table caption, Section 7.2, the
+    Discussion, the conclusion, Appendix A's timing paragraph, Appendix C) now reads the file;
+    Appendix A names its spread as the standard deviation over the five repeats, 0.6--2.0% of the
+    median (0.1--2.2% on the old run). `fig_classical_vs_nn` moves with the four timings.
+  - The "2--4 times" of the abstract, Section 1 and the regime-table caption is now asserted as
+    each network's tail loss over the classical laws' mean loss (2.5--4.0; the overwritten dense
+    row had put it at 4.8). The colophon lists `compute_benchmark.json` and `data/probes/`. The
+    committed `paper.pdf` is not recompiled here.

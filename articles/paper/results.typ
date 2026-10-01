@@ -10,6 +10,12 @@
 //   centered(label, regime)          -> a centered_depth.json cell (9M stress pool, n = 10 000, high
 //                                       regime; regime "per_draw" or "legacy", the file's pair, asserted; #156)
 //   centered_paired(a, b, regime)    -> its paired seed-versus-baseline deltas under one regime
+//   bench(label)  -> a compute_benchmark.json row (one idle core, wall-clock; NN-mamba, NN-dense,
+//                    FTC, FNPAG): ms_per_sim, n_guidance_updates, us_per_update_incl_sim, and
+//                    FNPAG's ms_per_replan_derived
+//   probe_ref(p, ref, arm)  -> an Appendix B probe's higher-budget reference row against its
+//                    retrained in-regime baseline arm (data/probes/<p>_probe_results.json): p95 of
+//                    the reference, three-seed mean p95 of the arm and its sigma_run
 //   span(xs)      -> the min--max range of a list of numbers, as math (f: fixed or signed, d decimals)
 // Every run and confirmatory cell of results.json / confirmatory_eval.json used by the headline
 // tables was flown under the legacy (shared-path) noise regime; legacy_regime() asserts it so a
@@ -33,6 +39,8 @@
   and centered_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"
   and centered_depth.regimes.legacy.at("monte_carlo.noise_seeding") == "legacy",
   message: "centered_depth.json does not carry the per_draw / legacy regime pair")
+#let benchmark = json("data/compute_benchmark.json")
+#assert(benchmark.single_core, message: "compute_benchmark.json is not the single-core benchmark the prose quotes")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)
@@ -81,6 +89,16 @@
   let p = centered_depth.paired.at(regime).find(p => p.a == a and p.b == b)
   assert(p != none, message: "centered_depth.json has no " + regime + " pair " + a + " - " + b)
   p
+}
+#let bench(label) = {
+  let row = benchmark.schemes.find(s => s.label == label)
+  assert(row != none, message: "compute_benchmark.json has no row " + label)
+  row
+}
+#let probe_ref(probe, ref, arm) = {
+  let d = json("data/probes/" + probe + "_probe_results.json")
+  assert(ref in d.references and arm in d.arms, message: probe + "_probe_results.json has no reference " + ref + " or arm " + arm)
+  (ref: d.references.at(ref).dv_p95, base: d.arms.at(arm).dv_p95.mean, sd: d.arms.at(arm).dv_p95.std)
 }
 // Mean and sample sd (n - 1) of a list of numbers.
 #let mean_sd(xs) = {
