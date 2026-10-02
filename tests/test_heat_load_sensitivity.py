@@ -10,6 +10,7 @@ under the v4 limit, named as an explicit override. Pure Python except the one sl
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tomllib
 from collections.abc import Iterator
@@ -32,6 +33,7 @@ JOBS = REPO / "experiments/ou_marginal/jobs_heat_load.txt"
 
 CELLS = ("mamba_p962", "dense_p515")
 LEGS = {"q25": 25000.0, "q27": 27500.0, "q30": 30000.0}
+CEILING_KEY = "flight.constraints.max_heat_load"
 REGISTERED_JOBS = [(f"hs_{cell}_{leg}", 22000, 1, f"training_output/ou_marginal/hl_{cell}") for cell in CELLS for leg in LEGS]
 HS_NAMES = [name for name, *_ in REGISTERED_JOBS]
 
@@ -90,7 +92,8 @@ def hs(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
 
 
 class FakeRs:
-    """Records every run_batch call; every scenario captures at 26 MJ/m2 integrated flux."""
+    """Records every run_batch call; every scenario captures at 26 MJ/m2 integrated flux, with
+    DV 100 + i + 1 m/s per MJ/m2 of ceiling above 25 (the TOML's, or the override's when it names one)."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -98,10 +101,11 @@ class FakeRs:
     def run_batch(self, toml_path: str, overrides_list: list[dict[str, Any]], **kw: Any) -> Any:
         self.calls.append({"toml_path": toml_path, "overrides_list": overrides_list})
         n = len(overrides_list)
+        ceiling = overrides_list[0].get(CEILING_KEY, load_toml_with_bases(Path(toml_path))["flight"]["constraints"]["max_heat_load"])
         fr = np.zeros((n, 52))
         fr[:, FR_IFINAL] = 3.0
         fr[:, FR_ECC] = 0.5
-        fr[:, FR_DV_TOTAL] = 100.0 + np.arange(n)
+        fr[:, FR_DV_TOTAL] = 100.0 + np.arange(n) + (ceiling - 25000.0) / 1000.0
         fr[:, charts._FR_INTEGRATED_FLUX] = 26.0
         return SimpleNamespace(final_records=fr, dispersions=np.zeros((n, 26)), trajectories=[np.empty((0, 17)) for _ in range(n)])
 
@@ -127,7 +131,7 @@ def leg(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_v4_ceiling_is_the_control_leg_and_the_mission_limit(hs: ModuleType) -> None:
     assert hs.V4_MAX_HEAT_LOAD == LEGS["q25"] == 25000.0
-    assert hs.CEILING_KEY == "flight.constraints.max_heat_load"
+    assert hs.CEILING_KEY == CEILING_KEY
     assert load_toml_with_bases(REPO / "configs/missions/mars.toml")["flight"]["constraints"]["max_heat_load"] == hs.V4_MAX_HEAT_LOAD
 
 
@@ -144,7 +148,7 @@ def test_fly_at_own_ceiling_adds_no_override_and_scores_against_the_toml(hs: Mod
     assert row["ceiling_kj_m2"] == 30000.0
     assert row["heat_load_viol_pct"] == 0.0  # 26 MJ/m2 is under the TOML's 30 MJ/m2
     assert (row["heat_load_p95_mj_m2"], row["heat_load_max_mj_m2"]) == (26.0, 26.0)
-    assert (row["dv_cvar95"], row["dv_max"], row["capture_pct"]) == (102.0, 102.0, 100.0)
+    assert (row["dv_cvar95"], row["dv_max"], row["capture_pct"]) == (107.0, 107.0, 100.0)  # 100 + i + 5 at the TOML's 30 MJ/m2
 
 
 def test_fly_at_v4_names_the_ceiling_in_every_override_and_in_the_violation_limit(hs: ModuleType, fake_rs: FakeRs, leg: tuple[Path, Path]) -> None:
@@ -175,27 +179,68 @@ def test_summarize_reads_the_slope_against_the_source_seed_spread(hs: ModuleType
     assert m["outside_seed_spread"] is True
 
 
-def test_main_stops_on_a_replayed_leg_not_on_a_shared_champion(
-    hs: ModuleType, fake_rs: FakeRs, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def mark_finished(run: Path) -> None:
+    """final_selection.json strictly after the checkpoint, in explicit mtimes (coarse filesystem clocks can tie two writes)."""
+    (run / "final_selection.json").write_text("{}")
+    os.utime(run / "checkpoint_g22000.json", ns=(1_000_000_000, 1_000_000_000))
+    os.utime(run / "final_selection.json", ns=(2_000_000_000, 2_000_000_000))
+
+
+@pytest.fixture
+def mamba_legs(hs: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """The three finished mamba legs, every one keeping the copied champion; returns the runs dir."""
     configs, runs = tmp_path / "configs", tmp_path / "runs"
     configs.mkdir()
     for leg, ceiling in LEGS.items():
         name = f"hs_mamba_p962_{leg}"
         (configs / f"{name}.toml").write_text(f"[flight.constraints]\nmax_heat_flux = 200.0\nmax_load_factor = 4.0\nmax_heat_load = {ceiling}\n")
         (runs / name).mkdir(parents=True)
-        (runs / name / "best_model.json").write_text("{}")  # every leg kept the copied champion
+        (runs / name / "best_model.json").write_text("{}")
         (runs / name / "checkpoint_g22000.json").write_text(json.dumps({"cost_history": [ceiling]}))
+        mark_finished(runs / name)
     monkeypatch.setattr(hs, "CONFIG_DIR", configs)
     monkeypatch.setattr(hs, "RUNS", runs)
     monkeypatch.setattr(hs, "OUT", tmp_path / "out.json")
+    return runs
+
+
+def test_main_stops_on_a_replayed_leg_not_on_a_shared_champion(
+    hs: ModuleType, fake_rs: FakeRs, mamba_legs: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hs.main(["--n-sims", "4"])
     notes = [line.split()[0] for line in capsys.readouterr().out.splitlines() if "deploys hs_mamba_p962_q25's model" in line]
     assert notes == ["hs_mamba_p962_q27", "hs_mamba_p962_q30"]
     assert list(json.loads((tmp_path / "out.json").read_text())["summary"]) == ["mamba_p962"]
-    (runs / "hs_mamba_p962_q30/checkpoint_g22000.json").write_text(json.dumps({"cost_history": [25000.0]}))
+    (mamba_legs / "hs_mamba_p962_q30/checkpoint_g22000.json").write_text(json.dumps({"cost_history": [25000.0]}))
+    mark_finished(mamba_legs / "hs_mamba_p962_q30")
     with pytest.raises(SystemExit, match="hs_mamba_p962_q25 and hs_mamba_p962_q30 end on byte-identical checkpoints"):
         hs.main(["--n-sims", "4"])
+
+
+def test_main_skips_a_leg_whose_run_has_not_finished(
+    hs: ModuleType, fake_rs: FakeRs, mamba_legs: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A checkpoint after the final selection: training resumed (every checkpoint rewrites best_model.json).
+    os.utime(mamba_legs / "hs_mamba_p962_q30/checkpoint_g22000.json", ns=(3_000_000_000, 3_000_000_000))
+    hs.main(["--n-sims", "4"])
+    assert "hs_mamba_p962_q30    SKIPPED (run not finished)" in capsys.readouterr().out.splitlines()
+    out = json.loads((tmp_path / "out.json").read_text())
+    assert "hs_mamba_p962_q30/own" not in out["rows"]
+    assert out["summary"] == {}
+
+
+def test_main_stops_when_the_override_never_reaches_the_simulator(hs: ModuleType, fake_rs: FakeRs, mamba_legs: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hs, "CEILING_KEY", "flight.constraints.max_heat_lod")  # a key the simulator ignores
+    with pytest.raises(SystemExit, match="hs_mamba_p962_q27: re-flown under .* the override never reached the simulator"):
+        hs.main(["--n-sims", "4"])
+
+
+def test_main_leaves_the_results_file_when_nothing_finished(hs: ModuleType, fake_rs: FakeRs, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(hs, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(hs, "OUT", tmp_path / "out.json")
+    with pytest.raises(SystemExit, match="no finished run"):
+        hs.main(["--n-sims", "4"])
+    assert not (tmp_path / "out.json").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -829,10 +829,12 @@ validation_n_sims` sims each).
   under `[flight.constraints] max_heat_load` 25000 (the v4 limit, the control) / 27500 / 30000 kJ/m2,
   seed 1 on every leg (the copied checkpoint's RNG is kept, so a leg whose ceiling never reached the
   trainer replays its sibling and the runner's byte-identity check stops it). `heat_load_slope.py`
-  flies each leg on `quote_marginal.py`'s paired marginal pool at its own ceiling and again under
-  the v4 limit (an explicit `flight.constraints.max_heat_load` override, which also sets the
-  violation column's limit), writes `heat_load_slope.json` and prints the `RESULTS.md` table with
-  the CVaR95 slope per MJ/m2 next to the source cells' three-seed spread on the same pool.
+  flies each finished leg (a final selection or final eval after its last checkpoint, the
+  confirmatory scorer's rule) on `quote_marginal.py`'s paired marginal pool at its own ceiling and
+  again under the v4 limit (an explicit `flight.constraints.max_heat_load` override, which also sets
+  the violation column's limit, and which must move a relaxed leg's flight), writes
+  `heat_load_slope.json` and prints the `RESULTS.md` table with the CVaR95 slope per MJ/m2 next to
+  the source cells' three-seed spread on the same pool.
   `classical_campaign.sh` (#172) retunes the nine classical cells of the paper's 01 / 07 scripts
   under per_draw at their shared-path GA allocation (2000 x 300 x 10, FNPAG 300 gens; configs
   `configs/training/ou_marginal/classical/`, which state the regime and allocation in the leaf,

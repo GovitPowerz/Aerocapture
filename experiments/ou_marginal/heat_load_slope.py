@@ -12,11 +12,14 @@ spread the slope (CVaR95 at q30 minus q25, per MJ/m2) is read against.
 
 Usage: uv run python experiments/ou_marginal/heat_load_slope.py [--n-sims 1000]
 Writes experiments/ou_marginal/heat_load_slope.json and prints the RESULTS.md table; a leg or
-source not yet deployed is skipped. Two wiring checks stop the script: a q25 leg must score
-identically with and without the override (the override path is the TOML path), and no two
-legs of a cell may end on byte-identical checkpoints (a replay: the ceiling never reached the
-trainer, since the legs share the copied checkpoint's RNG and population). Two legs may deploy
-the same model when neither beat the copied champion; the script prints a note.
+source whose run has not finished (no final_eval.parquet or final_selection.json after its last
+checkpoint: every checkpoint writes best_model.json) is skipped, and a pass that finds none
+leaves the file as is. Wiring checks stop the script: a q25 leg must score identically with and
+without the override (the override path is the TOML path), a relaxed leg must not (the override
+reaches the simulator), and no two legs of a cell may end on byte-identical checkpoints (a
+replay: the ceiling never reached the trainer, since the legs share the copied checkpoint's RNG
+and population). Two legs may deploy the same model when neither beat the copied champion; the
+script prints a note.
 """
 
 from __future__ import annotations
@@ -48,6 +51,16 @@ CEILING_KEY = "flight.constraints.max_heat_load"
 CELLS = ("mamba_p962", "dense_p515")
 LEGS = {"q25": 25000.0, "q27": 27500.0, "q30": 30000.0}
 SOURCE_SEEDS = ("", "_s2", "_s3")  # hl_<cell>, hl_<cell>_s2, hl_<cell>_s3: the #173 seed spread
+# Flight statistics a relaxed leg's v4 pass must move (the violation columns move with the limit alone).
+FLIGHT_KEYS = ("dv_p50", "dv_cvar95", "dv_max", "heat_load_max_mj_m2")
+
+
+def finished(run: Path) -> bool:
+    """confirmatory_marginal.py's rule: final_eval.parquet or final_selection.json written after the last checkpoint."""
+    last = max((f.stat().st_mtime_ns for f in run.glob("checkpoint*")), default=0)
+    return (run / "best_model.json").exists() and any(
+        (run / f).exists() and (run / f).stat().st_mtime_ns > last for f in ("final_eval.parquet", "final_selection.json")
+    )
 
 
 def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float | None) -> dict[str, float]:
@@ -139,8 +152,8 @@ def main(argv: list[str] | None = None) -> None:
     for cell in CELLS:
         for suffix in SOURCE_SEEDS:
             name = f"hl_{cell}{suffix}"
-            if not (RUNS / name / "best_model.json").exists():
-                print(f"{name:<20} SKIPPED (no best_model.json)")
+            if not finished(RUNS / name):
+                print(f"{name:<20} SKIPPED (run not finished)")
                 continue
             rows[f"{name}/own"] = fly(CONFIG_DIR / f"{name}.toml", RUNS / name, seeds, ceiling=None)
             print(f"{name:<20} own  CVaR95 {rows[f'{name}/own']['dv_cvar95']:7.1f}")
@@ -148,8 +161,8 @@ def main(argv: list[str] | None = None) -> None:
         for leg, ceiling in LEGS.items():
             name = f"hs_{cell}_{leg}"
             toml, run = CONFIG_DIR / f"{name}.toml", RUNS / name
-            if not (run / "best_model.json").exists():
-                print(f"{name:<20} SKIPPED (no best_model.json yet)")
+            if not finished(run):
+                print(f"{name:<20} SKIPPED (run not finished)")
                 continue
             ckpt = max(run.glob("checkpoint_g*.json")).read_bytes()
             model_md5 = hashlib.md5((run / "best_model.json").read_bytes()).hexdigest()
@@ -165,12 +178,18 @@ def main(argv: list[str] | None = None) -> None:
             v4 = fly(toml, run, seeds, ceiling=V4_MAX_HEAT_LOAD)
             if leg == "q25" and v4 != own:
                 raise SystemExit(f"{name}: the explicit {CEILING_KEY} = {V4_MAX_HEAT_LOAD} override scores differently from the TOML path:\n{own}\n{v4}")
+            if leg != "q25" and all(v4[k] == own[k] for k in FLIGHT_KEYS):
+                raise SystemExit(
+                    f"{name}: re-flown under {CEILING_KEY} = {V4_MAX_HEAT_LOAD}, it flies as at its own {ceiling}: the override never reached the simulator"
+                )
             rows[f"{name}/own"], rows[f"{name}/v4"] = own, v4
             print(
                 f"{name:<20} own  CVaR95 {own['dv_cvar95']:7.1f}  viol {own['heat_load_viol_pct']:.1f}%"
                 f"   at v4  CVaR95 {v4['dv_cvar95']:7.1f}  viol {v4['heat_load_viol_pct']:.1f}%"
             )
 
+    if not rows:
+        raise SystemExit(f"no finished run under {RUNS}: {OUT.name} left as is")
     summary = summarize(rows)
     OUT.write_text(
         json.dumps(
