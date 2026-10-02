@@ -223,6 +223,9 @@ Pre-registered decision rule, fixed before any 10^6 score of these runs exists:
   with heat shows. The formula is unchanged:
   S <= F + sqrt((sd_S^2 + sd_F^2) / 3) on pooled CVaR99.9
   (`confirmatory_marginal.py --table` evaluates it).
+- Outcome (2026-10-02, read on #174's pool): single-stage scratch. The
+  per-seed numbers and the caveats stated with it are in the v4 results
+  section at the end of this file.
 
 Ran 2026-09-29 20:11 to 2026-10-01 14:35 (about 42 h; the `hl_*` jobs took
 0.56 to 0.9 s per generation, dense 3.2 h and mamba 5 to 7.6 h per run). Every
@@ -313,3 +316,104 @@ repeats, `mamba_p962_long`, the four PPO cells, the nine classical rows with
   ft_dense_p515, mamba_p962_long, fnpag), fd62090b (ft_mamba_p962_s2 / _s3)
   and 42aa397a (ft_gru_p1014); each was flown at that commit's parent tree or
   earlier.
+
+## v4 confirmatory results: the 10^6 table (#174)
+
+Ran 2026-10-01 21:29 to 2026-10-02 05:54 (8 h 25 min) from main at 76162cd1,
+the command above, no interruption. 37 rows scored in this run (`eval_commit`
+76162cd1), the 10 already scored kept, and the recorded non-captures of all
+32 cells with losses re-flown without the wall clock at 76162cd1. The file
+holds 48 cells: these 47 and the earlier manifests' untuned `fnpag`. The
+paper's extract (`articles/paper/data/confirmatory_marginal.json`) quotes six
+cells by fixed keys and is unchanged. Capture from the pooled counts,
+violation rates at four decimals where counts exist (2 decimals, `-` where
+not: the ten rows scored before #174), DV in m/s over captured scenarios,
+manifest order:
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 | 100.0000% | 0 | 0.1148 (0.0000 / 0.0000 / 0.1148) | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/hl_mamba_p962_s2 | 99.9996% | 4: 4 crash | 0.0437 (0.0000 / 0.0000 / 0.0437) | 131.7 | 159.3 +- 0.6 | 621 |
+| ou_marginal/hl_mamba_p962_s3 | 100.0000% | 0 | 0.0567 (0.0000 / 0.0000 / 0.0567) | 122.9 | 142.3 +- 0.5 | 266 |
+| ou_marginal/hl_dense_p515 | 100.0000% | 0 | 0.1465 (0.0000 / 0.0000 / 0.1465) | 123.4 | 140.1 +- 0.4 | 243 |
+| ou_marginal/hl_dense_p515_s2 | 99.9999% | 1: 1 crash | 0.2112 (0.0000 / 0.0000 / 0.2112) | 127.6 | 185.8 +- 0.6 | 255 |
+| ou_marginal/hl_dense_p515_s3 | 99.9929% | 71: 71 crash | 0.2572 (0.0000 / 0.0000 / 0.2572) | 129.0 | 155.6 +- 1.2 | 827 |
+| ou_marginal/ft_dense_p515_s2 | 100.0000% | 0 | 0.0110 (0.0000 / 0.0000 / 0.0110) | 127.5 | 172.2 +- 1.4 | 668 |
+| ou_marginal/ft_dense_p515_s3 | 100.0000% | 0 | 0.0278 (0.0006 / 0.0000 / 0.0272) | 136.3 | 312.0 +- 6.5 | 1184 |
+| ou_marginal/hl_lstm_p1082 | 100.0000% | 0 | 0.0046 (0.0000 / 0.0000 / 0.0046) | 132.7 | 174.6 +- 1.0 | 349 |
+| ou_marginal/hl_gru_p1014 | 100.0000% | 0 | 0.0159 (0.0000 / 0.0000 / 0.0159) | 122.8 | 147.8 +- 0.9 | 287 |
+| ou_marginal/hl_dense_p972 | 99.9999% | 1: 1 crash | 0.2670 (0.0000 / 0.0000 / 0.2670) | 127.1 | 170.0 +- 0.6 | 330 |
+| ou_marginal/ft_mamba_p962 | 99.9995% | 5: 3 crash, 2 pending_crash | 0.00 (- / - / 0.00) | 138.7 | 163.0 +- 0.3 | 249 |
+| ou_marginal/ft_mamba_p962_s2 | 99.9970% | 30: 28 crash, 2 pending_crash | 0.00 (- / - / 0.00) | 140.0 | 164.6 +- 0.3 | 240 |
+| ou_marginal/ft_mamba_p962_s3 | 99.9920% | 80: 80 crash | 0.00 (- / - / 0.00) | 138.4 | 161.9 +- 0.3 | 211 |
+| ou_marginal/ft_dense_p515 | 100.0000% | 0 | 0.03 (- / - / 0.03) | 128.8 | 236.3 +- 2.5 | 405 |
+| ou_marginal/ft_gru_p1014 | 99.9288% | 712: 500 crash (500 re-flown) | 0.00 (0.00 / 0.00 / 0.00) | 150.4 | 183.2 +- 0.7 | 315 |
+| ou_marginal/ft_dense_p972 | 99.9992% | 8: 6 crash, 2 pending_crash | 0.0149 (0.0000 / 0.0000 / 0.0149) | 146.0 | 258.1 +- 5.6 | 805 |
+| ou_marginal/ft_lstm_p1082 | 99.9860% | 140: 139 crash, 1 pending_crash | 10.7435 (0.0000 / 0.0000 / 10.7435) | 129.2 | 225.7 +- 2.6 | 1078 |
+| ou_marginal/mamba_p962 | 100.0000% | 0 | 0.0749 (0.0000 / 0.0000 / 0.0749) | 150.5 | 193.5 +- 0.6 | 276 |
+| ou_marginal/mamba_p962_s2 | 99.9896% | 104: 104 crash | 0.0029 (0.0025 / 0.0000 / 0.0004) | 151.4 | 198.8 +- 2.0 | 769 |
+| ou_marginal/mamba_p962_s3 | 100.0000% | 0 | 0.0252 (0.0252 / 0.0000 / 0.0000) | 146.6 | 172.3 +- 0.4 | 299 |
+| ou_marginal/dense_p515 | 99.9992% | 8: 7 crash, 1 pending_crash | 0.0006 (0.0001 / 0.0001 / 0.0005) | 155.7 | 187.8 +- 1.4 | 639 |
+| ou_marginal/dense_p515_s2 | 99.9969% | 31: 30 crash, 1 pending_crash | 0.0000 (0.0000 / 0.0000 / 0.0000) | 154.5 | 294.0 +- 4.2 | 761 |
+| ou_marginal/dense_p515_s3 | 99.9907% | 93: 55 crash, 38 pending_crash | 0.0338 (0.0338 / 0.0000 / 0.0000) | 161.4 | 199.7 +- 0.5 | 365 |
+| ou_marginal/lstm_p1082 | 100.0000% | 0 | 0.0001 (0.0001 / 0.0000 / 0.0000) | 144.1 | 167.9 +- 0.6 | 558 |
+| ou_marginal/lstm_p1082_s2 | 100.0000% | 0 | 0.0028 (0.0028 / 0.0000 / 0.0000) | 167.3 | 208.4 +- 0.5 | 333 |
+| ou_marginal/lstm_p1082_s3 | 99.9990% | 10: 10 crash | 0.0005 (0.0000 / 0.0000 / 0.0005) | 146.3 | 181.7 +- 2.5 | 890 |
+| ou_marginal/gru_p1014 | 99.9978% | 22: 22 crash | 0.0019 (0.0000 / 0.0000 / 0.0019) | 148.1 | 200.2 +- 2.2 | 1079 |
+| ou_marginal/gru_p1014_s2 | 99.9989% | 11: 10 crash, 1 pending_crash | 0.0023 (0.0000 / 0.0000 / 0.0023) | 145.1 | 175.3 +- 1.2 | 763 |
+| ou_marginal/gru_p1014_s3 | 100.0000% | 0 | 0.0000 (0.0000 / 0.0000 / 0.0000) | 158.7 | 195.3 +- 1.1 | 721 |
+| ou_marginal/dense_p972 | 99.9104% | 896: 500 crash (500 re-flown) | 0.0000 (0.0000 / 0.0000 / 0.0000) | 147.1 | 211.9 +- 0.8 | 287 |
+| ou_marginal/dense_p972_s2 | 99.9998% | 2: 2 crash | 0.1903 (0.1903 / 0.0000 / 0.0000) | 157.1 | 187.2 +- 0.5 | 478 |
+| ou_marginal/dense_p972_s3 | 99.9997% | 3: 2 crash, 1 pending_crash | 0.0000 (0.0000 / 0.0000 / 0.0000) | 145.9 | 179.2 +- 1.3 | 747 |
+| mamba_p962_long | 97.9330% | 20670: 438 crash, 61 pending_crash, 1 timeout (500 re-flown) | 0.91 (- / - / 0.91) | 188.2 | 221.3 +- 0.5 | 270 |
+| paper/rl/dense_p515_ppo_scratch | 99.9690% | 310: 200 crash, 110 pending_crash | 0.69 (0.69 / 0.00 / 0.00) | 271.7 | 372.0 +- 1.4 | 486 |
+| paper/rl/dense_p515_ppo_warm | 100.0000% | 0 | 0.04 (0.00 / 0.00 / 0.04) | 130.6 | 197.6 +- 2.2 | 378 |
+| paper/rl/gru_p1014_ppo_scratch | 99.9886% | 114: 28 crash, 86 pending_crash | 0.85 (0.85 / 0.00 / 0.00) | 411.1 | 440.0 +- 0.9 | 620 |
+| paper/rl/gru_p1014_ppo_warm | 99.9545% | 455: 453 crash (453 re-flown) | 0.00 (0.00 / 0.00 / 0.00) | 159.6 | 185.2 +- 0.5 | 289 |
+| ou_marginal/classical/ftc | 99.9992% | 8: 7 crash, 1 pending_crash | 0.1228 (0.1225 / 0.0027 / 0.0000) | 243.8 | 349.6 +- 0.5 | 536 |
+| ou_marginal/classical/energy_controller | 99.7564% | 2436: 500 crash (500 re-flown) | 0.0078 (0.0078 / 0.0000 / 0.0000) | 264.8 | 340.4 +- 0.6 | 429 |
+| ou_marginal/classical/pred_guid | 99.8880% | 1120: 500 crash (500 re-flown) | 0.0057 (0.0057 / 0.0000 / 0.0000) | 253.1 | 332.6 +- 0.4 | 425 |
+| ou_marginal/classical/ftc_joint | 100.0000% | 0 | 0.0000 (0.0000 / 0.0000 / 0.0000) | 147.6 | 177.8 +- 0.5 | 242 |
+| ou_marginal/classical/energy_controller_joint | 99.9820% | 180: 180 crash | 0.0182 (0.0001 / 0.0000 / 0.0181) | 200.2 | 299.1 +- 1.7 | 915 |
+| ou_marginal/classical/pred_guid_joint | 99.9955% | 45: 45 crash | 0.0057 (0.0018 / 0.0000 / 0.0039) | 195.5 | 340.4 +- 3.9 | 1255 |
+| ou_marginal/classical_ungated/piecewise_constant | 99.9183% | 817: 325 crash, 175 pending_crash (500 re-flown) | 3.1284 (3.0928 / 0.2495 / 0.0000) | 445.7 | 632.2 +- 1.8 | 940 |
+| ou_marginal/classical_ungated/equilibrium_glide | 99.7936% | 2064: 402 crash, 98 pending_crash (500 re-flown) | 0.5427 (0.5424 / 0.0009 / 0.0000) | 332.9 | 476.7 +- 1.1 | 614 |
+| ou_marginal/classical/fnpag | 99.9762% | 238: 238 crash | 0.0010 (0.0000 / 0.0000 / 0.0010) | 144.9 | 189.1 +- 1.8 | 691 |
+
+Non-captures: no re-fly ended in `capture` or `hyperbolic`, so no non-capture
+in the file was the scorer's 5 s timeout, and one ended in `timeout` (1 of the
+500 re-flown for `mamba_p962_long`, at the simulation's own `max_time`). "All
+genuine crashes" (crash or pending crash) holds for every cell whose
+non-captures were all re-flown. Eight cells exceed the 50-per-replicate cap
+and had 500 classified (453 for `gru_p1014_ppo_warm`): `ft_gru_p1014` (712),
+`dense_p972` (896), `energy_controller` (2436), `pred_guid` (1120), the two
+ungated classical reruns (817 and 2064), `gru_p1014_ppo_warm` (455) and
+`mamba_p962_long` (20670).
+
+Outcome of the #173 recipe rule, read on this pool as amended (every trainer seed counts):
+
+| | CVaR99.9 per seed (m/s) | mean +- sd | heat load > 25 MJ/m2 per 10^6 | max DV |
+|---|---|---|---|---|
+| S, `hl_mamba_p962` s1 / s2 / s3 (512 x 2 scratch) | 173.93 / 159.34 / 142.34 | 158.54 +- 15.81 | 1148 / 437 / 567 | 300 / 621 / 266 |
+| F, `ft_mamba_p962` s1 / s2 / s3 (fine-tune) | 163.02 / 164.55 / 161.89 | 163.15 +- 1.34 | below 100 each (2-decimal rate 0.00) | 249 / 240 / 211 |
+
+Threshold F + sqrt((sd_S^2 + sd_F^2) / 3) = 172.31; S = 158.54 <= 172.31, so the rule selects single-stage scratch training at 512 x 2: v4's recipe is single-stage and the fine-tunes leave the main body, with the `hl_*` cells as the quoted rows.
+
+Stated next to it, as the amendment requires: the three scratch seeds span 31.6 m/s against 2.7 m/s for the fine-tune seeds, so the 4.6 m/s advantage of the scratch mean is inside its own seed spread, and every scratch seed violates the heat-load ceiling more often than any fine-tune seed (437 to 1148 scenarios per 10^6 against fewer than 100). The rule was fixed before these numbers existed and is applied as written; what the paper says about the margin and the violations is a writing decision, not a selection on this pool.
+
+Readings (nothing here selects; the deployed seed of every cell is seed 1):
+
+- The 60 x 10 scratch repeats, three-seed mean +- sd of CVaR99.9: mamba_p962
+  188.2 +- 14.0, dense_p515 227.2 +- 58.2, lstm_p1082 186.0 +- 20.6,
+  gru_p1014 190.3 +- 13.2, dense_p972 192.8 +- 17.0. Every 512 x 2 `hl_*` row
+  beats its family's 60 x 10 mean; `hl_dense_p515` 160.5 +- 23.2 over its
+  three seeds.
+- The dense fine-tune's far tail: `ft_dense_p515` 236.3 / 172.2 / 312.0 over
+  its three seeds (max 405 / 668 / 1184), against the `hl_dense_p515` seeds
+  140.1 / 185.8 / 155.6.
+- `ft_lstm_p1082` is heat-load infeasible on this pool (10.74%);
+  `dense_p972_s2` (0.19%) and `classical/ftc` (0.12%) violate heat flux, not
+  heat load.
+- The retuned FNPAG (`classical/fnpag`, #172): CVaR99.9 189.1 +- 1.8, 238
+  non-captures (all crashes), 0.001% violations; the untuned `fnpag` row of the
+  earlier manifests stood at 236.7 with 6321 non-captures.
