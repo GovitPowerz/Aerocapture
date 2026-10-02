@@ -417,3 +417,88 @@ Readings (nothing here selects; the deployed seed of every cell is seed 1):
 - The retuned FNPAG (`classical/fnpag`, #172): CVaR99.9 189.1 +- 1.8, 238
   non-captures (all crashes), 0.001% violations; the untuned `fnpag` row of the
   earlier manifests stood at 236.7 with 6321 non-captures.
+
+## Heat-load ceiling sensitivity: the DV-vs-heat-load slope (#192)
+
+Design in the issue: the #173 seed-1 champions `hl_mamba_p962` and
+`hl_dense_p515` continued 2000 gens from their g20000 checkpoint at the
+fine-tune recipe (GA 60 x 10, adaptive seeds, per_draw) under
+`[flight.constraints] max_heat_load` 25000 (the v4 limit, the control) /
+27500 / 30000 kJ/m2, seed 1 on every leg (configs `hs_<cell>_q<NN>.toml`,
+jobs `jobs_heat_load.txt`, PR #198). Ran 2026-10-02 10:50 to 12:51 (2 h 1 min,
+about 20 min per leg, from main at 7c61ec53), no runner stop: the control
+legs deploy the copied champion byte for byte, and no two legs of a cell ended
+on the same checkpoint. v4 keeps `max_heat_load = 25000` whatever the slope;
+this section changes text, not the limit.
+
+What the trainer did under each ceiling (the ADR-0005 gate is 0% violations on
+the 1000-scenario validation pool at the TOML's own ceiling):
+
+| leg | ceiling (kJ/m2) | champion val RMS at the end | deployed model | best last-generation candidate |
+|---|---|---|---|---|
+| hs_mamba_p962_q25 | 25000 | 1.358e+06 | the copied champion (same bytes) | 1.282e+06, infeasible (36.7% heat load) |
+| hs_mamba_p962_q27 | 27500 | 1.268e+06 | promoted during the 2000 gens | 1.291e+06, feasible |
+| hs_mamba_p962_q30 | 30000 | 1.291e+06 | promoted during the 2000 gens | 1.295e+06, feasible |
+| hs_dense_p515_q25 | 25000 | 1.471e+06 | the copied champion (same bytes) | 1.374e+06, infeasible (13.1% heat load) |
+| hs_dense_p515_q27 | 27500 | 1.365e+06 | promoted during the 2000 gens | 1.387e+06, feasible |
+| hs_dense_p515_q30 | 30000 | 1.354e+06 | promoted during the 2000 gens | 1.366e+06, feasible |
+
+At the v4 ceiling neither control leg found a feasible improvement in 2000
+gens: the best last-generation candidate of each had the lower RMS and failed
+the heat-load gate. At 27500 and 30000 a lower-RMS candidate passed the gate
+and was promoted, so the relaxed legs deploy a new policy.
+
+Scored by `heat_load_slope.py` on `quote_marginal.py`'s paired n = 1000
+marginal pool (per-scenario noise through its per-seed `simulation.random_seed`
+override, `heat_load_slope.json`): every leg at its own ceiling (the TOML as
+report.py flies it) and re-flown under the v4 limit through an explicit
+`flight.constraints.max_heat_load = 25000` override, which also sets the limit
+the violation column is scored against; the six `hl_<cell>{,_s2,_s3}`
+sources once at 25000 on the same pool. DV in m/s over captured scenarios.
+
+| run | flown at | capture | p50 | CVaR95 | max | heat load p95 / max (MJ/m2) | heat load > ceiling | flux > 200 |
+|---|---|---|---|---|---|---|---|---|
+| hl_mamba_p962 | 25.0 | 100.0% | 110.2 | 119.6 | 159.3 | 24.11 / 25.15 | 0.1% | 0.0% |
+| hl_mamba_p962_s2 | 25.0 | 100.0% | 115.8 | 130.8 | 139.2 | 23.90 / 24.89 | 0.0% | 0.0% |
+| hl_mamba_p962_s3 | 25.0 | 100.0% | 112.3 | 123.0 | 133.8 | 24.10 / 24.74 | 0.0% | 0.0% |
+| hs_mamba_p962_q25 | 25.0 | 100.0% | 110.2 | 119.6 | 159.3 | 24.11 / 25.15 | 0.1% | 0.0% |
+| hs_mamba_p962_q25 | 25.0 (v4) | 100.0% | 110.2 | 119.6 | 159.3 | 24.11 / 25.15 | 0.1% | 0.0% |
+| hs_mamba_p962_q27 | 27.5 | 100.0% | 107.7 | 116.5 | 153.4 | 25.93 / 26.67 | 0.0% | 0.0% |
+| hs_mamba_p962_q27 | 25.0 (v4) | 99.5% | 123.2 | 132.2 | 136.6 | 25.25 / 25.92 | 11.7% | 0.0% |
+| hs_mamba_p962_q30 | 30.0 | 100.0% | 108.3 | 120.3 | 189.3 | 25.72 / 26.72 | 0.0% | 0.0% |
+| hs_mamba_p962_q30 | 25.0 (v4) | 98.9% | 154.2 | 187.8 | 213.1 | 24.72 / 25.74 | 1.7% | 0.0% |
+| hl_dense_p515 | 25.0 | 100.0% | 112.8 | 122.3 | 140.2 | 24.23 / 24.94 | 0.0% | 0.0% |
+| hl_dense_p515_s2 | 25.0 | 100.0% | 112.3 | 127.1 | 188.3 | 24.33 / 25.08 | 0.1% | 0.0% |
+| hl_dense_p515_s3 | 25.0 | 100.0% | 113.9 | 130.0 | 155.2 | 24.25 / 25.05 | 0.2% | 0.0% |
+| hs_dense_p515_q25 | 25.0 | 100.0% | 112.8 | 122.3 | 140.2 | 24.23 / 24.94 | 0.0% | 0.0% |
+| hs_dense_p515_q25 | 25.0 (v4) | 100.0% | 112.8 | 122.3 | 140.2 | 24.23 / 24.94 | 0.0% | 0.0% |
+| hs_dense_p515_q27 | 27.5 | 100.0% | 110.1 | 120.2 | 142.7 | 25.73 / 26.73 | 0.0% | 0.0% |
+| hs_dense_p515_q27 | 25.0 (v4) | 100.0% | 110.7 | 120.9 | 127.5 | 25.65 / 26.66 | 16.7% | 0.0% |
+| hs_dense_p515_q30 | 30.0 | 100.0% | 110.1 | 119.3 | 146.7 | 25.82 / 26.86 | 0.0% | 0.0% |
+| hs_dense_p515_q30 | 25.0 (v4) | 100.0% | 111.3 | 120.9 | 127.8 | 25.53 / 26.48 | 13.5% | 0.0% |
+
+mamba_p962: CVaR95 q30 - q25 = 0.67 m/s (0.134 m/s per MJ/m2); source seeds 119.6 / 130.8 / 123.0, sd 5.73: inside the seed spread
+
+dense_p515: CVaR95 q30 - q25 = -2.97 m/s (-0.594 m/s per MJ/m2); source seeds 122.3 / 127.1 / 130.0, sd 3.9: inside the seed spread
+
+Pre-registered reading (issue #192): the slope is CVaR95 at q30 minus q25 per
+MJ/m2, read against the source cell's three-seed CVaR95 spread on the same
+pool. mamba_p962: +0.67 m/s over 5 MJ/m2 (+0.134 m/s per MJ/m2)
+against a seed sd of 5.73; dense_p515: -2.97 m/s (-0.594 per
+MJ/m2) against 3.9. Both inside the seed spread, so by the rule Section 6
+states that the ceiling costs nothing measurable at the sizing tail and the
+question closes; TODO.md does not gain the TPS-mass model. The relaxed legs
+did use the headroom (heat-load p95 from 24.1-24.2 to 25.7-25.9 MJ/m2 at
+their own ceilings) and bought 2 to 3 m/s of median DV for it, nothing at
+CVaR95.
+
+Beyond the rule, the re-fly under the v4 limit: the relaxed policies are not
+deployable there. Heat-load violations 11.7% (mamba q27), 16.7% and 13.5%
+(dense q27, q30), and mamba q30 loses 1.1% capture with CVaR95 187.8 against
+120.3 at its own ceiling. That is the caveat the issue stated before the runs:
+NN input 7 is `cumulative_heat_load / max_heat_load` (`tick.rs`) and the
+thermal limiter's ramp starts at a fraction of the same limit, so a policy
+carries its training ceiling inside it, and the "25.0 (v4)" rows measure that
+mismatch, not a pure constraint trade. A single seed per leg; the source
+seeds' spread (5.7 and 3.9 m/s CVaR95) bounds what one run can resolve, and
+these are n = 1000 numbers, not the 10^6 pool.
