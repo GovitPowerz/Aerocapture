@@ -25,8 +25,9 @@ OUT = REPO / "articles/paper/data/results.json"
 HEADLINE = "headline/mamba_p962"
 # Noise regime of each run's final_eval.parquet (ADR-0003: the regime is part of the number).
 # Every cell was evaluated on the shared-path ("legacy") noise except the Section 5 RL baseline
-# and the per-scenario champions it is paired with (issue #101), which report.py / the RL
-# trainer evaluated under ADR-0006's per_draw default.
+# and every ou_marginal/ cell (the champions it is paired with, issue #101; the #173 cells; the
+# #172 / #188 classical retunes), which report.py / the RL trainer evaluated under ADR-0006's
+# per_draw default.
 PER_DRAW_PREFIXES = ("rl/", "ou_marginal/")
 # Paired tables: (label, run_a, run_b) -- delta = a - b, negative = a better.
 PAIRED = [
@@ -58,6 +59,17 @@ PAIRED = [
     ("ppo_warm_vs_pop_dense515", "rl/dense_p515_ppo_warm", "ou_marginal/ft_dense_p515"),
     ("ppo_scratch_vs_pop_gru1014", "rl/gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
     ("ppo_warm_vs_pop_gru1014", "rl/gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
+    # v4 (issue #175): every row on the per-scenario 2M pool. The deployed cell is the #173 scratch
+    # Mamba at 512 x 2 (seed 1, the pre-registered rule), the classicals the #172 retunes.
+    ("v4_nn_vs_ftc", "ou_marginal/hl_mamba_p962", "ou_marginal/classical/ftc"),
+    ("v4_nn_vs_jointftc", "ou_marginal/hl_mamba_p962", "ou_marginal/classical/ftc_joint"),
+    ("v4_nn_vs_fnpag", "ou_marginal/hl_mamba_p962", "ou_marginal/classical/fnpag"),
+    ("v4_headline_vs_dense515", "ou_marginal/hl_mamba_p962", "ou_marginal/hl_dense_p515"),
+    ("v4_headline_vs_lstm", "ou_marginal/hl_mamba_p962", "ou_marginal/hl_lstm_p1082"),
+    ("v4_headline_vs_gru", "ou_marginal/hl_mamba_p962", "ou_marginal/hl_gru_p1014"),
+    ("v4_headline_vs_dense972", "ou_marginal/hl_mamba_p962", "ou_marginal/hl_dense_p972"),
+    ("v4_joint_vs_fixed_ftc", "ou_marginal/classical/ftc_joint", "ou_marginal/classical/ftc"),
+    ("v4_jointftc_vs_fnpag", "ou_marginal/classical/ftc_joint", "ou_marginal/classical/fnpag"),
 ]
 # Tail-level sigma_run: the 3-seed triplets the paper actually repeated (10c),
 # on the far-tail n=10000 pool. cvar999/max are NOT derivable from the n=1000

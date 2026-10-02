@@ -1,0 +1,10 @@
+# Paper v4 Section 5 RL baseline (issue #175) -- dense PPO warm-started from the v4 dense
+# reference it is compared to (training_output/ou_marginal/hl_dense_p515/best_model.json).
+# Everything but the deploy path inherits from hl_dense_p515_ppo_scratch.toml.
+#
+#   ./experiments/paper/18_rl_baseline.sh hl
+base = ["hl_dense_p515_ppo_scratch.toml"]
+
+[data]
+neural_network = "training_output/paper/rl/hl_dense_p515_ppo_warm/best_model.json"
+results_suffix = ".paper_rl_hl_dense_p515_ppo_warm"

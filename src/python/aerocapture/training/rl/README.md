@@ -192,7 +192,9 @@ they are compared to (`training_output/ou_marginal/ft_dense_p515` = Dense 17->18
 normalization`, `atan2_signed`, the champion's `best_params.json` nav/shaping values written into
 `[navigation]` / `[guidance.command_shaping]`, `noise_seeding = "per_draw"` explicit, `[data]
 neural_network` under `training_output/paper/rl/<cell>/` so the output dir is the bundle key
-`rl/<cell>`). `experiments/paper/18_rl_baseline.sh` runs the two cells of a pair concurrently and
+`rl/<cell>`). The four `hl_*` siblings (issue #175) base these leaves and repoint the scaffolding and the
+deploy path at the #173 scratch cells `ou_marginal/hl_dense_p515` / `hl_gru_p1014` (the v4 rows, once the
+#173 rule retired the fine-tunes). `experiments/paper/18_rl_baseline.sh [ft|hl]` runs the two cells of a pair concurrently and
 is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else `--from-scratch`
 / `--data-neural-network <champion best_model.json>`). `tests/test_paper_rl_configs.py` asserts
 each RL config against the bundled champion (architecture, mask, normalization, decoder,

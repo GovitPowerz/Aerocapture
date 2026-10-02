@@ -399,7 +399,8 @@ def test_recipe_rule_compares_the_three_seed_means(cm: ModuleType) -> None:
 def test_v4_manifest_lists_every_paper_row_once(cm: ModuleType) -> None:
     """#174's rows: the #173 cells, the 60 x 10 scratch repeats and fine-tunes, the nine classical
     rows (#188: the ungated reruns for piecewise_constant and equilibrium_glide), the shared-path
-    champion, the four PPO cells; every TOML committed, every row already scored flown with it."""
+    champion, the four PPO cells and their four v4 retrains (#175); every TOML committed, every row
+    already scored flown with it."""
     rows = cm.read_manifest(cm.REPO / "experiments/ou_marginal/confirmatory_cells_v4.txt")
     labels = [label for label, _, _ in rows]
     assert len(set(labels)) == len(labels)
@@ -410,7 +411,7 @@ def test_v4_manifest_lists_every_paper_row_once(cm: ModuleType) -> None:
     ft += ["ft_gru_p1014", "ft_dense_p972", "ft_lstm_p1082"]
     classical = [f"classical/{c}" for c in ("ftc", "energy_controller", "pred_guid", "ftc_joint", "energy_controller_joint", "pred_guid_joint", "fnpag")]
     classical += ["classical_ungated/piecewise_constant", "classical_ungated/equilibrium_glide"]
-    rl = [f"paper/rl/{c}_ppo_{w}" for c in ("dense_p515", "gru_p1014") for w in ("scratch", "warm")]
+    rl = [f"paper/rl/{p}{c}_ppo_{w}" for p in ("", "hl_") for c in ("dense_p515", "gru_p1014") for w in ("scratch", "warm")]
     assert set(labels) == {f"ou_marginal/{c}" for c in nets + hl + ft + classical} | {"mamba_p962_long", *rl}
     for _, toml, model_dir in rows:
         assert (REPO / toml).is_file(), toml

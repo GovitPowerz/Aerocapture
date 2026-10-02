@@ -17,12 +17,20 @@ REPO = Path(__file__).resolve().parents[1]
 RL_CONFIGS = REPO / "configs/training/paper/rl"
 BUNDLE = REPO / "articles/paper/data/runs"
 
-# (RL config stem, champion bundle cell)
+# (RL config stem, champion bundle cell): the arxiv-v3 cells, matched to the fine-tunes.
 CELLS = [
     ("dense_p515_ppo_scratch", "ou_marginal/ft_dense_p515"),
     ("dense_p515_ppo_warm", "ou_marginal/ft_dense_p515"),
     ("gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
     ("gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
+]
+# The v4 cells (issue #175), matched to the #173 scratch cells at the headline allocation. Each
+# joins `test_bundled_rl_cell_matches_its_config` as soon as `18_rl_baseline.sh hl` bundles it.
+V4_CELLS = [
+    ("hl_dense_p515_ppo_scratch", "ou_marginal/hl_dense_p515"),
+    ("hl_dense_p515_ppo_warm", "ou_marginal/hl_dense_p515"),
+    ("hl_gru_p1014_ppo_scratch", "ou_marginal/hl_gru_p1014"),
+    ("hl_gru_p1014_ppo_warm", "ou_marginal/hl_gru_p1014"),
 ]
 SPEC_KEYS = ("type", "input_size", "output_size", "hidden_size", "activation")
 
@@ -31,7 +39,7 @@ def _spec(layers: list[dict]) -> list[dict]:
     return [{k: layer[k] for k in SPEC_KEYS if k in layer} for layer in layers]
 
 
-@pytest.mark.parametrize(("stem", "champion"), CELLS)
+@pytest.mark.parametrize(("stem", "champion"), CELLS + V4_CELLS)
 def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     cfg = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
     model = json.loads((BUNDLE / champion / "best_model.json").read_text())
@@ -54,7 +62,7 @@ def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     assert cfg["data"]["neural_network"] == f"training_output/paper/rl/{stem}/best_model.json"  # = the trainer's output dir
 
 
-@pytest.mark.parametrize(("stem", "champion"), CELLS)
+@pytest.mark.parametrize(("stem", "champion"), CELLS + [c for c in V4_CELLS if (BUNDLE / "rl" / c[0]).is_dir()])
 def test_bundled_rl_cell_matches_its_config(stem: str, champion: str) -> None:
     """The bundled PPO artifact was trained under the config that claims it."""
     cfg = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")

@@ -1,0 +1,21 @@
+# Paper v4 Section 5 RL baseline (issue #175) -- recurrent PPO-BPTT from scratch, protocol-matched
+# to the v4 GRU cell (training_output/ou_marginal/hl_gru_p1014: the #173 scratch cell at the
+# 512 x 2 headline allocation). Architecture, input mask, normalization, decoder, regime,
+# bptt_length and trainer knobs inherit from the arxiv-v3 cell (gru_p1014_ppo_scratch.toml,
+# matched to the fine-tune ft_gru_p1014); only the co-trained scaffolding and the deploy path differ.
+#
+#   ./experiments/paper/18_rl_baseline.sh hl
+base = ["gru_p1014_ppo_scratch.toml"]
+
+# training_output/ou_marginal/hl_gru_p1014/best_params.json (scaffolding = "live" genes).
+[navigation]
+density_filter_gain = 0.7714352578368235
+density_gain_max_delta = 0.15708067078140373
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 13.756184511031055
+
+[data]
+neural_network = "training_output/paper/rl/hl_gru_p1014_ppo_scratch/best_model.json"
+results_suffix = ".paper_rl_hl_gru_p1014_ppo_scratch"

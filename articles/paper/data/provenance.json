@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "e09b80d97177827f50026000dc4c30186afe61eedb7dae5d41118d3c627d07fd",
+  "paper_inputs_sha256": "8e7e0322c05140b36ea4659c7c7f314730f2bc81ed6c144e42334f3174f3b6c2",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -53,6 +53,10 @@
     "configs/training/paper/rl/dense_p515_ppo_warm.toml": "2ef4aa879a0044662ae704d58de437b79f1fb1a44c2a3926bb32a6c6f8e7e09f",
     "configs/training/paper/rl/gru_p1014_ppo_scratch.toml": "414a131eb4bab215682dce5b2235e9f52f88f82156af7ed0fc7faab0e9b75fcd",
     "configs/training/paper/rl/gru_p1014_ppo_warm.toml": "64989352d4ff91c90c3227c09dc84830bda106651f66f4d6953b7a4ed0fdcc53",
+    "configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml": "7c64b25d7077219994ed716d81ac40b82427b6e2b8761aa53f220f19c4620ff6",
+    "configs/training/paper/rl/hl_dense_p515_ppo_warm.toml": "7cd7ae67f1903c8edef337e6eaacfb46bbebe82998931af04736bf3eaf47528e",
+    "configs/training/paper/rl/hl_gru_p1014_ppo_scratch.toml": "78853a3f4946a1456158468da6285e60b7fef9a8a65366462e2cbb9108c26015",
+    "configs/training/paper/rl/hl_gru_p1014_ppo_warm.toml": "32bb98274ae690caf1fc4045e662395a40d92a2b9d6375b3455d29dbe0c36dc6",
     "configs/training/paper/robustness_retrain/ftc_joint_high.toml": "8c2c7779aeb1e590ac518a0be23525e5e4e9cabe8d57b1294b1c7dda562e46c7",
     "configs/training/paper/robustness_retrain/ftc_joint_medium.toml": "96982f30d7d750611b65974389c043aa202577c4c0451dde53f99b2aa492c968",
     "configs/training/paper/robustness_retrain/ftc_joint_medium_wind.toml": "526e8bd4aded68a3be40341847a2b72a739b96ef431c67703772f337ac63b5b9",

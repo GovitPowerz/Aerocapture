@@ -45,6 +45,12 @@ paper/rl/dense_p515_ppo_scratch|configs/training/paper/rl/dense_p515_ppo_scratch
 paper/rl/dense_p515_ppo_warm|configs/training/paper/rl/dense_p515_ppo_warm.toml|training_output/paper/rl/dense_p515_ppo_warm
 paper/rl/gru_p1014_ppo_scratch|configs/training/paper/rl/gru_p1014_ppo_scratch.toml|training_output/paper/rl/gru_p1014_ppo_scratch
 paper/rl/gru_p1014_ppo_warm|configs/training/paper/rl/gru_p1014_ppo_warm.toml|training_output/paper/rl/gru_p1014_ppo_warm
+# v4 PPO cells (#175): the four retrained against the #173 scratch cells (`18_rl_baseline.sh hl`), the rows
+# Section 5 pairs against ou_marginal/hl_dense_p515 / hl_gru_p1014 once the #173 rule retired the fine-tunes.
+paper/rl/hl_dense_p515_ppo_scratch|configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml|training_output/paper/rl/hl_dense_p515_ppo_scratch
+paper/rl/hl_dense_p515_ppo_warm|configs/training/paper/rl/hl_dense_p515_ppo_warm.toml|training_output/paper/rl/hl_dense_p515_ppo_warm
+paper/rl/hl_gru_p1014_ppo_scratch|configs/training/paper/rl/hl_gru_p1014_ppo_scratch.toml|training_output/paper/rl/hl_gru_p1014_ppo_scratch
+paper/rl/hl_gru_p1014_ppo_warm|configs/training/paper/rl/hl_gru_p1014_ppo_warm.toml|training_output/paper/rl/hl_gru_p1014_ppo_warm
 # Classical retunes under per-scenario noise (#172); #188: piecewise_constant and equilibrium_glide quote the
 # ungated reruns. The model_dir's optimized_<scheme>.toml is what flies (cell_eval._resolve_cell).
 ou_marginal/classical/ftc|configs/training/ou_marginal/classical/ftc.toml|training_output/ou_marginal/classical/ftc

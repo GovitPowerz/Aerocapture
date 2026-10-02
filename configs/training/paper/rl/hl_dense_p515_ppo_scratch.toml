@@ -1,0 +1,24 @@
+# Paper v4 Section 5 RL baseline (issue #175) -- dense PPO from scratch, protocol-matched to the
+# v4 dense reference (training_output/ou_marginal/hl_dense_p515: the #173 scratch cell at the
+# 512 x 2 headline allocation, seed 1). Architecture, input mask, normalization, decoder, regime
+# and trainer knobs inherit from the arxiv-v3 cell (dense_p515_ppo_scratch.toml, matched to the
+# fine-tune ft_dense_p515 the #173 rule retired from the main body); only the co-trained
+# navigation + command-shaping scaffolding (best_params.json) and the deploy path differ.
+#
+#   ./experiments/paper/18_rl_baseline.sh hl
+#
+# Output dir = the [data] neural_network parent; collect_runs.py bundles it as rl/hl_dense_p515_ppo_scratch.
+base = ["dense_p515_ppo_scratch.toml"]
+
+# training_output/ou_marginal/hl_dense_p515/best_params.json (scaffolding = "live" genes).
+[navigation]
+density_filter_gain = 0.4243244826643257
+density_gain_max_delta = 0.013482071343779971
+
+[guidance.command_shaping]
+enabled = true
+max_bank_acceleration = 14.32561819173802
+
+[data]
+neural_network = "training_output/paper/rl/hl_dense_p515_ppo_scratch/best_model.json"
+results_suffix = ".paper_rl_hl_dense_p515_ppo_scratch"
