@@ -125,3 +125,26 @@ def test_linear_anneal_final_update_overshoot() -> None:
 
     assert _linear_anneal(0.01, 1.022, 1.0) == 0.01  # default entropy config, final update
     assert _linear_anneal(3e-4, 1.2, 0.5) == pytest.approx(0.0)  # active anneal floors at 0
+
+
+@pytest.mark.parametrize("interrupt", [True, False])
+def test_interrupted_run_writes_no_final_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupt: bool) -> None:
+    """A Ctrl+C'd run must not reach the report: its final_eval.parquet is 18_rl_baseline.sh's
+    done marker, so an interrupted cell would be skipped on rerun instead of resumed."""
+    import aerocapture.training.rl.report_rl as report_rl
+    import aerocapture.training.rl.train as train_mod
+
+    calls: list[str] = []
+
+    def fake_run_ppo(cfg, toml_path, output_dir, logger, display, interrupted, *_args) -> None:  # type: ignore[no-untyped-def]
+        (output_dir / "best_model.json").write_text("{}")
+        interrupted["v"] = interrupt
+
+    monkeypatch.setattr(train_mod, "_run_ppo", fake_run_ppo)
+    monkeypatch.setattr(train_mod, "_run_final_eval", lambda *_a: calls.append("final_eval"))
+    monkeypatch.setattr(report_rl, "generate_report", lambda *_a: calls.append("report"))
+    toml = "configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml"
+    monkeypatch.setattr(sys, "argv", ["train.py", toml, "--no-tui", "--output-dir", str(tmp_path)])
+    train_mod.main()
+
+    assert calls == ([] if interrupt else ["final_eval", "report"])

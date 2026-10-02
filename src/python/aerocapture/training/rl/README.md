@@ -117,7 +117,8 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
   `_np_state_to_torch` / `_torch_state_to_np` pack multi-tensor states as stacked arrays, LSTM
   `(2, H)`), the reserved-seed validation gate (promotion on `val_rms_cost` alone: there is NO
   feasibility gate, no ADR-0005 analogue, so PPO can and does promote constraint-violating
-  policies), checkpoint save/resume (`checkpoint.pt`), graceful Ctrl+C, the final MC evaluation
+  policies), checkpoint save/resume (`checkpoint.pt`), graceful Ctrl+C (an interrupted run skips the final
+  evaluation and the report, so it leaves no `final_eval.parquet` done marker), the final MC evaluation
   summary. Warm-start goes through `load_policy_from_json` + `load_state_dict` with a pre-check
   that raises on layer-count mismatch.
 - `report_rl.py` — the three-part PDF (Part 1 RL convergence panels; Parts 2/3 reused from the

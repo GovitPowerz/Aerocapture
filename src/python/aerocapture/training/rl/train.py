@@ -440,6 +440,13 @@ def main() -> None:
         display.close()
         logger.close()
 
+    # NEVER on an interrupted run, as in the population trainer: the report writes
+    # final_eval.parquet, the campaign runners' skip-if-done marker (18_rl_baseline.sh), so a
+    # Ctrl+C'd run would self-certify as a completed cell. Resume to completion first.
+    if interrupted["v"]:
+        print("Run interrupted -- skipping final evaluation/report/final_eval.parquet (resume to completion to produce them)", file=sys.stderr)
+        return
+
     best_model = args.output_dir / "best_model.json"
     if best_model.exists():
         _run_final_eval(Path(args.toml_path), best_model, cfg)
