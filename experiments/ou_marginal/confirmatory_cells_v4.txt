@@ -51,6 +51,11 @@ paper/rl/hl_dense_p515_ppo_scratch|configs/training/paper/rl/hl_dense_p515_ppo_s
 paper/rl/hl_dense_p515_ppo_warm|configs/training/paper/rl/hl_dense_p515_ppo_warm.toml|training_output/paper/rl/hl_dense_p515_ppo_warm
 paper/rl/hl_gru_p1014_ppo_scratch|configs/training/paper/rl/hl_gru_p1014_ppo_scratch.toml|training_output/paper/rl/hl_gru_p1014_ppo_scratch
 paper/rl/hl_gru_p1014_ppo_warm|configs/training/paper/rl/hl_gru_p1014_ppo_warm.toml|training_output/paper/rl/hl_gru_p1014_ppo_warm
+# PPO-scratch seed repeats ([rl] torch_seed 2 / 3, `18_rl_baseline.sh hl_repeats`): the s1 rows above ran unseeded.
+paper/rl/hl_dense_p515_ppo_scratch_s2|configs/training/paper/rl/hl_dense_p515_ppo_scratch_s2.toml|training_output/paper/rl/hl_dense_p515_ppo_scratch_s2
+paper/rl/hl_dense_p515_ppo_scratch_s3|configs/training/paper/rl/hl_dense_p515_ppo_scratch_s3.toml|training_output/paper/rl/hl_dense_p515_ppo_scratch_s3
+paper/rl/hl_gru_p1014_ppo_scratch_s2|configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s2.toml|training_output/paper/rl/hl_gru_p1014_ppo_scratch_s2
+paper/rl/hl_gru_p1014_ppo_scratch_s3|configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s3.toml|training_output/paper/rl/hl_gru_p1014_ppo_scratch_s3
 # Classical retunes under per-scenario noise (#172); #188: piecewise_constant and equilibrium_glide quote the
 # ungated reruns. The model_dir's optimized_<scheme>.toml is what flies (cell_eval._resolve_cell).
 ou_marginal/classical/ftc|configs/training/ou_marginal/classical/ftc.toml|training_output/ou_marginal/classical/ftc

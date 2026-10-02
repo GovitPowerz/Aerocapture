@@ -148,3 +148,28 @@ def test_interrupted_run_writes_no_final_eval(tmp_path: Path, monkeypatch: pytes
     train_mod.main()
 
     assert calls == ([] if interrupt else ["final_eval", "report"])
+
+
+def _tiny_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, torch_seed: int) -> tuple[list[dict], bytes]:
+    from aerocapture.training.rl.train import main
+
+    toml = tmp_path / f"{name}.toml"
+    toml.write_text(f'base = ["{Path("configs/training/msr_aller_nn_atan2_ppo_train.toml").resolve()}"]\n\n[rl]\ntorch_seed = {torch_seed}\n')
+    out = tmp_path / name
+    argv = ["train.py", str(toml), "--from-scratch", "--no-tui", "--skip-report", "--output-dir", str(out), "--total-steps", "256"]
+    argv += ["--n-envs", "2", "--rollout-steps", "64", "--validation-n-sims", "2", "--validation-interval-updates", "1"]
+    monkeypatch.setattr(sys, "argv", argv)
+    main()
+    volatile = ("timestamp", "wallclock_seconds", "config_hash")
+    records = [{k: v for k, v in json.loads(line).items() if k not in volatile} for f in sorted(out.glob("rl_training_*.jsonl")) for line in f.open()]
+    return records, (out / "best_model.json").read_bytes()
+
+
+def test_torch_seed_makes_a_run_reproducible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """[rl] torch_seed seeds the policy init and exploration noise: the same seed replays the run
+    exactly, another seed does not (until 2026-10-02 torch was never seeded, so two PPO-scratch
+    runs of one config ended at 180 and 446 m/s mean)."""
+    a = _tiny_run(tmp_path, monkeypatch, "a", 0)
+    assert a[0], "no training records"
+    assert _tiny_run(tmp_path, monkeypatch, "b", 0) == a
+    assert _tiny_run(tmp_path, monkeypatch, "c", 1)[1] != a[1]

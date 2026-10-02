@@ -31,6 +31,11 @@ V4_CELLS = [
     ("hl_dense_p515_ppo_warm", "ou_marginal/hl_dense_p515"),
     ("hl_gru_p1014_ppo_scratch", "ou_marginal/hl_gru_p1014"),
     ("hl_gru_p1014_ppo_warm", "ou_marginal/hl_gru_p1014"),
+    # PPO-scratch seed repeats ([rl] torch_seed 2 / 3); the s1 cells ran before torch was seeded.
+    ("hl_dense_p515_ppo_scratch_s2", "ou_marginal/hl_dense_p515"),
+    ("hl_dense_p515_ppo_scratch_s3", "ou_marginal/hl_dense_p515"),
+    ("hl_gru_p1014_ppo_scratch_s2", "ou_marginal/hl_gru_p1014"),
+    ("hl_gru_p1014_ppo_scratch_s3", "ou_marginal/hl_gru_p1014"),
 ]
 SPEC_KEYS = ("type", "input_size", "output_size", "hidden_size", "activation")
 
@@ -69,3 +74,20 @@ def test_bundled_rl_cell_matches_its_config(stem: str, champion: str) -> None:
     model = json.loads((BUNDLE / "rl" / stem / "best_model.json").read_text())
     assert _spec(model["architecture"]) == _spec(cfg["network"]["architecture"])
     assert model["input_mask"] == cfg["network"]["input_mask"]
+
+
+@pytest.mark.parametrize("stem", [s for s, _ in V4_CELLS if s.endswith(("_s2", "_s3"))])
+def test_seed_repeat_differs_from_its_s1_only_in_torch_seed_and_deploy_path(stem: str) -> None:
+    """A seed repeat is the s1 protocol with another [rl] torch_seed: same seed_base (the 3M
+    training pool), scaffolding, architecture and trainer knobs."""
+    repeat = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
+    s1 = load_toml_with_bases(RL_CONFIGS / f"{stem[:-3]}.toml")
+    assert repeat["rl"].pop("torch_seed") == int(stem[-1])
+    assert "torch_seed" not in s1["rl"]
+    assert repeat["data"].pop("neural_network") == f"training_output/paper/rl/{stem}/best_model.json"
+    assert repeat["data"].pop("results_suffix") == f".paper_rl_{stem}"
+    s1["data"].pop("neural_network")
+    s1["data"].pop("results_suffix")
+    repeat.pop("base", None)
+    s1.pop("base", None)
+    assert repeat == s1

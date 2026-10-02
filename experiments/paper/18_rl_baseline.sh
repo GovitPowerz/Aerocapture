@@ -10,11 +10,13 @@
 # cores idle between Rayon env bursts); the pairs run one after the other. A failed
 # cell is reported and the script exits non-zero after the other pair has run.
 #
-# Two cell sets, chosen by the first argument:
+# Three cell sets, chosen by the first argument:
 #   ft (default)  the arxiv-v3 cells, matched to the fine-tunes ou_marginal/ft_dense_p515 / ft_gru_p1014;
 #   hl            the v4 cells (issue #175), hl_<cell>_ppo_*, matched to the #173 scratch cells
 #                 ou_marginal/hl_dense_p515 / hl_gru_p1014 at the 512 x 2 headline allocation
-#                 (the #173 rule retired the fine-tunes from the main body).
+#                 (the #173 rule retired the fine-tunes from the main body);
+#   hl_repeats    the PPO-scratch seed repeats of the hl set, hl_<cell>_ppo_scratch_s2 / _s3
+#                 ([rl] torch_seed 2 / 3, same protocol): the s2/s3 of a cell run as one pair.
 #
 # RESUMABLE: a cell with final_eval.parquet is done and skipped; a cell with a
 # checkpoint.pt resumes (plain invocation, no --from-scratch / --data-neural-network,
@@ -68,13 +70,20 @@ run_pair() {
   done
 }
 
-case "${1:-ft}" in
+mode="${1:-ft}"
+case "$mode" in
   ft) cell_prefix="" champion_prefix="ft_" ;;
   hl) cell_prefix="hl_" champion_prefix="hl_" ;;
-  *) echo "usage: $0 [ft|hl]" >&2; exit 2 ;;
+  hl_repeats) ;;
+  *) echo "usage: $0 [ft|hl|hl_repeats]" >&2; exit 2 ;;
 esac
-run_pair "${cell_prefix}dense_p515_ppo_scratch" "" "${cell_prefix}dense_p515_ppo_warm" "training_output/ou_marginal/${champion_prefix}dense_p515/best_model.json"
-run_pair "${cell_prefix}gru_p1014_ppo_scratch" "" "${cell_prefix}gru_p1014_ppo_warm" "training_output/ou_marginal/${champion_prefix}gru_p1014/best_model.json"
+if [ "$mode" = hl_repeats ]; then
+  run_pair hl_dense_p515_ppo_scratch_s2 "" hl_dense_p515_ppo_scratch_s3 ""
+  run_pair hl_gru_p1014_ppo_scratch_s2 "" hl_gru_p1014_ppo_scratch_s3 ""
+else
+  run_pair "${cell_prefix}dense_p515_ppo_scratch" "" "${cell_prefix}dense_p515_ppo_warm" "training_output/ou_marginal/${champion_prefix}dense_p515/best_model.json"
+  run_pair "${cell_prefix}gru_p1014_ppo_scratch" "" "${cell_prefix}gru_p1014_ppo_warm" "training_output/ou_marginal/${champion_prefix}gru_p1014/best_model.json"
+fi
 if [ "$failed" -ne 0 ]; then
   echo "Campaign pass INCOMPLETE: at least one cell failed (rerun to resume it)." >&2
   exit 1

@@ -128,7 +128,13 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
 Artifacts under `training_output/<scheme>/`: `best_model.json`, `rl_training_*.jsonl`
 (per-update metrics), `config_resolved.toml`, `checkpoint.pt`, `final_eval.parquet`, `report.pdf`.
 Seeds: `RL_TRAINING_SEED_OFFSET = 3_000_000` is the default `seed_base`; the validation pool is
-the shared `VALIDATION_SEED_OFFSET` stream (`training/seeds.py`).
+the shared `VALIDATION_SEED_OFFSET` stream (`training/seeds.py`). `[rl] torch_seed` (default 0)
+seeds torch before the policy and critic are built, so the init and the exploration noise replay
+exactly; `checkpoint.pt` carries the torch RNG state for a resume. A seed repeat varies
+`torch_seed` and keeps `seed_base` (the training pool). Until 2026-10-02 torch was unseeded: the
+two dense PPO-scratch runs of one config (`dense_p515_ppo_scratch`, `hl_dense_p515_ppo_scratch`)
+ended at 180 and 446 m/s mean, a spread no single run measures (each policy flies within 1 m/s
+under either run's scaffolding). Gate: `tests/rl/test_train_smoke.py::test_torch_seed_makes_a_run_reproducible`.
 
 ## Reward structure
 
@@ -195,7 +201,8 @@ normalization`, `atan2_signed`, the champion's `best_params.json` nav/shaping va
 neural_network` under `training_output/paper/rl/<cell>/` so the output dir is the bundle key
 `rl/<cell>`). The four `hl_*` siblings (issue #175) base these leaves and repoint the scaffolding and the
 deploy path at the #173 scratch cells `ou_marginal/hl_dense_p515` / `hl_gru_p1014` (the v4 rows, once the
-#173 rule retired the fine-tunes). `experiments/paper/18_rl_baseline.sh [ft|hl]` runs the two cells of a pair concurrently and
+#173 rule retired the fine-tunes); `hl_<cell>_ppo_scratch_s2` / `_s3` are their PPO-scratch seed repeats (`[rl] torch_seed`
+2 / 3, gate `test_seed_repeat_differs_from_its_s1_only_in_torch_seed_and_deploy_path`). `experiments/paper/18_rl_baseline.sh [ft|hl|hl_repeats]` runs the two cells of a pair concurrently and
 is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else `--from-scratch`
 / `--data-neural-network <champion best_model.json>`). `tests/test_paper_rl_configs.py` asserts
 each RL config against the bundled champion (architecture, mask, normalization, decoder,
