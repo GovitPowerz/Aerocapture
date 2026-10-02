@@ -816,7 +816,7 @@ validation_n_sims` sims each).
   strips `rng_state` from its copied checkpoint, because a checkpoint resume restores the saved
   trainer RNG state and would silently override `--seed`; same resumable contract as below, plus
   the run-local deploy path, the checkpoint allocation against the TOML, a byte-identical
-  `best_model.json` across a cell's seeds, and report.py's n = 1000 `final_eval.parquet` per job).
+  `best_model.json` across a cell's seeds or latest checkpoint across its ceiling legs, and report.py's n = 1000 `final_eval.parquet` per job).
   `jobs_phase2.txt` is phase 2 (`ft_<cell>` fine-tunes = frozen champion checkpoint + 2000 per_draw
   gens, and `<cell>_s2` / `_s3` scratch seed repeats), at the sweep config's allocation (GA n_pop 60,
   training_n_sims 10), not the headline cells' CLI allocation (n_pop 512, training_n_sims 2).
@@ -824,6 +824,17 @@ validation_n_sims` sims each).
   configs state 512 x 2 in the TOML (mamba_962 and dense_515 at three seeds, the other three
   families at one), plus the dense_515 fine-tune seeds 2 and 3; the pre-registered recipe decision
   is in `RESULTS.md`.
+  `jobs_heat_load.txt` (#192) is the heat-load ceiling sensitivity: `hs_<cell>_q<NN>` continues the
+  #173 seed-1 champions (`hl_mamba_p962`, `hl_dense_p515`) 2000 gens at the fine-tune allocation
+  under `[flight.constraints] max_heat_load` 25000 (the v4 limit, the control) / 27500 / 30000 kJ/m2,
+  seed 1 on every leg (the copied checkpoint's RNG is kept, so a leg whose ceiling never reached the
+  trainer replays its sibling and the runner's byte-identity check stops it). `heat_load_slope.py`
+  flies each finished leg (a final selection or final eval after its last checkpoint, the
+  confirmatory scorer's rule) on `quote_marginal.py`'s paired marginal pool at its own ceiling and
+  again under the v4 limit (an explicit `flight.constraints.max_heat_load` override, which also sets
+  the violation column's limit, and which must move a relaxed leg's flight), writes
+  `heat_load_slope.json` and prints the `RESULTS.md` table with the CVaR95 slope per MJ/m2 next to
+  the source cells' three-seed spread on the same pool.
   `classical_campaign.sh` (#172) retunes the nine classical cells of the paper's 01 / 07 scripts
   under per_draw at their shared-path GA allocation (2000 x 300 x 10, FNPAG 300 gens; configs
   `configs/training/ou_marginal/classical/`, which state the regime and allocation in the leaf,

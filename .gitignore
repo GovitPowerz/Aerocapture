@@ -86,5 +86,7 @@ demo_output/
 # Confirmatory scorers' per-replicate stores (<results>.json.partial/<label>/r<NN>.{json,npy}): transient,
 # deleted once their cell is saved; listed last so the data/ JSON negations above cannot re-include them.
 *.json.partial/
+# The scorers' console logs (RESULTS.md's commands tee into them); every number they print is in the committed JSON.
+experiments/ou_marginal/*.log
 # Atomic-write temporaries (.tmp_<name> + rename) the JSON negations above would re-include.
 .tmp_*
