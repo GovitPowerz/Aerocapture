@@ -150,14 +150,17 @@ def test_interrupted_run_writes_no_final_eval(tmp_path: Path, monkeypatch: pytes
     assert calls == ([] if interrupt else ["final_eval", "report"])
 
 
-def _tiny_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, torch_seed: int) -> tuple[list[dict], bytes]:
+def _tiny_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, torch_seed: int, total_steps: int = 256, from_scratch: bool = True
+) -> tuple[list[dict], bytes]:
     from aerocapture.training.rl.train import main
 
     toml = tmp_path / f"{name}.toml"
     toml.write_text(f'base = ["{Path("configs/training/msr_aller_nn_atan2_ppo_train.toml").resolve()}"]\n\n[rl]\ntorch_seed = {torch_seed}\n')
     out = tmp_path / name
-    argv = ["train.py", str(toml), "--from-scratch", "--no-tui", "--skip-report", "--output-dir", str(out), "--total-steps", "256"]
+    argv = ["train.py", str(toml), "--no-tui", "--skip-report", "--output-dir", str(out), "--total-steps", str(total_steps)]
     argv += ["--n-envs", "2", "--rollout-steps", "64", "--validation-n-sims", "2", "--validation-interval-updates", "1"]
+    argv += ["--from-scratch"] if from_scratch else []
     monkeypatch.setattr(sys, "argv", argv)
     main()
     volatile = ("timestamp", "wallclock_seconds", "config_hash")
@@ -168,8 +171,17 @@ def _tiny_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, torch_
 def test_torch_seed_makes_a_run_reproducible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """[rl] torch_seed seeds the policy init and exploration noise: the same seed replays the run
     exactly, another seed does not (until 2026-10-02 torch was never seeded, so two PPO-scratch
-    runs of one config ended at 180 and 446 m/s mean)."""
+    runs of one config ended at 180 and 444 m/s mean)."""
     a = _tiny_run(tmp_path, monkeypatch, "a", 0)
     assert a[0], "no training records"
     assert _tiny_run(tmp_path, monkeypatch, "b", 0) == a
     assert _tiny_run(tmp_path, monkeypatch, "c", 1)[1] != a[1]
+
+
+def test_plain_rerun_resumes_the_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """18_rl_baseline.sh's resume branch: a plain invocation on a dir holding checkpoint.pt continues
+    it (update index and env steps carry on), through the weights_only load of the saved torch RNG state."""
+    first, _ = _tiny_run(tmp_path, monkeypatch, "r", 0, total_steps=128)
+    assert [(r["update_idx"], r["env_steps"]) for r in first] == [(1, 128)]
+    both, _ = _tiny_run(tmp_path, monkeypatch, "r", 0, total_steps=256, from_scratch=False)
+    assert [(r["update_idx"], r["env_steps"]) for r in both] == [(1, 128), (2, 256)]

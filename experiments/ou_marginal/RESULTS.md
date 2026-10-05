@@ -569,7 +569,7 @@ The four PPO cells retrained against the #173 scratch cells (`18_rl_baseline.sh
 hl`, 2026-10-02) and the PPO-scratch seed repeats (`18_rl_baseline.sh
 hl_repeats`, `[rl] torch_seed` 2 / 3). The s1 cells ran before torch was seeded:
 policy init and exploration noise were unseeded draws, and the first dense
-scratch run ended at 446 m/s mean against 180 for the arxiv-v3 run of the same
+scratch run ended at 444 m/s mean against 180 for the arxiv-v3 run of the same
 code. Every policy flies within 1 m/s mean under either scaffolding, so the gap
 is run-to-run spread, not the protocol. Population references: `hl_dense_p515` /
 `hl_gru_p1014`.
@@ -585,8 +585,8 @@ PPO minus population, m/s:
 | dense warm | -0.2 [-0.4, +0.0] | -0.9 | -0.5 | 54.3 |
 | GRU scratch s1 (unseeded) | +338.2 [333.8, 342.4] | +431.8 | +446.5 | 0.0 |
 | GRU scratch s2 | +292.6 [288.7, 296.4] | +361.8 | +371.3 | 0.0 |
-| GRU scratch s3 | +107.6 [104.6, 110.5] | +174.3 | +225.8 | 0.0 |
-| GRU warm | +0.5 [+0.3, +0.5] | +0.4 | +0.7 | 36.6 |
+| GRU scratch s3 | +107.5 [104.6, 110.5] | +174.3 | +225.8 | 0.0 |
+| GRU warm | +0.4 [+0.3, +0.5] | +0.4 | +0.7 | 36.6 |
 
 Confirmatory, 10 x 100k per-scenario (`confirmatory_cells_v4.txt`, 2026-10-05,
 eval commit c3433c52), DV in m/s over captured scenarios:

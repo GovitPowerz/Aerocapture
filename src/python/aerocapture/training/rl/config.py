@@ -6,11 +6,11 @@ inheritance, then plucks the [rl] subtree.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
 
-from aerocapture.training.toml_utils import load_toml_with_bases
+from aerocapture.training.toml_utils import load_toml_with_bases, reject_unknown_keys
 
 _VALID_ALGOS: tuple[str, ...] = ("ppo", "sac")
 
@@ -103,6 +103,8 @@ class RLConfig:
     ) -> RLConfig:
         resolved = load_toml_with_bases(path)
         rl = resolved.get("rl", {})
+        # The scalars below are read with .get() defaults: a typo must fail here, not train at the default.
+        reject_unknown_keys("rl", rl, (f.name for f in fields(cls) if f.name != "raw_toml"))
         if overrides:
             rl = {**rl, **overrides}
         algo = rl.get("algorithm", "ppo")

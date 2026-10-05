@@ -79,7 +79,8 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
 
 ## Modules
 
-- `config.py` — `RLConfig.from_toml` (`[rl]` / `[rl.reward]` / `[rl.ppo]` / `[rl.sac]`;
+- `config.py` — `RLConfig.from_toml` (`[rl]` / `[rl.reward]` / `[rl.ppo]` / `[rl.sac]`; an unknown `[rl]` key is a
+  `ValueError` through `toml_utils.reject_unknown_keys`, the nested tables raise through their dataclass kwargs;
   `_parse_network_config` accepts both v1 `layer_sizes + activations` and v2
   `[[network.architecture]]`; raises at parse time when `rollout_steps % bptt_length != 0`).
 - `policy.py` — the v1 `GaussianPolicy` (a PyTorch MLP mirroring the v1 `NeuralNetModel` JSON,
@@ -133,8 +134,9 @@ seeds torch before the policy and critic are built, so the init and the explorat
 exactly; `checkpoint.pt` carries the torch RNG state for a resume. A seed repeat varies
 `torch_seed` and keeps `seed_base` (the training pool). Until 2026-10-02 torch was unseeded: the
 two dense PPO-scratch runs of one config (`dense_p515_ppo_scratch`, `hl_dense_p515_ppo_scratch`)
-ended at 180 and 446 m/s mean, a spread no single run measures (each policy flies within 1 m/s
-under either run's scaffolding). Gate: `tests/rl/test_train_smoke.py::test_torch_seed_makes_a_run_reproducible`.
+ended at 180 and 444 m/s mean, a spread no single run measures (each policy flies within 1 m/s
+under either run's scaffolding). Gates: `tests/rl/test_train_smoke.py::test_torch_seed_makes_a_run_reproducible`
+(same seed replays, another seed does not) and `test_plain_rerun_resumes_the_checkpoint` (the resume branch of the runners).
 
 ## Reward structure
 

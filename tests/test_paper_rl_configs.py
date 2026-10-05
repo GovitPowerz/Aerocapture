@@ -24,8 +24,7 @@ CELLS = [
     ("gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
     ("gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
 ]
-# The v4 cells (issue #175), matched to the #173 scratch cells at the headline allocation. Each
-# joins `test_bundled_rl_cell_matches_its_config` as soon as `18_rl_baseline.sh hl` bundles it.
+# The v4 cells (issue #175), matched to the #173 scratch cells at the headline allocation.
 V4_CELLS = [
     ("hl_dense_p515_ppo_scratch", "ou_marginal/hl_dense_p515"),
     ("hl_dense_p515_ppo_warm", "ou_marginal/hl_dense_p515"),
@@ -67,7 +66,7 @@ def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     assert cfg["data"]["neural_network"] == f"training_output/paper/rl/{stem}/best_model.json"  # = the trainer's output dir
 
 
-@pytest.mark.parametrize(("stem", "champion"), CELLS + [c for c in V4_CELLS if (BUNDLE / "rl" / c[0]).is_dir()])
+@pytest.mark.parametrize(("stem", "champion"), CELLS + V4_CELLS)
 def test_bundled_rl_cell_matches_its_config(stem: str, champion: str) -> None:
     """The bundled PPO artifact was trained under the config that claims it."""
     cfg = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
