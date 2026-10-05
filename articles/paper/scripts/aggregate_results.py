@@ -70,6 +70,16 @@ PAIRED = [
     ("v4_headline_vs_dense972", "ou_marginal/hl_mamba_p962", "ou_marginal/hl_dense_p972"),
     ("v4_joint_vs_fixed_ftc", "ou_marginal/classical/ftc_joint", "ou_marginal/classical/ftc"),
     ("v4_jointftc_vs_fnpag", "ou_marginal/classical/ftc_joint", "ou_marginal/classical/fnpag"),
+    # v4 Section 5: each PPO cell vs the #173 scratch cell it is protocol-matched to; scratch s1 ran
+    # before torch was seeded, s2 / s3 are its torch_seed 2 / 3 repeats (the seed spread is the point).
+    ("v4_ppo_scratch_vs_pop_dense515", "rl/hl_dense_p515_ppo_scratch", "ou_marginal/hl_dense_p515"),
+    ("v4_ppo_scratch_s2_vs_pop_dense515", "rl/hl_dense_p515_ppo_scratch_s2", "ou_marginal/hl_dense_p515"),
+    ("v4_ppo_scratch_s3_vs_pop_dense515", "rl/hl_dense_p515_ppo_scratch_s3", "ou_marginal/hl_dense_p515"),
+    ("v4_ppo_warm_vs_pop_dense515", "rl/hl_dense_p515_ppo_warm", "ou_marginal/hl_dense_p515"),
+    ("v4_ppo_scratch_vs_pop_gru1014", "rl/hl_gru_p1014_ppo_scratch", "ou_marginal/hl_gru_p1014"),
+    ("v4_ppo_scratch_s2_vs_pop_gru1014", "rl/hl_gru_p1014_ppo_scratch_s2", "ou_marginal/hl_gru_p1014"),
+    ("v4_ppo_scratch_s3_vs_pop_gru1014", "rl/hl_gru_p1014_ppo_scratch_s3", "ou_marginal/hl_gru_p1014"),
+    ("v4_ppo_warm_vs_pop_gru1014", "rl/hl_gru_p1014_ppo_warm", "ou_marginal/hl_gru_p1014"),
 ]
 # Tail-level sigma_run: the 3-seed triplets the paper actually repeated (10c),
 # on the far-tail n=10000 pool. cvar999/max are NOT derivable from the n=1000

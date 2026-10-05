@@ -562,3 +562,55 @@ retrain. All nine v4 pairs share the dispersion fingerprint (the same 1000
 scenarios of report.py's 2M pool, NOT the paired pool of the two tables above:
 hl_mamba_p962_s2 scores per-scenario CVaR95 130.8 there and 132.0 in its bundle
 parquet).
+
+## v4 Section 5 RL baseline: PPO against the #173 cells, with seed repeats (#175)
+
+The four PPO cells retrained against the #173 scratch cells (`18_rl_baseline.sh
+hl`, 2026-10-02) and the PPO-scratch seed repeats (`18_rl_baseline.sh
+hl_repeats`, `[rl] torch_seed` 2 / 3). The s1 cells ran before torch was seeded:
+policy init and exploration noise were unseeded draws, and the first dense
+scratch run ended at 446 m/s mean against 180 for the arxiv-v3 run of the same
+code. Every policy flies within 1 m/s mean under either scaffolding, so the gap
+is run-to-run spread, not the protocol. Population references: `hl_dense_p515` /
+`hl_gru_p1014`.
+
+Paired on report.py's 2M pool (n = 1000, `aggregate_results.PAIRED` `v4_ppo_*`),
+PPO minus population, m/s:
+
+| cell | Delta mean [95% CI] | Delta p95 | Delta CVaR95 | PPO-win % |
+|---|---|---|---|---|
+| dense scratch s1 (unseeded) | +330.2 [326.2, 334.1] | +435.0 | +451.5 | 0.0 |
+| dense scratch s2 | +73.0 [71.8, 74.2] | +95.0 | +99.7 | 0.0 |
+| dense scratch s3 | +82.5 [80.4, 84.6] | +120.0 | +138.1 | 0.3 |
+| dense warm | -0.2 [-0.4, +0.0] | -0.9 | -0.5 | 54.3 |
+| GRU scratch s1 (unseeded) | +338.2 [333.8, 342.4] | +431.8 | +446.5 | 0.0 |
+| GRU scratch s2 | +292.6 [288.7, 296.4] | +361.8 | +371.3 | 0.0 |
+| GRU scratch s3 | +107.6 [104.6, 110.5] | +174.3 | +225.8 | 0.0 |
+| GRU warm | +0.5 [+0.3, +0.5] | +0.4 | +0.7 | 36.6 |
+
+Confirmatory, 10 x 100k per-scenario (`confirmatory_cells_v4.txt`, 2026-10-05,
+eval commit c3433c52), DV in m/s over captured scenarios:
+
+| cell | capture % | p95 | CVaR95 | CVaR99.9 | heat-load viol % |
+|---|---|---|---|---|---|
+| population dense 515 | 100 | 120.3 | 123.4 | 140.1 | 0.15 |
+| dense scratch s1 (unseeded) | 99.9999 | 555.7 | 573.3 | 621.3 | 26.56 |
+| dense scratch s2 | 99.93 | 217.1 | 225.2 | 261.8 | 0.12 |
+| dense scratch s3 | 99.95 | 239.7 | 266.5 | 446.1 | 0.69 |
+| dense warm | 100 | 120.1 | 123.7 | 149.3 | 0.23 |
+| population GRU 1014 | 100 | 119.8 | 122.8 | 147.8 | 0.02 |
+| GRU scratch s1 (unseeded) | 100 | 549.7 | 566.0 | 610.8 | 0.0 |
+| GRU scratch s2 | 99.995 | 477.9 | 488.2 | 517.2 | 0.0 |
+| GRU scratch s3 | 99.995 | 294.7 | 350.7 | 506.4 | 0.0 |
+| GRU warm | 100 | 120.3 | 123.6 | 155.6 | 0.01 |
+
+The re-flown non-captures (no sim timeout) are all physical, crash or pending
+crash, no timeouts; dense s2's 659 are classified on the first 500 re-flown.
+
+Reading: every PPO-scratch run loses to its population cell on essentially every
+scenario, by 73 to 338 m/s mean depending on the seed; the seed spread (dense
+186-444, GRU 221-451 m/s mean at n = 1000) is wider than any architecture effect,
+so the scratch row is quoted as the three-seed spread, not one run. The
+warm-started cells deploy a checkpoint tied with the population cell at CVaR95
+(dense CI straddles zero, GRU +0.5) but 8-9 m/s worse at CVaR99.9; their policy
+gradient then walks off it, as in arxiv-v3.

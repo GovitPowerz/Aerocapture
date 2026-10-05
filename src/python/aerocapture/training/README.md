@@ -795,7 +795,7 @@ validation_n_sims` sims each).
   unless `--force`; every save merges the cells the file holds by then, so invocations sharing
   one `--out` may run concurrently; gate `tests/test_confirmatory_persistence.py`). `collect_runs._run_dirs` (the `ou_marginal/` walk skips `OU_MARGINAL_SKIP`, the #192 ceiling legs)
   / `OFF_CAMPAIGN` and `aggregate_results.PAIRED` / `PER_DRAW_PREFIXES` decide what the bundle carries and stamp each
-  run's `noise_seeding`; the `v4_*` pairs (#175) read the #173 and #172 cells on the per-scenario 2M pool.
+  run's `noise_seeding`; the `v4_*` pairs (#175) read the #173 and #172 cells and the v4 PPO cells (`v4_ppo_*`, seed repeats included) on the per-scenario 2M pool.
 - `experiments/ou_marginal/` — the frozen-vs-marginal noise quantification
   (`experiments/ou_marginal/quote_results.json`, `RESULTS.md`) and the per_draw retrain campaign for the five NN headline
   cells: `retrain_campaign.sh` (resumable: each cell continues from its latest checkpoint toward
