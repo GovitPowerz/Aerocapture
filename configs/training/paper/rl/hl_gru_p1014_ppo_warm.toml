@@ -1,0 +1,10 @@
+# Paper v4 Section 5 RL baseline (issue #175) -- recurrent PPO-BPTT warm-started from the v4 GRU
+# cell it is compared to (training_output/ou_marginal/hl_gru_p1014/best_model.json).
+# Everything but the deploy path inherits from hl_gru_p1014_ppo_scratch.toml.
+#
+#   ./experiments/paper/18_rl_baseline.sh hl
+base = ["hl_gru_p1014_ppo_scratch.toml"]
+
+[data]
+neural_network = "training_output/paper/rl/hl_gru_p1014_ppo_warm/best_model.json"
+results_suffix = ".paper_rl_hl_gru_p1014_ppo_warm"

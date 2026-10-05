@@ -1,0 +1,21 @@
+{
+  "kp": 2.5124129479228605,
+  "kd": 0.0002161641046398095,
+  "nav.density_filter_gain": 0.9335720883089318,
+  "nav.density_gain_max_delta": 0.37960020378955994,
+  "lateral.tau": 2.237065283337029,
+  "lateral.threshold": 0.14579800629046594,
+  "lateral.min_reversal_interval": 27.096529720954905,
+  "lateral.lateral_activation": -0.5008561224474422,
+  "lateral.lateral_inhibition": -8.247076417839942,
+  "lateral.max_reversals": 7.141734542753851,
+  "exit.exit_velocity_threshold": 3930.6207747702565,
+  "exit.exit_pdyn_margin": 0.8414775578332053,
+  "exit.exit_radial_vel_gain": 1.000281514200926,
+  "exit.exit_altitude_threshold": 48.77117375229245,
+  "thermal.heat_flux_activation": 0.6006986135245608,
+  "thermal.heat_load_activation": 0.6002559361280912,
+  "thermal.heat_flux_ramp_exponent": 0.6163441261477347,
+  "thermal.heat_load_ramp_exponent": 0.5261336805918199,
+  "shaping.max_bank_acceleration": 14.423789214836798
+}

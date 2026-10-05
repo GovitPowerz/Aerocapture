@@ -6,11 +6,11 @@ inheritance, then plucks the [rl] subtree.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Literal
 
-from aerocapture.training.toml_utils import load_toml_with_bases
+from aerocapture.training.toml_utils import load_toml_with_bases, reject_unknown_keys
 
 _VALID_ALGOS: tuple[str, ...] = ("ppo", "sac")
 
@@ -83,6 +83,9 @@ class RLConfig:
     total_env_steps: int = 5_000_000
     n_envs: int = 64
     seed_base: int = 3_000_000
+    # Seeds torch (policy/critic init, exploration noise). Separate from seed_base, which also
+    # defines the reserved training pool: a seed repeat varies this and keeps the pool.
+    torch_seed: int = 0
     validation_n_sims: int = 1000
     validation_interval_updates: int = 20
     checkpoint_interval_updates: int = 50
@@ -100,6 +103,8 @@ class RLConfig:
     ) -> RLConfig:
         resolved = load_toml_with_bases(path)
         rl = resolved.get("rl", {})
+        # The scalars below are read with .get() defaults: a typo must fail here, not train at the default.
+        reject_unknown_keys("rl", rl, (f.name for f in fields(cls) if f.name != "raw_toml"))
         if overrides:
             rl = {**rl, **overrides}
         algo = rl.get("algorithm", "ppo")
@@ -122,6 +127,7 @@ class RLConfig:
             total_env_steps=rl.get("total_env_steps", 5_000_000),
             n_envs=rl.get("n_envs", 64),
             seed_base=rl.get("seed_base", 3_000_000),
+            torch_seed=rl.get("torch_seed", 0),
             validation_n_sims=rl.get("validation_n_sims", 1000),
             validation_interval_updates=rl.get("validation_interval_updates", 20),
             checkpoint_interval_updates=rl.get("checkpoint_interval_updates", 50),

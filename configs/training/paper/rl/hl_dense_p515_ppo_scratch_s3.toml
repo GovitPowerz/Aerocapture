@@ -1,0 +1,14 @@
+# Paper v4 Section 5 RL baseline (issue #175) -- seed repeat 3 of hl_dense_p515_ppo_scratch.toml:
+# identical protocol (architecture, scaffolding, regime, 3M training pool via seed_base), only
+# [rl] torch_seed (policy/critic init + exploration noise) and the deploy path differ. The s1
+# cell ran before torch was seeded (2026-10-02), so it is an unseeded draw of the same run.
+#
+#   ./experiments/paper/18_rl_baseline.sh hl_repeats
+base = ["hl_dense_p515_ppo_scratch.toml"]
+
+[rl]
+torch_seed = 3
+
+[data]
+neural_network = "training_output/paper/rl/hl_dense_p515_ppo_scratch_s3/best_model.json"
+results_suffix = ".paper_rl_hl_dense_p515_ppo_scratch_s3"

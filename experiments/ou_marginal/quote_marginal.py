@@ -62,12 +62,16 @@ SEED_POOL = {"rng": "numpy.random.default_rng", "seed": SEED_POOL_RNG_SEED, "ran
 
 def discover_ou_cells() -> list[tuple[str, str, str | None]]:
     """Every deployed run under training_output/ou_marginal/ (scratch s1, ft_*,
-    *_s2/_s3 repeats), plus the original pilot. Labels = 'ou_' + dir name; the
-    scoring TOML is the family config (its [data] path is irrelevant here --
-    the model is pinned via override)."""
+    *_s2/_s3 repeats, the hl_* headline-allocation cells of #173), plus the
+    original pilot. Labels = 'ou_' + dir name; the scoring TOML is the family
+    config (its [data] path is irrelevant here -- the model is pinned via
+    override). The hs_* ceiling legs of #192 are not campaign cells:
+    heat_load_slope.py flies them on this pool against their own ceilings."""
     rows: list[tuple[str, str, str | None]] = []
     for d in sorted((REPO / "training_output/ou_marginal").glob("*/best_model.json")):
         name = d.parent.name
+        if name.startswith("hs_"):
+            continue
         cell = name.removeprefix("ft_")
         for suf in ("_s2", "_s3"):
             cell = cell.removesuffix(suf)

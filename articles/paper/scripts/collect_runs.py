@@ -44,13 +44,17 @@ LEGACY = (
     "neural_network_delta_pso_pruned_dv3",
 )
 
-# Per-scenario (per_draw, ADR-0006) population champions the Section 5 RL baseline is
-# protocol-matched to (issue #101; PPO cells train under experiments/paper/18_rl_baseline.sh
-# into training_output/paper/rl/ and are bundled as rl/<cell> by the paper/ walk above).
-# Their 2M-pool per_draw parquet comes from report.py on the ou_marginal dir. Run logs are
-# deliberately NOT bundled: the Release run-log asset is frozen, and a log present locally
-# but absent in CI would make results.json differ (actual_sims travels with the log).
-OU_MARGINAL = ("ft_dense_p515", "ft_gru_p1014")
+# Per-scenario (per_draw, ADR-0006) cells under training_output/ou_marginal/: every run dir
+# holding a final_eval.parquet (report.py on the 2M pool) is bundled as ou_marginal/<path>: the
+# #173 headline-allocation cells (hl_*, the dense fine-tune seeds), the fine-tuned champions the
+# Section 5 RL baseline is protocol-matched to (issue #101; PPO cells train under
+# experiments/paper/18_rl_baseline.sh into training_output/paper/rl/ and are bundled as
+# rl/<cell> by the paper/ walk above), the classical retunes (#172, classical/<cell> and the
+# #188 classical_ungated/<cell>). The 60 x 10 scratch repeats have no parquet and stay out;
+# the #192 ceiling legs (hs_*) are a sensitivity study, quoted by heat_load_slope.py. Run logs
+# are deliberately NOT bundled for this tree: the Release run-log asset is frozen, and a log
+# present locally but absent in CI would make results.json differ (actual_sims travels with it).
+OU_MARGINAL_SKIP = ("hs_",)
 # Off-campaign studies under training_output/paper/ (scripts 13-16) whose cells were never
 # bundled: their quoted numbers live in the FROZEN data files (sigma_extras.json, ...), not in
 # results.json. Walking them into runs/ made every local collect diverge from the committed
@@ -95,21 +99,25 @@ def _run_dirs() -> list[tuple[Path, Path]]:
         src = TRAINING / name
         if (src / "final_eval.parquet").exists():
             pairs.append((src, OUT / "legacy" / name))
-    for name in OU_MARGINAL:
-        src = TRAINING / "ou_marginal" / name
-        if (src / "final_eval.parquet").exists():
-            pairs.append((src, OUT / "ou_marginal" / name))
+    ou_marginal = TRAINING / "ou_marginal"
+    if ou_marginal.is_dir():
+        for parquet in sorted(ou_marginal.rglob("final_eval.parquet")):
+            src = parquet.parent
+            if src.relative_to(ou_marginal).parts[0].startswith(OU_MARGINAL_SKIP):
+                continue
+            pairs.append((src, OUT / "ou_marginal" / src.relative_to(ou_marginal)))
     return pairs
 
 
 def _check_stale_parquet(src: Path) -> str | None:
-    """A best_model.json newer than final_eval.parquet means the dir was
-    re-selected (e.g. retro final_select) without re-running report.py -- the
-    parquet quotes the PREVIOUS winner. Bundling it would commit inconsistent
-    paper numbers."""
-    model, parquet = src / "best_model.json", src / "final_eval.parquet"
-    if model.exists() and model.stat().st_mtime > parquet.stat().st_mtime + 1:
-        return f"STALE: best_model.json newer than final_eval.parquet in {src} -- re-run report.py on this dir before collecting"
+    """A best_model.json (a classical cell's optimized_<scheme>.toml) newer than
+    final_eval.parquet means the dir was re-selected (e.g. retro final_select)
+    without re-running report.py -- the parquet quotes the PREVIOUS winner.
+    Bundling it would commit inconsistent paper numbers."""
+    parquet = src / "final_eval.parquet"
+    for model in (src / "best_model.json", *src.glob("optimized_*.toml")):
+        if model.exists() and model.stat().st_mtime > parquet.stat().st_mtime + 1:
+            return f"STALE: {model.name} newer than final_eval.parquet in {src} -- re-run report.py on this dir before collecting"
     return None
 
 
@@ -157,10 +165,11 @@ def main(argv: list[str] | None = None) -> None:
             # fig_pareto reads final_eval.parquet (+ the manifest param counts), NOT
             # convergence curves -- only the headline cells need their logs (the plateau
             # figure). This keeps the 24-cell sweep at ~16 MB instead of ~420 MB.
-            # ou_marginal / rl: see OU_MARGINAL (frozen Release asset); the RL cells' logs are
+            # ou_marginal / rl: see OU_MARGINAL_SKIP (frozen Release asset); the RL cells' logs are
             # also the trainer's flat `rl_training_*.jsonl`, which aggregate_results.actual_sims
             # and _best_val_rms cannot read (they expect the population `validation` records).
-            if dst.parent.name not in ("architecture_sweep", "ou_marginal", "rl") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
+            # The rule reads the bundle's top-level dir, so ou_marginal/classical/<cell> is covered.
+            if dst.relative_to(OUT).parts[0] not in ("architecture_sweep", "ou_marginal", "rl") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
                 copied.append("run.jsonl.gz")
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")

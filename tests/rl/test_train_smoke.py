@@ -125,3 +125,66 @@ def test_linear_anneal_final_update_overshoot() -> None:
 
     assert _linear_anneal(0.01, 1.022, 1.0) == 0.01  # default entropy config, final update
     assert _linear_anneal(3e-4, 1.2, 0.5) == pytest.approx(0.0)  # active anneal floors at 0
+
+
+@pytest.mark.parametrize("interrupt", [True, False])
+def test_interrupted_run_writes_no_final_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupt: bool) -> None:
+    """A Ctrl+C'd run must not reach the report: its final_eval.parquet is 18_rl_baseline.sh's
+    done marker, so an interrupted cell would be skipped on rerun instead of resumed."""
+    import aerocapture.training.rl.report_rl as report_rl
+    import aerocapture.training.rl.train as train_mod
+
+    calls: list[str] = []
+
+    def fake_run_ppo(cfg, toml_path, output_dir, logger, display, interrupted, *_args) -> None:  # type: ignore[no-untyped-def]
+        (output_dir / "best_model.json").write_text("{}")
+        interrupted["v"] = interrupt
+
+    monkeypatch.setattr(train_mod, "_run_ppo", fake_run_ppo)
+    monkeypatch.setattr(train_mod, "_run_final_eval", lambda *_a: calls.append("final_eval"))
+    monkeypatch.setattr(report_rl, "generate_report", lambda *_a: calls.append("report"))
+    toml = "configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml"
+    monkeypatch.setattr(sys, "argv", ["train.py", toml, "--no-tui", "--output-dir", str(tmp_path)])
+    train_mod.main()
+
+    assert calls == ([] if interrupt else ["final_eval", "report"])
+
+
+def _tiny_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, torch_seed: int, total_steps: int = 256, from_scratch: bool = True
+) -> tuple[list[dict], bytes]:
+    from aerocapture.training.rl.train import main
+
+    toml = tmp_path / f"{name}.toml"
+    out = tmp_path / name
+    # The deploy path is the run's own output dir, as in every campaign config: a plain resume has no
+    # data.neural_network override, so the env loads the model from here (CI has no training_output/).
+    base = Path("configs/training/msr_aller_nn_atan2_ppo_train.toml").resolve()
+    toml.write_text(f'base = ["{base}"]\n\n[rl]\ntorch_seed = {torch_seed}\n\n[data]\nneural_network = "{out / "best_model.json"}"\n')
+    argv = ["train.py", str(toml), "--no-tui", "--skip-report", "--output-dir", str(out), "--total-steps", str(total_steps)]
+    argv += ["--n-envs", "2", "--rollout-steps", "64", "--validation-n-sims", "2", "--validation-interval-updates", "1"]
+    argv += ["--from-scratch"] if from_scratch else []
+    monkeypatch.setattr(sys, "argv", argv)
+    main()
+    volatile = ("timestamp", "wallclock_seconds", "config_hash")
+    records = [{k: v for k, v in json.loads(line).items() if k not in volatile} for f in sorted(out.glob("rl_training_*.jsonl")) for line in f.open()]
+    return records, (out / "best_model.json").read_bytes()
+
+
+def test_torch_seed_makes_a_run_reproducible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """[rl] torch_seed seeds the policy init and exploration noise: the same seed replays the run
+    exactly, another seed does not (until 2026-10-02 torch was never seeded, so two PPO-scratch
+    runs of one config ended at 180 and 444 m/s mean)."""
+    a = _tiny_run(tmp_path, monkeypatch, "a", 0)
+    assert a[0], "no training records"
+    assert _tiny_run(tmp_path, monkeypatch, "b", 0) == a
+    assert _tiny_run(tmp_path, monkeypatch, "c", 1)[1] != a[1]
+
+
+def test_plain_rerun_resumes_the_checkpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """18_rl_baseline.sh's resume branch: a plain invocation on a dir holding checkpoint.pt continues
+    it (update index and env steps carry on), through the weights_only load of the saved torch RNG state."""
+    first, _ = _tiny_run(tmp_path, monkeypatch, "r", 0, total_steps=128)
+    assert [(r["update_idx"], r["env_steps"]) for r in first] == [(1, 128)]
+    both, _ = _tiny_run(tmp_path, monkeypatch, "r", 0, total_steps=256, from_scratch=False)
+    assert [(r["update_idx"], r["env_steps"]) for r in both] == [(1, 128), (2, 256)]

@@ -17,12 +17,24 @@ REPO = Path(__file__).resolve().parents[1]
 RL_CONFIGS = REPO / "configs/training/paper/rl"
 BUNDLE = REPO / "articles/paper/data/runs"
 
-# (RL config stem, champion bundle cell)
+# (RL config stem, champion bundle cell): the arxiv-v3 cells, matched to the fine-tunes.
 CELLS = [
     ("dense_p515_ppo_scratch", "ou_marginal/ft_dense_p515"),
     ("dense_p515_ppo_warm", "ou_marginal/ft_dense_p515"),
     ("gru_p1014_ppo_scratch", "ou_marginal/ft_gru_p1014"),
     ("gru_p1014_ppo_warm", "ou_marginal/ft_gru_p1014"),
+]
+# The v4 cells (issue #175), matched to the #173 scratch cells at the headline allocation.
+V4_CELLS = [
+    ("hl_dense_p515_ppo_scratch", "ou_marginal/hl_dense_p515"),
+    ("hl_dense_p515_ppo_warm", "ou_marginal/hl_dense_p515"),
+    ("hl_gru_p1014_ppo_scratch", "ou_marginal/hl_gru_p1014"),
+    ("hl_gru_p1014_ppo_warm", "ou_marginal/hl_gru_p1014"),
+    # PPO-scratch seed repeats ([rl] torch_seed 2 / 3); the s1 cells ran before torch was seeded.
+    ("hl_dense_p515_ppo_scratch_s2", "ou_marginal/hl_dense_p515"),
+    ("hl_dense_p515_ppo_scratch_s3", "ou_marginal/hl_dense_p515"),
+    ("hl_gru_p1014_ppo_scratch_s2", "ou_marginal/hl_gru_p1014"),
+    ("hl_gru_p1014_ppo_scratch_s3", "ou_marginal/hl_gru_p1014"),
 ]
 SPEC_KEYS = ("type", "input_size", "output_size", "hidden_size", "activation")
 
@@ -31,7 +43,7 @@ def _spec(layers: list[dict]) -> list[dict]:
     return [{k: layer[k] for k in SPEC_KEYS if k in layer} for layer in layers]
 
 
-@pytest.mark.parametrize(("stem", "champion"), CELLS)
+@pytest.mark.parametrize(("stem", "champion"), CELLS + V4_CELLS)
 def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     cfg = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
     model = json.loads((BUNDLE / champion / "best_model.json").read_text())
@@ -54,10 +66,27 @@ def test_rl_config_matches_champion(stem: str, champion: str) -> None:
     assert cfg["data"]["neural_network"] == f"training_output/paper/rl/{stem}/best_model.json"  # = the trainer's output dir
 
 
-@pytest.mark.parametrize(("stem", "champion"), CELLS)
+@pytest.mark.parametrize(("stem", "champion"), CELLS + V4_CELLS)
 def test_bundled_rl_cell_matches_its_config(stem: str, champion: str) -> None:
     """The bundled PPO artifact was trained under the config that claims it."""
     cfg = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
     model = json.loads((BUNDLE / "rl" / stem / "best_model.json").read_text())
     assert _spec(model["architecture"]) == _spec(cfg["network"]["architecture"])
     assert model["input_mask"] == cfg["network"]["input_mask"]
+
+
+@pytest.mark.parametrize("stem", [s for s, _ in V4_CELLS if s.endswith(("_s2", "_s3"))])
+def test_seed_repeat_differs_from_its_s1_only_in_torch_seed_and_deploy_path(stem: str) -> None:
+    """A seed repeat is the s1 protocol with another [rl] torch_seed: same seed_base (the 3M
+    training pool), scaffolding, architecture and trainer knobs."""
+    repeat = load_toml_with_bases(RL_CONFIGS / f"{stem}.toml")
+    s1 = load_toml_with_bases(RL_CONFIGS / f"{stem[:-3]}.toml")
+    assert repeat["rl"].pop("torch_seed") == int(stem[-1])
+    assert "torch_seed" not in s1["rl"]
+    assert repeat["data"].pop("neural_network") == f"training_output/paper/rl/{stem}/best_model.json"
+    assert repeat["data"].pop("results_suffix") == f".paper_rl_{stem}"
+    s1["data"].pop("neural_network")
+    s1["data"].pop("results_suffix")
+    repeat.pop("base", None)
+    s1.pop("base", None)
+    assert repeat == s1

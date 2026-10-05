@@ -502,3 +502,115 @@ carries its training ceiling inside it, and the "25.0 (v4)" rows measure that
 mismatch, not a pure constraint trade. A single seed per leg; the source
 seeds' spread (5.7 and 3.9 m/s CVaR95) bounds what one run can resolve, and
 these are n = 1000 numbers, not the 10^6 pool.
+
+## v4 per-scenario quotes: the paired pool and the 2M pool (#175)
+
+The paired tables (Section 7, the Section 6.4 conditioning table, the Section 5
+RL sentence) read n = 1000 paired pools. `quote_marginal.py` discovers the
+eleven #173 cells (`hl_*`, `ft_dense_p515_s2` / `_s3`; the `hs_*` ceiling legs
+of #192 are skipped: `heat_load_slope.py` quotes them) and scored them under
+both regimes on the paired pool (2026-10-02, from main at dc040085). The five
+shared-path champions and the shared-path-tuned classicals were already in
+`quote_results.json` (the Dense 515 row re-flown from the repaired model under
+#170, the classical retunes under #172 / #188).
+
+Shared-path (frozen) / per-scenario (marginal) regime, both on the same 1000 seeds:
+
+### Conditioning table data: the five shared-path champions, both regimes
+
+| cell | capture % shared / per-scenario | p50 | CVaR95 | heat-load viol % |
+|---|---|---|---|---|
+| Mamba 962 (`mamba_p962_long`) | 100.0 / 98.0 | 109.7 / 128.8 | 115.9 / 194.4 | 0.0 / 1.2 |
+| LSTM 1082 | 100.0 / 100.0 | 108.1 / 112.4 | 116.3 / 170.4 | 14.6 / 17.0 |
+| GRU 1014 | 100.0 / 98.0 | 111.2 / 128.9 | 119.3 / 198.1 | 0.0 / 1.5 |
+| dense 972 | 100.0 / 99.3 | 111.9 / 128.2 | 121.3 / 194.9 | 0.0 / 0.5 |
+| dense 515 (repaired, #170) | 100.0 / 100.0 | 109.5 / 115.5 | 117.4 / 201.8 | 0.0 / 0.3 |
+
+### Headline-allocation cells (#173) on the paired pool
+
+| cell | capture % shared / per-scenario | p50 | CVaR95 | heat-load viol % |
+|---|---|---|---|---|
+| `ou_hl_mamba_p962`: Mamba 962 s1 (deployed) | 100.0 / 100.0 | 110.7 / 110.2 | 118.5 / 119.6 | 0.0 / 0.1 |
+| `ou_hl_mamba_p962_s2`: Mamba 962 s2 | 100.0 / 100.0 | 115.8 / 115.8 | 127.2 / 130.8 | 0.0 / 0.0 |
+| `ou_hl_mamba_p962_s3`: Mamba 962 s3 | 100.0 / 100.0 | 113.3 / 112.3 | 121.9 / 123.0 | 0.0 / 0.0 |
+| `ou_hl_dense_p515`: dense 515 s1 (deployed) | 100.0 / 100.0 | 113.8 / 112.8 | 124.0 / 122.3 | 0.0 / 0.0 |
+| `ou_hl_dense_p515_s2`: dense 515 s2 | 100.0 / 100.0 | 113.1 / 112.3 | 124.0 / 127.1 | 0.0 / 0.1 |
+| `ou_hl_dense_p515_s3`: dense 515 s3 | 100.0 / 100.0 | 114.5 / 113.9 | 128.4 / 130.0 | 0.0 / 0.2 |
+| `ou_hl_lstm_p1082`: LSTM 1082 | 100.0 / 100.0 | 114.4 / 113.7 | 129.7 / 130.4 | 0.0 / 0.0 |
+| `ou_hl_gru_p1014`: GRU 1014 | 100.0 / 100.0 | 112.6 / 112.3 | 121.6 / 123.0 | 0.0 / 0.0 |
+| `ou_hl_dense_p972`: dense 972 | 100.0 / 100.0 | 112.6 / 112.3 | 124.3 / 125.3 | 0.0 / 0.0 |
+| `ou_ft_dense_p515_s2`: ft dense 515 s2 | 100.0 / 100.0 | 112.3 / 111.5 | 124.4 / 128.2 | 0.0 / 0.0 |
+| `ou_ft_dense_p515_s3`: ft dense 515 s3 | 100.0 / 100.0 | 112.0 / 112.3 | 132.8 / 136.3 | 0.0 / 0.0 |
+
+Per-scenario CVaR95 across the three seeds: Mamba 962 119.6 / 130.8 / 123.0
+(124.5 +- 5.7), dense 515 122.3 / 127.1 / 130.0 (126.5 +- 3.9). The three Mamba
+numbers are the `heat_load_slope.json` source rows, bit-identical (same pool,
+same code path). Every cell trained under per-scenario noise scores the two
+regimes within a few m/s of each other; the shared-path champions lose
+54-84 m/s of CVaR95 when the noise path varies (LSTM 54, the others 74-84), the conditioning finding of
+Section 6.4 restated on the repaired Dense 515.
+
+Bundle: `collect_runs.py` walks every `training_output/ou_marginal/**/final_eval.parquet`
+except the `hs_*` legs (24 cells: the eleven #173 cells, the two arxiv-v3
+fine-tunes, the nine #172 retunes and the two #188 ungated reruns) into
+`articles/paper/data/runs/ou_marginal/<path>/`, no run logs (the Release asset
+is frozen). `aggregate_results.PAIRED` gains the `v4_*` rows: Mamba 962 (seed 1)
+against joint-FTC (retuned), FNPAG (retuned), dense 515, LSTM 1082, GRU 1014,
+dense 972 and fixed-reference FTC (retuned); joint-FTC against fixed-reference FTC
+(both retuned) and against FNPAG; the PPO pairs follow the `18_rl_baseline.sh hl`
+retrain. All nine v4 pairs share the dispersion fingerprint (the same 1000
+scenarios of report.py's 2M pool, NOT the paired pool of the two tables above:
+hl_mamba_p962_s2 scores per-scenario CVaR95 130.8 there and 132.0 in its bundle
+parquet).
+
+## v4 Section 5 RL baseline: PPO against the #173 cells, with seed repeats (#175)
+
+The four PPO cells retrained against the #173 scratch cells (`18_rl_baseline.sh
+hl`, 2026-10-02) and the PPO-scratch seed repeats (`18_rl_baseline.sh
+hl_repeats`, `[rl] torch_seed` 2 / 3). The s1 cells ran before torch was seeded:
+policy init and exploration noise were unseeded draws, and the first dense
+scratch run ended at 444 m/s mean against 180 for the arxiv-v3 run of the same
+code. Every policy flies within 1 m/s mean under either scaffolding, so the gap
+is run-to-run spread, not the protocol. Population references: `hl_dense_p515` /
+`hl_gru_p1014`.
+
+Paired on report.py's 2M pool (n = 1000, `aggregate_results.PAIRED` `v4_ppo_*`),
+PPO minus population, m/s:
+
+| cell | Delta mean [95% CI] | Delta p95 | Delta CVaR95 | PPO-win % |
+|---|---|---|---|---|
+| dense scratch s1 (unseeded) | +330.2 [326.2, 334.1] | +435.0 | +451.5 | 0.0 |
+| dense scratch s2 | +73.0 [71.8, 74.2] | +95.0 | +99.7 | 0.0 |
+| dense scratch s3 | +82.5 [80.4, 84.6] | +120.0 | +138.1 | 0.3 |
+| dense warm | -0.2 [-0.4, +0.0] | -0.9 | -0.5 | 54.3 |
+| GRU scratch s1 (unseeded) | +338.2 [333.8, 342.4] | +431.8 | +446.5 | 0.0 |
+| GRU scratch s2 | +292.6 [288.7, 296.4] | +361.8 | +371.3 | 0.0 |
+| GRU scratch s3 | +107.5 [104.6, 110.5] | +174.3 | +225.8 | 0.0 |
+| GRU warm | +0.4 [+0.3, +0.5] | +0.4 | +0.7 | 36.6 |
+
+Confirmatory, 10 x 100k per-scenario (`confirmatory_cells_v4.txt`, 2026-10-05,
+eval commit c3433c52), DV in m/s over captured scenarios:
+
+| cell | capture % | p95 | CVaR95 | CVaR99.9 | heat-load viol % |
+|---|---|---|---|---|---|
+| population dense 515 | 100 | 120.3 | 123.4 | 140.1 | 0.15 |
+| dense scratch s1 (unseeded) | 99.9999 | 555.7 | 573.3 | 621.3 | 26.56 |
+| dense scratch s2 | 99.93 | 217.1 | 225.2 | 261.8 | 0.12 |
+| dense scratch s3 | 99.95 | 239.7 | 266.5 | 446.1 | 0.69 |
+| dense warm | 100 | 120.1 | 123.7 | 149.3 | 0.23 |
+| population GRU 1014 | 100 | 119.8 | 122.8 | 147.8 | 0.02 |
+| GRU scratch s1 (unseeded) | 100 | 549.7 | 566.0 | 610.8 | 0.0 |
+| GRU scratch s2 | 99.995 | 477.9 | 488.2 | 517.2 | 0.0 |
+| GRU scratch s3 | 99.995 | 294.7 | 350.7 | 506.4 | 0.0 |
+| GRU warm | 100 | 120.3 | 123.6 | 155.6 | 0.01 |
+
+The re-flown non-captures (no sim timeout) are all physical, crash or pending
+crash, no timeouts; dense s2's 659 are classified on the first 500 re-flown.
+
+Reading: every PPO-scratch run loses to its population cell on essentially every
+scenario, by 73 to 338 m/s mean depending on the seed; the seed spread (dense
+186-444, GRU 221-451 m/s mean at n = 1000) is wider than any architecture effect,
+so the scratch row is quoted as the three-seed spread, not one run. The
+warm-started cells deploy a checkpoint tied with the population cell at CVaR95
+(dense CI straddles zero, GRU +0.5) but 8-9 m/s worse at CVaR99.9; their policy
+gradient then walks off it, as in arxiv-v3.

@@ -379,6 +379,9 @@ def main() -> None:
         ppo_overrides["target_kl"] = args.target_kl
 
     cfg = RLConfig.from_toml(Path(args.toml_path), overrides=overrides or None, ppo_overrides=ppo_overrides or None)
+    # Before the seed model and the policy/critic are built: init and exploration noise are
+    # torch draws, so an unseeded run is not reproducible. A resume restores the saved state.
+    torch.manual_seed(cfg.torch_seed)
 
     if args.from_scratch and args.data_neural_network is not None:
         ap.error("--from-scratch and --data-neural-network are mutually exclusive")
@@ -440,6 +443,13 @@ def main() -> None:
         display.close()
         logger.close()
 
+    # NEVER on an interrupted run, as in the population trainer: the report writes
+    # final_eval.parquet, the campaign runners' skip-if-done marker (18_rl_baseline.sh), so a
+    # Ctrl+C'd run would self-certify as a completed cell. Resume to completion first.
+    if interrupted["v"]:
+        print("Run interrupted -- skipping final evaluation/report/final_eval.parquet (resume to completion to produce them)", file=sys.stderr)
+        return
+
     best_model = args.output_dir / "best_model.json"
     if best_model.exists():
         _run_final_eval(Path(args.toml_path), best_model, cfg)
@@ -478,6 +488,7 @@ def _save_ppo_checkpoint(
             "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
             "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
             "rl_rng_state": rl_rng.bit_generator.state,
+            "torch_rng_state": torch.get_rng_state(),
         },
         output_dir / "checkpoint.pt",
     )
@@ -698,6 +709,8 @@ def _run_ppo(
             obs_norm.load_state_dict(ckpt["obs_norm"])
         if ckpt.get("rl_rng_state") is not None:  # back-compat: old checkpoints lack this key
             rl_rng.bit_generator.state = ckpt["rl_rng_state"]
+        if ckpt.get("torch_rng_state") is not None:  # back-compat, as above
+            torch.set_rng_state(ckpt["torch_rng_state"])
         print(f"Resumed from checkpoint: update {update_idx}, {env_steps} env steps", file=sys.stderr)
 
     # Derive per-layer hidden shapes from the architecture.
@@ -899,6 +912,7 @@ def _save_sac_checkpoint(
             "best_val_cost": best_val_cost,
             "ret_norm": ret_norm.state_dict() if ret_norm is not None else None,
             "obs_norm": obs_norm.state_dict() if obs_norm is not None else None,
+            "torch_rng_state": torch.get_rng_state(),
         },
         output_dir / "checkpoint.pt",
     )
@@ -960,6 +974,8 @@ def _run_sac(
             ret_norm.load_state_dict(ckpt["ret_norm"])
         if obs_norm is not None and ckpt.get("obs_norm") is not None:
             obs_norm.load_state_dict(ckpt["obs_norm"])
+        if ckpt.get("torch_rng_state") is not None:
+            torch.set_rng_state(ckpt["torch_rng_state"])
         print(f"SAC resumed: update {update_idx}, {env_steps} env steps, buffer={len(agent.replay_buffer)}", file=sys.stderr)
 
     obs, aux_cur = env.reset()

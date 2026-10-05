@@ -79,7 +79,8 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
 
 ## Modules
 
-- `config.py` — `RLConfig.from_toml` (`[rl]` / `[rl.reward]` / `[rl.ppo]` / `[rl.sac]`;
+- `config.py` — `RLConfig.from_toml` (`[rl]` / `[rl.reward]` / `[rl.ppo]` / `[rl.sac]`; an unknown `[rl]` key is a
+  `ValueError` through `toml_utils.reject_unknown_keys`, the nested tables raise through their dataclass kwargs;
   `_parse_network_config` accepts both v1 `layer_sizes + activations` and v2
   `[[network.architecture]]`; raises at parse time when `rollout_steps % bptt_length != 0`).
 - `policy.py` — the v1 `GaussianPolicy` (a PyTorch MLP mirroring the v1 `NeuralNetModel` JSON,
@@ -117,7 +118,8 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
   `_np_state_to_torch` / `_torch_state_to_np` pack multi-tensor states as stacked arrays, LSTM
   `(2, H)`), the reserved-seed validation gate (promotion on `val_rms_cost` alone: there is NO
   feasibility gate, no ADR-0005 analogue, so PPO can and does promote constraint-violating
-  policies), checkpoint save/resume (`checkpoint.pt`), graceful Ctrl+C, the final MC evaluation
+  policies), checkpoint save/resume (`checkpoint.pt`), graceful Ctrl+C (an interrupted run skips the final
+  evaluation and the report, so it leaves no `final_eval.parquet` done marker), the final MC evaluation
   summary. Warm-start goes through `load_policy_from_json` + `load_state_dict` with a pre-check
   that raises on layer-count mismatch.
 - `report_rl.py` — the three-part PDF (Part 1 RL convergence panels; Parts 2/3 reused from the
@@ -127,7 +129,14 @@ that env gave +59 m/s mean DV (paired, n = 1000) over deploy (`experiments/obs_l
 Artifacts under `training_output/<scheme>/`: `best_model.json`, `rl_training_*.jsonl`
 (per-update metrics), `config_resolved.toml`, `checkpoint.pt`, `final_eval.parquet`, `report.pdf`.
 Seeds: `RL_TRAINING_SEED_OFFSET = 3_000_000` is the default `seed_base`; the validation pool is
-the shared `VALIDATION_SEED_OFFSET` stream (`training/seeds.py`).
+the shared `VALIDATION_SEED_OFFSET` stream (`training/seeds.py`). `[rl] torch_seed` (default 0)
+seeds torch before the policy and critic are built, so the init and the exploration noise replay
+exactly; `checkpoint.pt` carries the torch RNG state for a resume. A seed repeat varies
+`torch_seed` and keeps `seed_base` (the training pool). Until 2026-10-02 torch was unseeded: the
+two dense PPO-scratch runs of one config (`dense_p515_ppo_scratch`, `hl_dense_p515_ppo_scratch`)
+ended at 180 and 444 m/s mean, a spread no single run measures (each policy flies within 1 m/s
+under either run's scaffolding). Gates: `tests/rl/test_train_smoke.py::test_torch_seed_makes_a_run_reproducible`
+(same seed replays, another seed does not) and `test_plain_rerun_resumes_the_checkpoint` (the resume branch of the runners).
 
 ## Reward structure
 
@@ -192,7 +201,10 @@ they are compared to (`training_output/ou_marginal/ft_dense_p515` = Dense 17->18
 normalization`, `atan2_signed`, the champion's `best_params.json` nav/shaping values written into
 `[navigation]` / `[guidance.command_shaping]`, `noise_seeding = "per_draw"` explicit, `[data]
 neural_network` under `training_output/paper/rl/<cell>/` so the output dir is the bundle key
-`rl/<cell>`). `experiments/paper/18_rl_baseline.sh` runs the two cells of a pair concurrently and
+`rl/<cell>`). The four `hl_*` siblings (issue #175) base these leaves and repoint the scaffolding and the
+deploy path at the #173 scratch cells `ou_marginal/hl_dense_p515` / `hl_gru_p1014` (the v4 rows, once the
+#173 rule retired the fine-tunes); `hl_<cell>_ppo_scratch_s2` / `_s3` are their PPO-scratch seed repeats (`[rl] torch_seed`
+2 / 3, gate `test_seed_repeat_differs_from_its_s1_only_in_torch_seed_and_deploy_path`). `experiments/paper/18_rl_baseline.sh [ft|hl|hl_repeats]` runs the two cells of a pair concurrently and
 is resumable (done = `final_eval.parquet`; `checkpoint.pt` = plain resume; else `--from-scratch`
 / `--data-neural-network <champion best_model.json>`). `tests/test_paper_rl_configs.py` asserts
 each RL config against the bundled champion (architecture, mask, normalization, decoder,

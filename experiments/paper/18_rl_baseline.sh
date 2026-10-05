@@ -10,6 +10,14 @@
 # cores idle between Rayon env bursts); the pairs run one after the other. A failed
 # cell is reported and the script exits non-zero after the other pair has run.
 #
+# Three cell sets, chosen by the first argument:
+#   ft (default)  the arxiv-v3 cells, matched to the fine-tunes ou_marginal/ft_dense_p515 / ft_gru_p1014;
+#   hl            the v4 cells (issue #175), hl_<cell>_ppo_*, matched to the #173 scratch cells
+#                 ou_marginal/hl_dense_p515 / hl_gru_p1014 at the 512 x 2 headline allocation
+#                 (the #173 rule retired the fine-tunes from the main body);
+#   hl_repeats    the PPO-scratch seed repeats of the hl set, hl_<cell>_ppo_scratch_s2 / _s3
+#                 ([rl] torch_seed 2 / 3, same protocol): the s2/s3 of a cell run as one pair.
+#
 # RESUMABLE: a cell with final_eval.parquet is done and skipped; a cell with a
 # checkpoint.pt resumes (plain invocation, no --from-scratch / --data-neural-network,
 # which would wipe the checkpoint); anything else starts fresh. Each cell's
@@ -62,8 +70,18 @@ run_pair() {
   done
 }
 
-run_pair dense_p515_ppo_scratch "" dense_p515_ppo_warm training_output/ou_marginal/ft_dense_p515/best_model.json
-run_pair gru_p1014_ppo_scratch "" gru_p1014_ppo_warm training_output/ou_marginal/ft_gru_p1014/best_model.json
+case "${1:-ft}" in
+  ft)
+    run_pair dense_p515_ppo_scratch "" dense_p515_ppo_warm training_output/ou_marginal/ft_dense_p515/best_model.json
+    run_pair gru_p1014_ppo_scratch "" gru_p1014_ppo_warm training_output/ou_marginal/ft_gru_p1014/best_model.json ;;
+  hl)
+    run_pair hl_dense_p515_ppo_scratch "" hl_dense_p515_ppo_warm training_output/ou_marginal/hl_dense_p515/best_model.json
+    run_pair hl_gru_p1014_ppo_scratch "" hl_gru_p1014_ppo_warm training_output/ou_marginal/hl_gru_p1014/best_model.json ;;
+  hl_repeats)
+    run_pair hl_dense_p515_ppo_scratch_s2 "" hl_dense_p515_ppo_scratch_s3 ""
+    run_pair hl_gru_p1014_ppo_scratch_s2 "" hl_gru_p1014_ppo_scratch_s3 "" ;;
+  *) echo "usage: $0 [ft|hl|hl_repeats]" >&2; exit 2 ;;
+esac
 if [ "$failed" -ne 0 ]; then
   echo "Campaign pass INCOMPLETE: at least one cell failed (rerun to resume it)." >&2
   exit 1
