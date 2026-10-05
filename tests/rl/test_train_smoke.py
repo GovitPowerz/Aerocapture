@@ -156,8 +156,11 @@ def _tiny_run(
     from aerocapture.training.rl.train import main
 
     toml = tmp_path / f"{name}.toml"
-    toml.write_text(f'base = ["{Path("configs/training/msr_aller_nn_atan2_ppo_train.toml").resolve()}"]\n\n[rl]\ntorch_seed = {torch_seed}\n')
     out = tmp_path / name
+    # The deploy path is the run's own output dir, as in every campaign config: a plain resume has no
+    # data.neural_network override, so the env loads the model from here (CI has no training_output/).
+    base = Path("configs/training/msr_aller_nn_atan2_ppo_train.toml").resolve()
+    toml.write_text(f'base = ["{base}"]\n\n[rl]\ntorch_seed = {torch_seed}\n\n[data]\nneural_network = "{out / "best_model.json"}"\n')
     argv = ["train.py", str(toml), "--no-tui", "--skip-report", "--output-dir", str(out), "--total-steps", str(total_steps)]
     argv += ["--n-envs", "2", "--rollout-steps", "64", "--validation-n-sims", "2", "--validation-interval-updates", "1"]
     argv += ["--from-scratch"] if from_scratch else []
