@@ -615,3 +615,106 @@ so the scratch row is quoted as the three-seed spread, not one run. The
 warm-started cells deploy a checkpoint tied with the population cell at CVaR95
 (dense CI straddles zero, GRU +0.5) but 8-9 m/s worse at CVaR99.9; their policy
 gradient then walks off it, as in arxiv-v3.
+
+## v4 champion controls (#176)
+
+`experiments/paper/15_state_controls.sh v4` on the deployed champion
+`ou_marginal/hl_mamba_p962` (seed 1 of #173's rule; `best_model.json` sha256
+`d92c6bbd...bc517d4d`, the model #174 scored), per-scenario noise throughout.
+Started 2026-10-06 from `feature/v4-champion-controls` at f3ee1406 (#202): the
+four quick steps below took about 7 minutes, then the two control retrains
+began. The controls (record 2) and the rustc check (record 6) join this section
+when they finish. Posted on #176.
+
+### Reset state at 10^6
+
+`confirmatory_marginal.py --cells ou_marginal/v4_reset_state:<champion toml>:<champion dir>
+--extra-override guidance.neural_network.reset_state_every_tick=true` (eval
+commit f3ee1406), against the champion's #174 row; the reset state's non-captures
+re-flown without the wall clock. DV in m/s over captured scenarios:
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 | 100.0000% | 0 | 0.1148 (0.0000 / 0.0000 / 0.1148) | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/v4_reset_state | 99.9899% | 101: 99 crash, 2 timeout | 0.0264 (0.0000 / 0.0000 / 0.0264) | 807.7 | 860.3 +- 0.4 | 920 |
+
+Median per replicate 110.2 against 694.6-695.4; p95 116.5 against 789.1.
+
+Reading: capture holds to within 0.01 pts, but the whole distribution moves,
+not only the tail: the median goes from 110 to 695 m/s. The issue expected
+capture parity with a collapsed tail; without its state the policy still
+captures, at six times the median DV, so the state carries the bulk as well as
+the tail.
+
+### Input sensitivity
+
+`python -m aerocapture.training.ablation <champion dir> --toml <champion toml>
+--n-sims 1000 --sim-timeout 5 --cost-transform log`: the config's own Monte
+Carlo, per_draw (stated in `ablation_results.json`), costs in the log transform
+the paper's ablation figure reads (the config trains on cubed). Baseline cost
+4.716; every one of the 17 masked inputs costs something when zeroed:
+
+| rank | input | cost increase | rank | input | cost increase |
+|---|---|---|---|---|---|
+| 1 | orbital_energy | 4.193 | 10 | drag_accel | 0.616 |
+| 2 | predicted_dv1 | 1.799 | 11 | predicted_dv3 | 0.527 |
+| 3 | predicted_dv2 | 1.790 | 12 | lift_accel | 0.509 |
+| 4 | hdot_nominal | 1.368 | 13 | prev_bank_signed_cos | 0.495 |
+| 5 | radial_velocity | 1.289 | 14 | prev_realized_cos | 0.455 |
+| 6 | pdyn_error | 1.227 | 15 | eccentricity_excess | 0.259 |
+| 7 | accel_magnitude | 1.087 | 16 | prev_bank_signed_sin | 0.239 |
+| 8 | heat_flux_fraction | 0.788 | 17 | prev_realized_sin | 0.029 |
+| 9 | heat_load_fraction | 0.662 | | | |
+
+The arxiv-v3 headline (`runs/headline/mamba_p962`, n = 500) ranked
+eccentricity_excess first; the v4 champion ranks it 15th and leans on
+orbital_energy and the first two predicted-DV inputs. Section 8's
+input-sensitivity text changes with it.
+
+### Fresh-pool re-quote
+
+`fresh_pool_requote.py <champion dir> --toml <champion toml> --n-sims 1000
+--noise-seeding per_draw` (`<champion>/fresh_pool_requote.json`), against the
+champion's report.py `final_eval.parquet` on the 2M pool (also per_draw, n = 1000),
+same estimators (CVaR95 = mean of the top 50 captured DVs):
+
+| pool | capture | mean | p50 | p95 | p99 | CVaR95 | max |
+|---|---|---|---|---|---|---|---|
+| 2M (report.py final eval) | 100.0% | 110.65 | 110.19 | 116.36 | 120.75 | 119.65 | 148.3 |
+| 8M (fresh) | 100.0% | 111.03 | 110.47 | 116.88 | 120.63 | 122.75 | 185.2 |
+
+The fresh pool sits 0.4 m/s above on the mean and 3.1 m/s above on CVaR95, an
+average of 50 values at this n; the 10^6 pool's CVaR95 is 120.1.
+
+### Off-nominal stress at depth
+
+`stress_depth_eval.py --n-sims 10000` (`make -C articles/paper mc-stress-depth`,
+`articles/paper/data/stress_depth.json`): the champion and the four #172 retunes
+on the reserved 9M stress pool with atmosphere, density perturbation, navigation
+and nav filter at `high`, per_draw only, 2000 bootstrap resamples. DV in m/s over
+captured scenarios:
+
+| scheme | capture [95% CI] | mean [95% CI] | p95 | CVaR95 [95% CI] |
+|---|---|---|---|---|
+| NN (champion) | 85.29% [84.63, 85.98] | 221.6 [218.6, 224.7] | 445.0 | 658.4 [625.0, 692.1] |
+| joint-FTC | 95.88% [95.50, 96.26] | 183.7 [181.9, 185.7] | 304.8 | 468.4 [442.4, 497.0] |
+| FTC-fixed | 92.42% [91.91, 92.93] | 254.1 [252.0, 256.4] | 409.3 | 569.9 [543.1, 597.5] |
+| PredGuid | 89.30% [88.69, 89.88] | 273.9 [271.7, 276.1] | 418.5 | 572.4 [546.3, 598.7] |
+| FNPAG | 92.85% [92.34, 93.35] | 189.9 [186.7, 193.1] | 317.1 | 716.1 [665.1, 767.7] |
+
+Paired on scenario, NN minus each classical:
+
+| vs | capture pts [CI] | CVaR95 [CI] | both-captured mean [CI] (pairs) | NN win rate |
+|---|---|---|---|---|
+| joint-FTC | -10.59 [-11.23, -9.97] | +190.1 [+158.1, +222.5] | +43.3 [+40.6, +45.8] (8491) | 0.41 |
+| FTC-fixed | -7.13 [-7.83, -6.42] | +88.6 [+62.2, +113.4] | -24.7 [-27.3, -22.0] (8215) | 0.67 |
+| PredGuid | -4.01 [-4.75, -3.26] | +86.1 [+54.8, +117.4] | -46.9 [-49.6, -44.2] (7973) | 0.73 |
+| FNPAG | -7.56 [-8.26, -6.88] | -57.7 [-108.1, -5.0] | +25.7 [+22.3, +29.3] (8238) | 0.38 |
+
+Reading: under the high regime the champion has the lowest capture of the five,
+4 to 11 pts below every classical scheme with every CI clear of zero, and its
+CVaR95 is worse than every classical scheme except FNPAG. For reference only
+(different cells, legacy noise, n = 1000, unpaired across the two files):
+`robustness_stress.json` had the shared-path NN at 90.1% against joint-FTC's
+94.5%. Section 7.2's off-nominal probe reports the deployed NN as the least
+robust of the five on capture.
