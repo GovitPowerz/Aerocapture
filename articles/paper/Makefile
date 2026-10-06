@@ -32,7 +32,7 @@ PDF ?= articles/paper/paper.pdf
         check-provenance check-marginal check-quote check-slope sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
         mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes \
-        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope
+        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope mc-stress-depth
 
 # ---------------------------------------------------------------------------
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
@@ -269,6 +269,11 @@ mc-objective-centering: need-sim
 mc-centered-depth: need-sim
 	$(UVPY) articles/paper/scripts/centered_depth_eval.py --n-sims 10000
 
+# stress_depth.json -- the v4 champion + the four #172 classical retunes at n = 10000 on the 9M stress pool,
+# per-scenario noise only, paired with bootstrap CIs (issue #176; ~30 min, FNPAG-dominated).
+mc-stress-depth: need-sim
+	$(UVPY) articles/paper/scripts/stress_depth_eval.py --n-sims 10000
+
 # compute_benchmark.json -- 200 single-threaded sims per scheme; wall-clock, never diffable.
 mc-compute-benchmark: need-sim
 	$(UVPY) articles/paper/scripts/compute_benchmark.py --n-sims 200
@@ -302,9 +307,10 @@ mc-quote-marginal: need-sim
 mc-heat-load-slope: need-sim
 	$(UVPY) -u experiments/ou_marginal/heat_load_slope.py
 
-# Not yet producers: stress_depth.json and the champion's runs/ou_marginal/hl_mamba_p962/ablation_results.json
-# (#176; collect_runs.py already copies the latter), centered_depth_v4.json (#177) and quant_v4/ (#178,
-# 17_quantization.sh collect) get their mc-* target, accessor and check rule with the issue that writes the file.
+# stress_depth.json (mc-stress-depth above) and the champion's runs/ou_marginal/hl_mamba_p962/
+# {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; their accessors come
+# with #181. Not yet producers: centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect)
+# get their mc-* target, accessor and check rule with the issue that writes the file.
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json

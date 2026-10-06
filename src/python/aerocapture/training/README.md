@@ -505,7 +505,8 @@ use `--sim-timeout` against NaN hangs).
   writes `flip_ablation_results.json`. CLI: `python -m aerocapture.training.ablation
   <training_dir> --toml <config.toml> [--n-sims N] [--flip] [--model PATH]` (defaults the model to
   `<training_dir>/best_model.json` and auto-applies the dir's scaffolding overrides). Outputs JSON
-  + SVG (`charts_ablation.chart_ablation_bar`).
+  + SVG (`charts_ablation.chart_ablation_bar`); the JSON states the density-noise regime it flew
+  (`noise_seeding`: the TOML's `[monte_carlo] noise_seeding`, else ADR-0006's `per_draw`).
 - `nn_input_report.py` — runs the deployed NN over the report pool
   (`NN_INPUT_REPORT_SEED_OFFSET`) via `collect_nn_inputs`, classifies trajectories blue (low
   final DV) / red (high) by `classify_by_dv` (default threshold `cost_function.dv_threshold`,

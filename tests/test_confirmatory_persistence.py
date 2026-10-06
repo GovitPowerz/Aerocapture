@@ -469,3 +469,34 @@ def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: Mod
         qm.main(["--manifest", str(m), "--n-sims", "5"])
     with pytest.raises(SystemExit, match="another n_sims / protocol"):
         qm.main(["--manifest", str(m), "--n-sims", "5", "--only", "A"])
+
+
+def test_extra_override_flies_every_replicate_and_the_reflight(cm: ModuleType, outcomes: tuple[OutcomeSim, list[str]]) -> None:
+    """#176's reset-state cell: the override reaches every replicate, the non-capture re-fly, and the row."""
+    sim, argv = outcomes
+    cm.main([*argv, "--extra-override", "guidance.neural_network.reset_state_every_tick=true"])
+    (rec,) = json.loads(cm.OUT.read_text())["cells"]
+    flown = {"monte_carlo.noise_seeding": "per_draw", "guidance.neural_network.reset_state_every_tick": True}
+    assert [c[2] for c in sim.calls] == [flown, flown, flown]
+    assert rec["extra_overrides"] == {"guidance.neural_network.reset_state_every_tick": True}
+    assert rec["non_captures"]["n_reflown"] == 32
+
+
+def test_controls_rule_reads_the_champion_seed_range(cm: ModuleType) -> None:
+    """#176's pre-registered rule: a control whose CVaR99.9 lands inside the intact champion's three-seed
+    range needs seeds 2 and 3 before the paper reads it; one outside needs no repeats."""
+    champion = [_scored(k, 1_000_000, v) for k, v in zip(cm.RECIPE_S, (173.9, 159.3, 142.3), strict=True)]
+    window, nodv = cm.CONTROLS
+    inside, outside = _scored(window, 1_000_000, 160.0), _scored(nodv, 1_000_000, 190.0)
+    rule = cm.controls_rule({c["label"]: c for c in [*champion, inside, outside]})
+    assert rule == {
+        "champion_range": [142.3, 173.9],
+        "controls": {
+            window: {"cvar999": 160.0, "inside_range": True, "seeds_2_3_required": True},
+            nodv: {"cvar999": 190.0, "inside_range": False, "seeds_2_3_required": False},
+        },
+        "not_scored": [],
+    }
+    rule = cm.controls_rule({c["label"]: c for c in [*champion, outside]})
+    assert rule is not None and rule["not_scored"] == [window] and list(rule["controls"]) == [nodv]
+    assert cm.controls_rule({c["label"]: c for c in champion[1:]}) is None  # a champion seed not scored yet
