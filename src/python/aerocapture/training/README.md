@@ -505,8 +505,9 @@ use `--sim-timeout` against NaN hangs).
   writes `flip_ablation_results.json`. CLI: `python -m aerocapture.training.ablation
   <training_dir> --toml <config.toml> [--n-sims N] [--flip] [--model PATH]` (defaults the model to
   `<training_dir>/best_model.json` and auto-applies the dir's scaffolding overrides). Outputs JSON
-  + SVG (`charts_ablation.chart_ablation_bar`); the JSON states the density-noise regime it flew
-  (`noise_seeding`: the TOML's `[monte_carlo] noise_seeding`, else ADR-0006's `per_draw`).
+  + SVG (`charts_ablation.chart_ablation_bar`); both JSONs state the density-noise regime they flew
+  (`noise_seeding`: an override's, else the TOML's `[monte_carlo] noise_seeding`, else ADR-0006's
+  `per_draw`) and the `cost_transform` the costs are in (the paper's ablation figure reads `log`).
 - `nn_input_report.py` — runs the deployed NN over the report pool
   (`NN_INPUT_REPORT_SEED_OFFSET`) via `collect_nn_inputs`, classifies trajectories blue (low
   final DV) / red (high) by `classify_by_dv` (default threshold `cost_function.dv_threshold`,
@@ -789,9 +790,9 @@ validation_n_sims` sims each).
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets
   re-fly cells (never default, never CI; the v4 scorers are `mc-confirmatory-v4`,
-  `mc-quote-marginal`, `mc-heat-load-slope`, every one per_draw and resumable; `stress_depth.json`
-  (#176), `centered_depth_v4.json` (#177) and `quant_v4/` (#178) get theirs with the issue that
-  writes the file). `check_results_schema.py` also refuses a `rl/` or `ou_marginal/` run flagged
+  `mc-quote-marginal`, `mc-heat-load-slope`, every one per_draw and resumable, and
+  `mc-stress-depth` (#176, per_draw, one ~30 min pass); `centered_depth_v4.json` (#177) and
+  `quant_v4/` (#178) get theirs with the issue that writes the file). `check_results_schema.py` also refuses a `rl/` or `ou_marginal/` run flagged
   legacy (or any other flagged per_draw). Figures are byte-reproducible across macOS and Linux:
   `figlib` forces the Agg backend, sets `text.hinting = "none"`, `save` sets `svg.hashsalt` +
   `metadata={"Date": None}`, and `style()` registers the vendored STIX Two Text

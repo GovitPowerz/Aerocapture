@@ -6,6 +6,7 @@ No simulator: `evaluate_cell` is stubbed with a deterministic toy flight keyed o
 
 import json
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -15,6 +16,7 @@ import numpy as np
 import pytest
 from aerocapture.training import cell_eval
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, CellResult
+from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "articles/paper/scripts"
@@ -32,7 +34,7 @@ class ToySim:
         seed_list = list(seeds) if seeds is not None else list(range(pool[0], pool[0] + pool[1]))  # type: ignore[index]
         rng = np.random.default_rng(seed_list[0] + len(self.calls))
         n = len(seed_list)
-        fr = np.zeros((n, 52))
+        fr = np.zeros((n, FINAL_RECORD_LEN))
         fr[:, FR_IFINAL] = np.where(rng.random(n) < 0.9, 3.0, 1.0)
         fr[:, FR_ECC] = 0.5
         fr[:, FR_DV_TOTAL] = rng.gamma(4.0, 30.0, n)
@@ -82,9 +84,10 @@ def test_stress_depth_pairs_the_champion_with_every_classical_under_per_draw(
     monkeypatch.setattr(sd, "TRAINING", tmp_path)
     monkeypatch.setattr(sd, "OUT", tmp_path / "stress_depth.json")
     monkeypatch.setattr(sd, "N_BOOT", 50)
+    monkeypatch.setattr(sys.modules["centered_depth_eval"], "N_BOOT", 50)  # _paired's
     sd.main(["--n-sims", "40"])
     out = json.loads((tmp_path / "stress_depth.json").read_text())
-    assert out["regime"] == "per_draw" and out["noise_seeding"] == "per_draw" and out["n_sims"] == 40
+    assert out["noise_seeding"] == "per_draw" and out["n_sims"] == 40
     assert [c["label"] for c in out["cells"]] == ["NN", "joint-FTC", "FTC-fixed", "PredGuid", "FNPAG"]
     assert [(p["a"], p["b"]) for p in out["paired"]] == [("NN", b) for b in ("joint-FTC", "FTC-fixed", "PredGuid", "FNPAG")]
     for p in out["paired"]:

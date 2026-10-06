@@ -75,10 +75,13 @@ def _load_cost_kwargs(toml_path: str, cost_transform: str | None = None) -> dict
     return kwargs
 
 
-def _noise_seeding(toml_path: str) -> str:
-    """The density-noise regime the config flies: its `[monte_carlo] noise_seeding`, else ADR-0006's per_draw default."""
+def _noise_seeding(toml_path: str, extra_overrides: dict | None = None) -> str:
+    """The density-noise regime the ablation flies: an override (they win in fly_mc), else the TOML's
+    `[monte_carlo] noise_seeding`, else ADR-0006's per_draw default."""
     from aerocapture.training.toml_utils import load_toml_with_bases
 
+    if extra_overrides and "monte_carlo.noise_seeding" in extra_overrides:
+        return str(extra_overrides["monte_carlo.noise_seeding"])
     return str(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("noise_seeding", "per_draw"))
 
 
@@ -111,7 +114,7 @@ def run_ablation(
     scaffolding from best_params.json) are applied to baseline AND ablated
     runs so the costs match the deployed operating point.
 
-    Returns dict with keys: baseline_cost, n_sims, noise_seeding, results, ranked.
+    Returns dict with keys: baseline_cost, n_sims, noise_seeding, cost_transform, results, ranked.
     """
     from aerocapture.training.cell_eval import fly_mc
 
@@ -173,7 +176,8 @@ def run_ablation(
     return {
         "baseline_cost": baseline_mean,
         "n_sims": n_sims,
-        "noise_seeding": _noise_seeding(toml_path),
+        "noise_seeding": _noise_seeding(toml_path, extra_overrides),
+        "cost_transform": cost_kwargs.get("cost_transform", "linear"),
         "results": results,
         "ranked": ranked,
     }
@@ -231,7 +235,13 @@ def run_flip_ablation(
                         "delta": mean - baseline_mean,
                     }
                 )
-    return {"baseline_cost": baseline_mean, "n_sims": n_sims, "results": results}
+    return {
+        "baseline_cost": baseline_mean,
+        "n_sims": n_sims,
+        "noise_seeding": _noise_seeding(toml_path, extra_overrides),
+        "cost_transform": cost_kwargs.get("cost_transform", "linear"),
+        "results": results,
+    }
 
 
 def main() -> None:
@@ -290,7 +300,7 @@ def main() -> None:
     results = run_ablation(args.toml, args.n_sims, args.sim_timeout, cost_transform=args.cost_transform, model_path=model, extra_overrides=scaffolding)
 
     # Print table
-    print(f"\nNoise regime: {results['noise_seeding']}")
+    print(f"\nNoise regime: {results['noise_seeding']}, cost transform: {results['cost_transform']}")
     print(f"Baseline mean cost: {results['baseline_cost']:.4f}")
     print(f"{'Rank':<6}{'Index':<8}{'Name':<25}{'Delta':>12}{'Ablated Cost':>15}")
     print("-" * 66)

@@ -482,6 +482,21 @@ def test_extra_override_flies_every_replicate_and_the_reflight(cm: ModuleType, o
     assert rec["non_captures"]["n_reflown"] == 32
 
 
+def test_scored_row_under_other_overrides_stops_instead_of_skipping(cm: ModuleType, outcomes: tuple[OutcomeSim, list[str]]) -> None:
+    """A label scored without the reset-state override must not pass as the reset-state cell: the skip
+    compares the row's recorded flight (the regime-only extra_overrides of the oldest rows included)."""
+    sim, argv = outcomes
+    cm.main(argv)
+    n_calls = len(sim.calls)
+    with pytest.raises(SystemExit, match="delete the row to re-score"):
+        cm.main([*argv, "--extra-override", "guidance.neural_network.reset_state_every_tick=true"])
+    data = json.loads(cm.OUT.read_text())
+    data["cells"][0]["extra_overrides"] = {"monte_carlo.noise_seeding": "per_draw"}
+    cm.OUT.write_text(json.dumps(data))
+    cm.main(argv)
+    assert len(sim.calls) == n_calls
+
+
 def test_controls_rule_reads_the_champion_seed_range(cm: ModuleType) -> None:
     """#176's pre-registered rule: a control whose CVaR99.9 lands inside the intact champion's three-seed
     range needs seeds 2 and 3 before the paper reads it; one outside needs no repeats."""

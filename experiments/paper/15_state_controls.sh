@@ -12,11 +12,13 @@ set -euo pipefail
 #
 # ===== v4 (issue #176): mechanism and deployment controls on the v4 champion =====
 # The champion is seed 1 of #173's rule: the scratch cell training_output/ou_marginal/hl_mamba_p962.
-# Every step flies under per-scenario noise (per_draw, ADR-0006) and is skipped once its output exists,
-# so the command resumes after a stop (Ctrl-C, shutdown) at the step it was in:
+# Every step flies under per-scenario noise (per_draw, ADR-0006) and is skipped once its output exists
+# and states that flight (an output stating another regime or transform stops the runner), so the
+# command resumes after a stop (Ctrl-C, shutdown) at the step it was in:
 #   1. reset state   confirmatory_marginal.py on the champion with reset_state_every_tick = true
 #                    (label ou_marginal/v4_reset_state, 10^6 pool; claim: capture parity, collapsed tail).
-#   3. ablation      aerocapture.training.ablation -> <champion>/ablation_results.json (n = 1000).
+#   3. ablation      aerocapture.training.ablation -> <champion>/ablation_results.json (n = 1000,
+#                    cost transform log: the paper's ablation figure is in log-transform units).
 #   5. fresh pool    fresh_pool_requote.py --noise-seeding per_draw -> <champion>/fresh_pool_requote.json
 #                    (8M pool, n = 1000; the selection-optimism check next to the 2M-pool numbers).
 #   4. stress depth  stress_depth_eval.py -> articles/paper/data/stress_depth.json (9M pool, n = 10000,
@@ -68,6 +70,18 @@ cd "$(dirname "$0")/../.."
 MODE="${1:-v4}"
 trap 'echo; echo "Ctrl-C -- stopping (re-run to resume)"; exit 130' INT
 
+# $1 = a step's output, then the '"key": "value"' lines it must hold: false when absent, true (skip)
+# when it states this step's flight, and a stop when it states another (existence proves nothing).
+done_as() {
+  local f="$1" kv
+  shift
+  [ -f "$f" ] || return 1
+  for kv in "$@"; do
+    grep -qF "$kv" "$f" || { echo "$f does not state $kv: move it aside and rerun"; exit 1; }
+  done
+  echo "skip: $f present"
+}
+
 v4() {
   local champ=training_output/ou_marginal/hl_mamba_p962
   local toml=configs/training/ou_marginal/hl_mamba_p962.toml
@@ -79,25 +93,26 @@ v4() {
   echo "=== 1. reset-state eval (10^6 pool, per_draw) ==="
   uv run python -u "$cm" --cells "$reset" --extra-override guidance.neural_network.reset_state_every_tick=true
 
-  echo "=== 3. input ablation (n = 1000, the TOML's regime) ==="
-  if [ -f "$champ/ablation_results.json" ]; then echo "skip: $champ/ablation_results.json present"; else
-    uv run python -u -m aerocapture.training.ablation "$champ" --toml "$toml" --n-sims 1000 --sim-timeout 5
+  echo "=== 3. input ablation (n = 1000, the TOML's regime, log cost transform) ==="
+  if ! done_as "$champ/ablation_results.json" '"noise_seeding": "per_draw"' '"cost_transform": "log"'; then
+    uv run python -u -m aerocapture.training.ablation "$champ" --toml "$toml" --n-sims 1000 --sim-timeout 5 --cost-transform log
   fi
 
   echo "=== 5. fresh-pool re-quote (8M pool, n = 1000, per_draw) ==="
-  if [ -f "$champ/fresh_pool_requote.json" ]; then echo "skip: $champ/fresh_pool_requote.json present"; else
+  if ! done_as "$champ/fresh_pool_requote.json" '"noise_seeding": "per_draw"'; then
     uv run python -u articles/paper/scripts/fresh_pool_requote.py "$champ" --toml "$toml" --n-sims 1000 --noise-seeding per_draw
   fi
 
   echo "=== 4. off-nominal stress at depth (9M pool, n = 10000, per_draw) ==="
-  if [ -f articles/paper/data/stress_depth.json ]; then echo "skip: articles/paper/data/stress_depth.json present"; else
+  if ! done_as articles/paper/data/stress_depth.json '"noise_seeding": "per_draw"'; then
     uv run python -u articles/paper/scripts/stress_depth_eval.py --n-sims 10000
   fi
 
   echo "=== 2. controls: retrain at the champion's allocation, then 10^6 ==="
   experiments/ou_marginal/campaign.sh experiments/ou_marginal/jobs_controls.txt
-  for c in ctrl_window_p970 ctrl_mamba_p962_nodv; do
-    [ -f "training_output/ou_marginal/$c/final_selection.json" ] || { echo "$c not finished; rerun to resume"; exit 0; }
+  # shellcheck disable=SC2086
+  for c in $controls; do
+    [ -f "training_output/${c%%:*}/final_selection.json" ] || { echo "${c%%:*} not finished; rerun to resume"; exit 0; }
   done
   # shellcheck disable=SC2086  # two label:toml specs
   uv run python -u "$cm" --cells $controls

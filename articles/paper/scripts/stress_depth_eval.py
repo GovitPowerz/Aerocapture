@@ -23,11 +23,10 @@ sys.path.insert(0, str(REPO / "src/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from aerocapture.training.paper_stats import _r2, bootstrap_ci, capture_mask, run_stats  # noqa: E402
-from centered_depth_eval import STRESS_OVERRIDES, _fly, _paired  # noqa: E402
+from centered_depth_eval import N_BOOT, STRESS_OVERRIDES, _fly, _paired  # noqa: E402
 
 TRAINING = REPO / "training_output"
 REGIME = "per_draw"
-N_BOOT = 2000
 # (label, run_dir under training_output/, training TOML): the champion (#173's seed 1) and the
 # #172 retunes the v4 performance table quotes; the labels are robustness_stress.py's.
 CELLS = [
@@ -79,7 +78,6 @@ def main(argv: list[str] | None = None) -> None:
     OUT.write_text(
         json.dumps(
             {
-                "regime": REGIME,
                 "noise_seeding": REGIME,
                 "stress_overrides": STRESS_OVERRIDES,
                 "n_sims": args.n_sims,
