@@ -1196,13 +1196,13 @@
       "g_load_p95": 2.68,
       "best_val_rms_within_transform_only": 1943555.581752271,
       "actual_sims": {
-        "n_gen": 6,
+        "n_gen": 372,
         "n_pop": 300,
-        "training": 18000,
-        "validation": 6000,
-        "curation": 3000,
-        "reeval": 9000,
-        "total": 36000
+        "training": 1116000,
+        "validation": 318000,
+        "curation": 193000,
+        "reeval": 579000,
+        "total": 2206000
       }
     },
     "classical_baselines/ftc": {
@@ -1807,13 +1807,13 @@
       "g_load_p95": 2.68,
       "best_val_rms_within_transform_only": 1325760.6823691782,
       "actual_sims": {
-        "n_gen": 5001,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 5121024,
-        "validation": 3398000,
-        "curation": 2504000,
-        "reeval": 2564096,
-        "total": 13587120
+        "training": 20481024,
+        "validation": 13539000,
+        "curation": 10036000,
+        "reeval": 10276864,
+        "total": 54332888
       }
     },
     "headline/dense_p972": {
@@ -1854,13 +1854,13 @@
       "g_load_p95": 2.57,
       "best_val_rms_within_transform_only": 1433366.7879249763,
       "actual_sims": {
-        "n_gen": 5001,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 5121024,
-        "validation": 3540000,
-        "curation": 2503000,
-        "reeval": 2563072,
-        "total": 13727096
+        "training": 20481024,
+        "validation": 13793000,
+        "curation": 10027000,
+        "reeval": 10267648,
+        "total": 54568672
       }
     },
     "headline/gru_p1014": {
@@ -1901,13 +1901,13 @@
       "g_load_p95": 2.5,
       "best_val_rms_within_transform_only": 1390724.336746096,
       "actual_sims": {
-        "n_gen": 15001,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 15361024,
-        "validation": 10605000,
-        "curation": 7510000,
-        "reeval": 7690240,
-        "total": 41166264
+        "training": 20481024,
+        "validation": 14086000,
+        "curation": 10026000,
+        "reeval": 10266624,
+        "total": 54859648
       }
     },
     "headline/lstm_p1082": {
@@ -1948,13 +1948,13 @@
       "g_load_p95": 2.47,
       "best_val_rms_within_transform_only": 1275885.299636303,
       "actual_sims": {
-        "n_gen": 15001,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 15361024,
-        "validation": 10040000,
-        "curation": 7513000,
-        "reeval": 7693312,
-        "total": 40607336
+        "training": 20481024,
+        "validation": 13459000,
+        "curation": 10038000,
+        "reeval": 10278912,
+        "total": 54256936
       }
     },
     "headline/mamba_p962": {
@@ -1995,13 +1995,13 @@
       "g_load_p95": 2.69,
       "best_val_rms_within_transform_only": 1330858.7468450016,
       "actual_sims": {
-        "n_gen": 15001,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 15361024,
-        "validation": 9952000,
-        "curation": 7512000,
-        "reeval": 7692288,
-        "total": 40517312
+        "training": 20481024,
+        "validation": 13441000,
+        "curation": 10030000,
+        "reeval": 10270720,
+        "total": 54222744
       }
     },
     "joint_reference/energy_controller": {

@@ -228,5 +228,7 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   untouched (the single-regime rewrite is #181).
   `collect_runs.py` gzips every `run_*.jsonl` fragment of a resumed run (later fragments supersede
   the generations they re-log); it took the newest only, so `ou_marginal/hl_gru_p1014` (resumed at
-  generation 16606) counted 3395 of its 20001 generations in `actual_sims`. `make paper` runs
+  generation 16606) counted 3395 of its 20001 generations in `actual_sims`. The five `headline/`
+  cells (5001 or 15001 of 20001) and `classical_baselines/fnpag` (6 of 372) are re-collected too:
+  only their `actual_sims` moves, the best validation RMS and every figure stay. `make paper` runs
   `check-logs` after `fetch-logs`, which is a no-op once any log is present.
