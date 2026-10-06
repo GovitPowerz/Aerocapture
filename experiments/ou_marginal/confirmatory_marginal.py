@@ -60,7 +60,8 @@ DEFAULT_MANIFEST = Path(__file__).resolve().parent / "confirmatory_cells.txt"
 # The #173 recipe rule's three-seed cells: S, scratch at 512 x 2; F, the fine-tune of the shared-path champion.
 RECIPE_S = tuple(f"ou_marginal/hl_mamba_p962{s}" for s in ("", "_s2", "_s3"))
 RECIPE_F = tuple(f"ou_marginal/ft_mamba_p962{s}" for s in ("", "_s2", "_s3"))
-# The #176 mechanism controls, retrained at the champion's allocation; read against RECIPE_S's seed range.
+# The #176 mechanism controls (seed 1), retrained at the champion's allocation; read against RECIPE_S's
+# seed range. Their seed repeats are `<control>_s2` / `_s3`.
 CONTROLS = ("ou_marginal/ctrl_window_p970", "ou_marginal/ctrl_mamba_p962_nodv")
 PER_DRAW = {"monte_carlo.noise_seeding": "per_draw"}  # every flight's regime; a row's extra_overrides go on top
 
@@ -144,7 +145,8 @@ def recipe_rule(by_label: dict[str, dict]) -> dict | None:
 def controls_rule(by_label: dict[str, dict]) -> dict | None:
     """#176's rule, pre-registered before either control ran: a control whose pooled CVaR99.9 lands
     inside the intact champion's three-seed range (RECIPE_S, min to max) gets seeds 2 and 3 before
-    the paper reads it; one outside needs no repeats. None until the three champion seeds are scored."""
+    the paper reads it; one outside needs no repeats. Each scored control lists its repeats' CVaR99.9
+    (None until scored). None until the three champion seeds are scored."""
     if not all(k in by_label for k in RECIPE_S):
         return None
     seeds = [by_label[k]["pooled"]["cvar999"] for k in RECIPE_S]
@@ -154,7 +156,8 @@ def controls_rule(by_label: dict[str, dict]) -> dict | None:
         if k in by_label:
             v = by_label[k]["pooled"]["cvar999"]
             inside = lo <= v <= hi
-            controls[k] = {"cvar999": v, "inside_range": inside, "seeds_2_3_required": inside}
+            repeats = {r: by_label[r]["pooled"]["cvar999"] if r in by_label else None for r in (f"{k}_s2", f"{k}_s3")}
+            controls[k] = {"cvar999": v, "inside_range": inside, "seeds_2_3_required": inside, "repeats": repeats}
     return {"champion_range": [lo, hi], "controls": controls, "not_scored": [k for k in CONTROLS if k not in by_label]}
 
 

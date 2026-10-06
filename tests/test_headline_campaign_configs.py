@@ -114,7 +114,8 @@ def test_ft_seed_differs_from_ft_dense_p515_only_in_deploy_path(name: str) -> No
 
 # #176 mechanism controls on the v4 champion (hl_mamba_p962, seed 1): control -> its paper base config.
 CONTROLS = {"ctrl_window_p970": "paper/window_ctrl_p970.toml", "ctrl_mamba_p962_nodv": "paper/mamba_p962_nodv.toml"}
-CONTROL_JOBS = [("ctrl_window_p970", 20000, 1, ""), ("ctrl_mamba_p962_nodv", 20000, 1, "")]
+CONTROL_JOBS = [(f"{name}{s}", 20000, seed, "") for s, seed in (("", 1), ("_s2", 2), ("_s3", 3)) for name in CONTROLS]
+CONTROL_REPEATS = [f"{name}_s{s}" for s in (2, 3) for name in CONTROLS]
 PREDICTED_DV_INPUTS = (32, 33, 34)
 
 
@@ -142,6 +143,16 @@ def test_ctrl_resolves_to_the_champion_but_for_its_network(name: str) -> None:
         cfg["data"].pop("neural_network")
         cfg["data"].pop("results_suffix", None)
     assert ctrl == champion
+
+
+@pytest.mark.parametrize("name", CONTROL_REPEATS)
+def test_ctrl_repeat_differs_from_its_seed_1_only_in_deploy_path(name: str) -> None:
+    """The rule's seed 2 / 3 repeats: the trainer seed comes from the jobs file, the config only moves the deploy path."""
+    seed = load_toml_with_bases(CONFIG_DIR / f"{name}.toml")
+    s1 = load_toml_with_bases(CONFIG_DIR / f"{name.rsplit('_s', 1)[0]}.toml")
+    assert seed["data"].pop("neural_network") == f"training_output/ou_marginal/{name}/best_model.json"
+    s1["data"].pop("neural_network")
+    assert seed == s1
 
 
 def test_window_control_reads_the_champion_inputs_through_a_window() -> None:

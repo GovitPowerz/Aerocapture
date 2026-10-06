@@ -503,12 +503,13 @@ def test_controls_rule_reads_the_champion_seed_range(cm: ModuleType) -> None:
     champion = [_scored(k, 1_000_000, v) for k, v in zip(cm.RECIPE_S, (173.9, 159.3, 142.3), strict=True)]
     window, nodv = cm.CONTROLS
     inside, outside = _scored(window, 1_000_000, 160.0), _scored(nodv, 1_000_000, 190.0)
-    rule = cm.controls_rule({c["label"]: c for c in [*champion, inside, outside]})
+    window_s2 = _scored(f"{window}_s2", 1_000_000, 150.0)
+    rule = cm.controls_rule({c["label"]: c for c in [*champion, inside, outside, window_s2]})
     assert rule == {
         "champion_range": [142.3, 173.9],
         "controls": {
-            window: {"cvar999": 160.0, "inside_range": True, "seeds_2_3_required": True},
-            nodv: {"cvar999": 190.0, "inside_range": False, "seeds_2_3_required": False},
+            window: {"cvar999": 160.0, "inside_range": True, "seeds_2_3_required": True, "repeats": {f"{window}_s2": 150.0, f"{window}_s3": None}},
+            nodv: {"cvar999": 190.0, "inside_range": False, "seeds_2_3_required": False, "repeats": {f"{nodv}_s2": None, f"{nodv}_s3": None}},
         },
         "not_scored": [],
     }

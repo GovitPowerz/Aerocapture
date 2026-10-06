@@ -25,7 +25,8 @@ set -euo pipefail
 #                    the champion + the #172 retunes, ~30 min, FNPAG-dominated).
 #   2. controls      campaign.sh experiments/ou_marginal/jobs_controls.txt: ctrl_window_p970 and
 #                    ctrl_mamba_p962_nodv from scratch at the champion's allocation and budget
-#                    (GA 512 x 2, 20000 gens, ~7.5 h each), then both on the 10^6 pool.
+#                    (GA 512 x 2, 20000 gens, 4-7 h each), then their seed 2 / 3 repeats; every
+#                    finished control on the 10^6 pool (an unfinished one is skipped until a rerun).
 #   6. compute       regime-independent: compute_benchmark.json is kept unless the release binary changed
 #                    (rustc / crate version); the script prints the recorded and current rustc.
 # Quick steps first (minutes) so their records post while the retrains drain.
@@ -35,6 +36,8 @@ set -euo pipefail
 # (hl_mamba_p962 / _s2 / _s3 at 10^6: 142.3-173.9 m/s, #174) needs no repeats; one INSIDE it gets
 # seeds 2 and 3 before the paper reads it (confirmatory_marginal.py --table prints the rule's outcome
 # as `#176 controls rule`). The md5 and allocation checks are campaign.sh's.
+# OUTCOME (2026-10-06): both seed-1 controls landed inside (window 158.3, no-predicted-DV 145.6), so
+# jobs_controls.txt carries seeds 2 and 3 of both.
 #
 # ===== shared (arxiv-v3): the same two controls on the shared-path champion =====
 # Budgets (NOT 5000 gens: the paper itself shows that budget cannot resolve the
@@ -86,7 +89,10 @@ v4() {
   local champ=training_output/ou_marginal/hl_mamba_p962
   local toml=configs/training/ou_marginal/hl_mamba_p962.toml
   local cm=experiments/ou_marginal/confirmatory_marginal.py
-  local controls="ou_marginal/ctrl_window_p970:configs/training/ou_marginal/ctrl_window_p970.toml ou_marginal/ctrl_mamba_p962_nodv:configs/training/ou_marginal/ctrl_mamba_p962_nodv.toml"
+  local controls="" c s
+  for c in ctrl_window_p970 ctrl_mamba_p962_nodv; do
+    for s in "" _s2 _s3; do controls="$controls ou_marginal/$c$s:configs/training/ou_marginal/$c$s.toml"; done
+  done
   local reset="ou_marginal/v4_reset_state:${toml}:${champ}"
   [ -f "$champ/final_selection.json" ] || { echo "$champ is not trained (#173 first)"; exit 1; }
 
@@ -110,11 +116,7 @@ v4() {
 
   echo "=== 2. controls: retrain at the champion's allocation, then 10^6 ==="
   experiments/ou_marginal/campaign.sh experiments/ou_marginal/jobs_controls.txt
-  # shellcheck disable=SC2086
-  for c in $controls; do
-    [ -f "training_output/${c%%:*}/final_selection.json" ] || { echo "${c%%:*} not finished; rerun to resume"; exit 0; }
-  done
-  # shellcheck disable=SC2086  # two label:toml specs
+  # shellcheck disable=SC2086  # six label:toml specs; an unfinished run is skipped
   uv run python -u "$cm" --cells $controls
   # shellcheck disable=SC2086
   uv run python -u "$cm" --table --cells $reset $controls
