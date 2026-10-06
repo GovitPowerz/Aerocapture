@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "576e1eca5b4588ddfdaebdf59c607d35ea280255d7d66132f33ad32eac6212b1",
+  "paper_inputs_sha256": "1786436a5433f48e7ff31587f3c0c119e798104741492febf35e4f1ed3c7d8eb",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -11,9 +11,9 @@
     "articles/paper/figures",
     "articles/paper/data"
   ],
-  "release_tag": "arxiv-v2",
-  "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v2/paper_run_logs.tar",
-  "noise_regime": "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006); quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157); centered_depth.json carries both regimes, each cell labelled (issue #156)",
+  "release_tag": "arxiv-v4",
+  "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v4/paper_run_logs.tar",
+  "noise_regime": "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, #174); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); centered_depth.json carries both regimes, each cell labelled (issue #156)",
   "simulator_crate_version": "1.0.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",

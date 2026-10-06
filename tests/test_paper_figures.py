@@ -175,6 +175,25 @@ def test_confirmatory_marginal_check_passes_then_rejects_a_drifted_source(tmp_pa
         ecm.main()
 
 
+def test_confirmatory_extract_cells_are_the_scorer_manifests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #179: the extract's cell list is the scorer's manifests (every arxiv-v3 and v4 row), read
+    from the 'label|toml|model_dir' lines, comments and blanks skipped, duplicates once, in order."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import extract_confirmatory_marginal as ecm  # type: ignore[import-not-found]
+
+    a = tmp_path / "a.txt"
+    b = tmp_path / "b.txt"
+    a.write_text("# comment\nx|cfg/x.toml|out/x  # trailing comment\n\n  y|cfg/y.toml\n")
+    b.write_text("y|cfg/y2.toml|out/y\nz|cfg/z.toml|out/z\n")
+    assert ecm.manifest_labels((a, b)) == ("x", "y", "z")
+
+    labels = ecm.manifest_labels()
+    committed = {c["label"] for c in json.loads(ecm.OUT.read_text())["cells"]}
+    assert set(labels) == committed
+    assert "ou_marginal/hl_mamba_p962" in labels and "ou_marginal/classical/ftc_joint" in labels and "fnpag" in labels
+    assert json.loads(ecm.OUT.read_text())["manifests"] == list(ecm.MANIFEST_REL)
+
+
 def test_aggregate_fails_without_logs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A bundle without run.jsonl.gz is an exit, not a degraded results.json."""
     monkeypatch.syspath_prepend(str(SCRIPTS))
@@ -223,9 +242,16 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py", "--check"])
     eqm.main()
 
-    del d["cells"]["fnpag/marginal"]
+    # Every cell of the source is extracted (issue #179: the v4 rows are the whole campaign), the
+    # quoted fields only, keys sorted; an empty source is an error, never an empty bundle file.
+    monkeypatch.setattr(sys, "argv", ["extract_quote_marginal.py"])
+    eqm.main()
+    extracted = json.loads(out.read_text())["cells"]
+    assert list(extracted) == sorted(d["cells"])
+    assert set(extracted["ou_hl_mamba_p962/marginal"]) == set(eqm.FIELDS)
+    d["cells"] = {}
     src.write_text(json.dumps(d))
-    with pytest.raises(SystemExit, match="lacks the quoted cell.*fnpag/marginal"):
+    with pytest.raises(SystemExit, match="has no cells"):
         eqm.main()
 
     # The regime pair and the seed pool are the source's own record (issue #166): copied, never
@@ -242,3 +268,119 @@ def test_quote_marginal_check_passes_then_rejects_a_drifted_source(tmp_path: Pat
     src.write_text(json.dumps(d))
     with pytest.raises(SystemExit, match="carries no protocol record"):
         eqm.main()
+
+
+def test_heat_load_slope_check_passes_then_rejects_a_drifted_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`make check`'s heat-load ceiling extract gate (issues #192, #179): current on the committed
+    pair, a failure once the source moves, the prescribed regeneration, a source without its
+    protocol record refused."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import extract_heat_load_slope as ehs  # type: ignore[import-not-found]
+
+    src = tmp_path / "experiments/ou_marginal/heat_load_slope.json"
+    out = tmp_path / "articles/paper/data/heat_load_slope.json"
+    src.parent.mkdir(parents=True)
+    out.parent.mkdir(parents=True)
+    shutil.copy(ehs.SRC, src)
+    shutil.copy(ehs.OUT, out)
+    monkeypatch.setattr(ehs, "REPO", tmp_path)
+    monkeypatch.setattr(ehs, "SRC", src)
+    monkeypatch.setattr(ehs, "OUT", out)
+    monkeypatch.setattr(sys, "argv", ["extract_heat_load_slope.py", "--check"])
+    ehs.main()
+
+    d = json.loads(src.read_text())
+    d["rows"]["hs_mamba_p962_q30/own"]["dv_cvar95"] += 1.0
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="is not what"):
+        ehs.main()
+
+    before = out.read_text()
+    monkeypatch.setattr(sys, "argv", ["extract_heat_load_slope.py"])
+    ehs.main()
+    assert out.read_text() != before
+    assert json.loads(out.read_text())["rows"] == d["rows"]
+    monkeypatch.setattr(sys, "argv", ["extract_heat_load_slope.py", "--check"])
+    ehs.main()
+
+    del d["regime"]
+    src.write_text(json.dumps(d))
+    with pytest.raises(SystemExit, match="carries no protocol record"):
+        ehs.main()
+
+
+def test_results_schema_check_rejects_a_mislabelled_regime(tmp_path: Path) -> None:
+    """A per-scenario study's run flagged legacy (or a shared-path run flagged per_draw) is a
+    schema violation: results.typ's regime accessors would refuse the row (issue #179)."""
+    d = json.loads((PAPER / "data/results.json").read_text())
+    assert d["runs"]["ou_marginal/hl_mamba_p962"]["noise_seeding"] == "per_draw"
+    assert d["runs"]["headline/mamba_p962"]["noise_seeding"] == "legacy"
+    d["runs"]["ou_marginal/hl_mamba_p962"]["noise_seeding"] = "legacy"
+    d["runs"]["headline/mamba_p962"]["noise_seeding"] = "per_draw"
+    tampered = tmp_path / "results.json"
+    tampered.write_text(json.dumps(d))
+    out = subprocess.run([sys.executable, str(SCRIPTS / "check_results_schema.py"), str(tampered)], capture_output=True, text=True)
+    assert out.returncode != 0
+    assert "ou_marginal/hl_mamba_p962: noise_seeding 'legacy' contradicts" in out.stderr
+    assert "headline/mamba_p962: noise_seeding 'per_draw' contradicts" in out.stderr
+
+
+def test_aggregate_training_n_sims_per_study(monkeypatch: pytest.MonkeyPatch) -> None:
+    """actual_sims reconstructs training evals as n_gen x n_pop x training_n_sims: the #173 cells
+    (ou_marginal/hl_*) trained at 512 x 2 like the headline runs, every other ou_marginal cell at 10."""
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import aggregate_results as agg  # type: ignore[import-not-found]
+
+    assert agg._infer_training_n_sims("ou_marginal/hl_mamba_p962_s2") == 2
+    assert agg._infer_training_n_sims("headline/mamba_p962") == 2
+    assert agg._infer_training_n_sims("ou_marginal/ft_dense_p515") == 10
+    assert agg._infer_training_n_sims("ou_marginal/classical/ftc") == 10
+    assert agg._infer_training_n_sims("training_n_sims/ga_50") == 50
+
+
+def test_collect_bundles_every_fragment_of_a_resumed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A resumed run writes one run_*.jsonl per launch; the bundled log is all of them, each later
+    fragment superseding the generations it re-logs (ou_marginal/hl_gru_p1014 counted 3395 of its
+    20001 generations while the newest fragment alone was bundled)."""
+    import gzip
+    import os
+
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import collect_runs as cr  # type: ignore[import-not-found]
+
+    run = tmp_path / "run"
+    run.mkdir()
+    for i, (name, gens) in enumerate((("run_000_a.jsonl", range(0, 4)), ("run_000_b.jsonl", range(2, 6)))):
+        (run / name).write_text("".join(json.dumps({"generation": g, "launch": i}) + "\n" for g in gens))
+        os.utime(run / name, (1_000_000 + i, 1_000_000 + i))
+    dst = tmp_path / "bundle/run.jsonl.gz"
+    assert cr._gzip_run_log(run, dst)
+    with gzip.open(dst, "rt") as f:
+        records = [json.loads(line) for line in f]
+    assert [(r["generation"], r["launch"]) for r in records] == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1), (5, 1)]
+    assert not cr._gzip_run_log(run, dst)
+
+
+def test_fetch_run_logs_reads_the_asset_from_provenance(tmp_path: Path) -> None:
+    """One place names the Release asset (write_provenance.RELEASE_TAG): the fetch script requests
+    the committed provenance.json's run_logs_asset, so the tag moves with the provenance. A stub
+    curl records the URL and fails, so nothing is downloaded or extracted."""
+    prov = json.loads((PAPER / "data/provenance.json").read_text())
+    assert "releases/download" not in (SCRIPTS / "fetch_run_logs.sh").read_text()
+    assert prov["run_logs_asset"].endswith(f"/releases/download/{prov['release_tag']}/paper_run_logs.tar")
+    curl = tmp_path / "curl"
+    curl.write_text(f'#!/bin/sh\nfor a; do last="$a"; done\necho "$last" > {tmp_path / "url"}\nexit 22\n')
+    curl.chmod(0o755)
+    out = subprocess.run(["bash", str(SCRIPTS / "fetch_run_logs.sh")], capture_output=True, text=True, env={"PATH": f"{tmp_path}:/usr/bin:/bin"})
+    assert out.returncode != 0 and "not fetched" in out.stderr
+    assert (tmp_path / "url").read_text().strip() == prov["run_logs_asset"]
+
+
+def test_results_typ_asserts_the_regime_of_every_run_accessor() -> None:
+    """results.typ exposes a results.json run to the tables only through a regime-asserting
+    accessor: legacy_regime() for the development regime, per_draw_regime() for the main body."""
+    text = (PAPER / "results.typ").read_text()
+    assert re.search(r"#let legacy_regime\(key\) = \{\n  let r = run\(key\)\n  assert\(r\.noise_seeding == \"legacy\"", text)
+    assert re.search(r"#let per_draw_regime\(key\) = \{\n  let r = run\(key\)\n  assert\(r\.noise_seeding == \"per_draw\"", text)
+    assert '#let heat_load = json("data/heat_load_slope.json")' in text
+    assert re.search(r"#assert\(heat_load\.regime\.noise_seeding == \"legacy\"", text)

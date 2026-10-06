@@ -1,11 +1,13 @@
 """Write (or --check) articles/paper/data/confirmatory_marginal.json.
 
-The per-scenario-noise (per_draw) far-tail confirmatory that the paper's headline quotes and
-Appendix E's far-tail table read through results.typ (issue #137). Its source,
-experiments/ou_marginal/confirmatory_marginal.json, is written by confirmatory_marginal.py next
-to it (hours per cell); this extract keeps only the cells and fields the paper quotes, so the
-bundle carries them under data/SHA256SUMS and the provenance digest. `make check` runs
-`--check`, which fails when the committed extract is not what the source yields. Pure stdlib.
+The per-scenario-noise (per_draw) 10^6 confirmatory the paper's performance tables read through
+results.typ (issues #137, #174). Its source, experiments/ou_marginal/confirmatory_marginal.json, is
+written by confirmatory_marginal.py next to it (hours per cell); this extract keeps every cell of
+the scorer's manifests (confirmatory_cells.txt, the arxiv-v3 rows; confirmatory_cells_v4.txt, every
+v4 row: issue #179) and only the fields the paper quotes, so the bundle carries them under
+data/SHA256SUMS and the provenance digest. The manifests are the one cell list: a cell added to a
+manifest is scored, extracted and quotable from the same line. `make check` runs `--check`, which
+fails when the committed extract is not what the source yields. Pure stdlib.
 """
 
 import json
@@ -13,18 +15,23 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO / "experiments/ou_marginal"))
+
+from confirmatory_marginal import read_manifest  # noqa: E402
+
 SRC = REPO / "experiments/ou_marginal/confirmatory_marginal.json"
 OUT = REPO / "articles/paper/data/confirmatory_marginal.json"
-# The deployed fine-tune seed and its two repeats, the dense fine-tune, the shared-path champion, FNPAG.
-CELLS = (
-    "ou_marginal/ft_mamba_p962",
-    "ou_marginal/ft_mamba_p962_s2",
-    "ou_marginal/ft_mamba_p962_s3",
-    "ou_marginal/ft_dense_p515",
-    "mamba_p962_long",
-    "fnpag",
-)
+MANIFEST_REL = ("experiments/ou_marginal/confirmatory_cells.txt", "experiments/ou_marginal/confirmatory_cells_v4.txt")
+MANIFESTS = tuple(REPO / m for m in MANIFEST_REL)
 POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
+# heat_load_viol_n (the #173 outcome's "scenarios over the ceiling per 10^6") postdates the rows scored
+# before it (#137's fnpag and mamba_p962_long, the arxiv-v3 fine-tunes and PPO cells): null on those.
+VIOL_N = "heat_load_viol_n"
+
+
+def manifest_labels(paths: tuple[Path, ...] = MANIFESTS) -> tuple[str, ...]:
+    """The labels of the scorer's manifests (confirmatory_marginal.read_manifest), in order, deduplicated."""
+    return tuple(dict.fromkeys(label for path in paths for label, _, _ in read_manifest(path)))
 
 
 def build() -> dict:
@@ -32,12 +39,18 @@ def build() -> dict:
     if src["noise_seeding"] != "per_draw":
         sys.exit(f"{SRC.relative_to(REPO)} is not a per_draw confirmatory")
     by_label = {c["label"]: c for c in src["cells"]}
-    missing = [label for label in CELLS if label not in by_label]
+    cells = manifest_labels()
+    missing = [label for label in cells if label not in by_label]
     if missing:
-        sys.exit(f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: run experiments/ou_marginal/confirmatory_marginal.py")
+        sys.exit(
+            f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: "
+            "run experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/confirmatory_cells_v4.txt"
+        )
     return {
         "source": str(SRC.relative_to(REPO)),
+        "manifests": list(MANIFEST_REL),
         "noise_seeding": src["noise_seeding"],
+        # The first scoring run's commit; a row scored later records its own eval_commit (null: scored at freeze_commit).
         "freeze_commit": src["freeze_commit"],
         "n_replicates": src["n_replicates"],
         "n_per_replicate": src["n_per_replicate"],
@@ -45,10 +58,11 @@ def build() -> dict:
             {
                 "label": label,
                 "toml": by_label[label]["toml"],
-                "pooled": {k: by_label[label]["pooled"][k] for k in POOLED},
+                "eval_commit": by_label[label].get("eval_commit"),
+                "pooled": {**{k: by_label[label]["pooled"][k] for k in POOLED}, VIOL_N: by_label[label]["pooled"].get(VIOL_N)},
                 "replicate_stats": {"cvar999": {"se": by_label[label]["replicate_stats"]["cvar999"]["se"]}},
             }
-            for label in CELLS
+            for label in cells
         ],
     }
 

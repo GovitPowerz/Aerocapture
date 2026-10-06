@@ -1,8 +1,8 @@
 # Rebuild the paper's figures, results.json and PDF from the committed bundle.
 #
 #   make -C articles/paper                 figures (default): the 18 fig_*.svg from data/ + the bundle
-#   make -C articles/paper paper           fetch-logs (if absent) -> results -> confirmatory-marginal -> quote-marginal -> figures -> provenance -> pdf
-#   make -C articles/paper check           SHA256SUMS + results.json schema + the two per-scenario extracts + figures/results.json unchanged in git
+#   make -C articles/paper paper           fetch-logs (if absent) -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> figures -> provenance -> pdf
+#   make -C articles/paper check           SHA256SUMS + results.json schema + the three per-scenario extracts + figures/results.json unchanged in git
 #   make -C articles/paper -B figures      force every figure (CI does this, then `check`)
 #   make -C articles/paper -n paper        print what would run
 #
@@ -28,10 +28,11 @@ FIGS := figures
 PDF ?= articles/paper/paper.pdf
 
 .DEFAULT_GOAL := figures
-.PHONY: figures results confirmatory-marginal quote-marginal fetch-logs provenance pdf paper check check-sums check-logs check-schema check-provenance \
-        check-marginal check-quote sums help \
+.PHONY: figures results confirmatory-marginal quote-marginal heat-load-slope fetch-logs provenance pdf paper check check-sums check-logs check-schema \
+        check-provenance check-marginal check-quote check-slope sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
-        mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes
+        mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes \
+        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope
 
 # ---------------------------------------------------------------------------
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
@@ -75,34 +76,44 @@ $(FIGS)/fig_training_n_sims.svg: $(DATA)/results.json
 
 # results.json is a committed bundle product consumed by the figures as a plain file
 # (deliberately no rule: a fresh clone's mtimes must not trigger a rebuild that needs
-# the 195 MB run logs; a missing file is "No rule to make target"). `make results`
+# the ~310 MB run logs; a missing file is "No rule to make target"). `make results`
 # regenerates it explicitly; aggregate_results.py exits non-zero without the logs.
 
 # ---------------------------------------------------------------------------
 # results.json <- aggregate_results.py over the bundle parquets + the run logs
 # ---------------------------------------------------------------------------
-RUN_LOGS := $(wildcard $(RUNS)/*/*/run.jsonl.gz)
+RUN_LOGS := $(shell find $(RUNS) -name run.jsonl.gz 2>/dev/null)
 
 results:
 	$(UVPY) articles/paper/scripts/aggregate_results.py
 
 # ---------------------------------------------------------------------------
-# confirmatory_marginal.json <- the per_draw far-tail confirmatory (issue #137)
+# confirmatory_marginal.json <- the 10^6 per-scenario confirmatory (issues #137, #174)
 # ---------------------------------------------------------------------------
-# The cells and fields the paper quotes, extracted from experiments/ou_marginal/confirmatory_marginal.json
-# (written by confirmatory_marginal.py there: hours per cell, never a make recipe). Pure stdlib.
+# Every cell of the scorer's manifests (experiments/ou_marginal/confirmatory_cells*.txt) and the fields
+# the paper quotes, extracted from experiments/ou_marginal/confirmatory_marginal.json (written by
+# confirmatory_marginal.py there: hours per cell, never a make recipe; `mc-confirmatory-v4` below). Pure stdlib.
 confirmatory-marginal:
 	$(UVPY) articles/paper/scripts/extract_confirmatory_marginal.py
 
 # ---------------------------------------------------------------------------
-# quote_marginal.json <- the n = 1000 paired per-scenario quotes (issue #157)
+# quote_marginal.json <- the n = 1000 paired per-scenario quotes (issues #157, #175)
 # ---------------------------------------------------------------------------
-# The cells and fields Appendix E quotes, extracted from experiments/ou_marginal/quote_results.json
-# (written by quote_marginal.py there: every cell flown under both regimes; never a make recipe). Pure stdlib.
+# Every cell of experiments/ou_marginal/quote_results.json (written by quote_marginal.py there: every
+# cell flown under both regimes; never a make recipe; `mc-quote-marginal` below), the quoted fields only. Pure stdlib.
 quote-marginal:
 	$(UVPY) articles/paper/scripts/extract_quote_marginal.py
 
-# The 95 run.jsonl.gz (~195 MB) are a Release asset (tag arxiv-v2), gitignored. Network.
+# ---------------------------------------------------------------------------
+# heat_load_slope.json <- the heat-load ceiling sensitivity (issue #192)
+# ---------------------------------------------------------------------------
+# Verbatim copy of experiments/ou_marginal/heat_load_slope.json (written by heat_load_slope.py there;
+# `mc-heat-load-slope` below). Pure stdlib.
+heat-load-slope:
+	$(UVPY) articles/paper/scripts/extract_heat_load_slope.py
+
+# The run.jsonl.gz of data/SHA256SUMS.runlogs are a Release asset (URL: data/provenance.json's
+# run_logs_asset, named by write_provenance.py), gitignored. Network.
 fetch-logs:
 	@if [ -z "$(RUN_LOGS)" ]; then bash $(SCRIPTS)/fetch_run_logs.sh; else echo "run logs present: $(words $(RUN_LOGS)) files"; fi
 
@@ -119,11 +130,14 @@ GIT_HEAD = $$(git rev-parse --short HEAD)$$(test -z "$$(git status --porcelain -
 pdf:
 	cd $(ROOT) && SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) typst compile --input git_head=$(GIT_HEAD) articles/paper/paper.typ $(PDF)
 
-# Recursive so the log wildcard is re-evaluated after fetch-logs.
+# Recursive so the log list is re-evaluated after fetch-logs. check-logs first: fetch-logs is a no-op
+# once any log is present, and an older asset's subset would drop actual_sims from the rows it lacks.
 paper: fetch-logs
+	$(MAKE) check-logs
 	$(MAKE) results
 	$(MAKE) confirmatory-marginal
 	$(MAKE) quote-marginal
+	$(MAKE) heat-load-slope
 	$(MAKE) figures
 	$(MAKE) provenance
 	$(MAKE) pdf
@@ -154,7 +168,7 @@ $(FROZEN):
 # $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message
 # (the block above is defined first: make expands prerequisite lists when it reads the rule).
 # `git diff HEAD` so a regenerated-and-staged file still counts as changed.
-check: check-sums check-schema check-marginal check-quote check-provenance $(FROZEN)
+check: check-sums check-schema check-marginal check-quote check-slope check-provenance $(FROZEN)
 	cd $(ROOT) && git diff HEAD --exit-code --stat -- articles/paper/figures articles/paper/data/results.json articles/paper/data/provenance.json
 	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
 
@@ -169,6 +183,10 @@ check-marginal:
 # data/quote_marginal.json must be what its experiments/ source yields.
 check-quote:
 	$(UVPY) articles/paper/scripts/extract_quote_marginal.py --check
+
+# data/heat_load_slope.json must be what its experiments/ source yields.
+check-slope:
+	$(UVPY) articles/paper/scripts/extract_heat_load_slope.py --check
 
 # data/SHA256SUMS = what `sums` writes: every tracked file under data/ except itself and
 # provenance.json. Recomputed and diffed (not `shasum --check`, which only verifies the
@@ -263,6 +281,30 @@ mc-requote: need-sim
 # copied from the quantization campaign's training_output by its runner.
 mc-quant: need-sim
 	cd $(ROOT) && ./experiments/paper/17_quantization.sh collect
+
+# ---------------------------------------------------------------------------
+# v4 per-scenario scorers (issue #179): every one flies under per_draw density noise (ADR-0006,
+# one realization per scenario) and writes under experiments/ou_marginal/, from where the
+# extracts above copy into the bundle. Resumable: each persists per replicate / per cell.
+# ---------------------------------------------------------------------------
+# experiments/ou_marginal/confirmatory_marginal.json -- 10 x 100000 per-scenario scenarios per cell of
+# confirmatory_cells_v4.txt (issue #174): HOURS per cell, FNPAG ~2 h; scored cells are skipped.
+mc-confirmatory-v4: need-sim
+	$(UVPY) -u experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/confirmatory_cells_v4.txt
+
+# experiments/ou_marginal/quote_results.json -- every OU-marginal cell on the paired n = 1000 pool under
+# both regimes (frozen = the shared path, marginal = per-scenario; issues #157, #175; ~minutes per cell).
+mc-quote-marginal: need-sim
+	$(UVPY) -u experiments/ou_marginal/quote_marginal.py
+
+# experiments/ou_marginal/heat_load_slope.json -- the six #192 ceiling legs on the paired n = 1000 pool,
+# each at its own ceiling and at the v4 limit (marginal regime; ~minutes).
+mc-heat-load-slope: need-sim
+	$(UVPY) -u experiments/ou_marginal/heat_load_slope.py
+
+# Not yet producers: stress_depth.json and the champion's runs/ou_marginal/hl_mamba_p962/ablation_results.json
+# (#176; collect_runs.py already copies the latter), centered_depth_v4.json (#177) and quant_v4/ (#178,
+# 17_quantization.sh collect) get their mc-* target, accessor and check rule with the issue that writes the file.
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json

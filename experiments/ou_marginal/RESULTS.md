@@ -553,8 +553,9 @@ Section 6.4 restated on the repaired Dense 515.
 Bundle: `collect_runs.py` walks every `training_output/ou_marginal/**/final_eval.parquet`
 except the `hs_*` legs (24 cells: the eleven #173 cells, the two arxiv-v3
 fine-tunes, the nine #172 retunes and the two #188 ungated reruns) into
-`articles/paper/data/runs/ou_marginal/<path>/`, no run logs (the Release asset
-is frozen). `aggregate_results.PAIRED` gains the `v4_*` rows: Mamba 962 (seed 1)
+`articles/paper/data/runs/ou_marginal/<path>/`, run logs included since #179
+(stripped with `strip_run_logs.py`; they join the v4 Release asset, #183).
+`aggregate_results.PAIRED` gains the `v4_*` rows: Mamba 962 (seed 1)
 against joint-FTC (retuned), FNPAG (retuned), dense 515, LSTM 1082, GRU 1014,
 dense 972 and fixed-reference FTC (retuned); joint-FTC against fixed-reference FTC
 (both retuned) and against FNPAG; the PPO pairs follow the `18_rl_baseline.sh hl`

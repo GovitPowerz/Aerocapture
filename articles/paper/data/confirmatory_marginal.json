@@ -1,20 +1,45 @@
 {
  "source": "experiments/ou_marginal/confirmatory_marginal.json",
+ "manifests": [
+  "experiments/ou_marginal/confirmatory_cells.txt",
+  "experiments/ou_marginal/confirmatory_cells_v4.txt"
+ ],
  "noise_seeding": "per_draw",
  "freeze_commit": "738d612fb7f739b857bc9de51a725f0d73093677",
  "n_replicates": 10,
  "n_per_replicate": 100000,
  "cells": [
   {
+   "label": "ou_marginal/ft_dense_p515",
+   "toml": "configs/training/ou_marginal/dense_p515.toml",
+   "eval_commit": null,
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 128.75,
+    "cvar999": 236.3,
+    "max": 404.86,
+    "viol_pct": 0.03,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.48
+    }
+   }
+  },
+  {
    "label": "ou_marginal/ft_mamba_p962",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "eval_commit": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999995,
     "cvar95": 138.68,
     "cvar999": 163.02,
     "max": 249.36,
-    "viol_pct": 0.0
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
    },
    "replicate_stats": {
     "cvar999": {
@@ -25,13 +50,15 @@
   {
    "label": "ou_marginal/ft_mamba_p962_s2",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "eval_commit": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999970,
     "cvar95": 139.98,
     "cvar999": 164.55,
     "max": 240.3,
-    "viol_pct": 0.0
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
    },
    "replicate_stats": {
     "cvar999": {
@@ -42,13 +69,15 @@
   {
    "label": "ou_marginal/ft_mamba_p962_s3",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "eval_commit": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999920,
     "cvar95": 138.44,
     "cvar999": 161.89,
     "max": 211.38,
-    "viol_pct": 0.0
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
    },
    "replicate_stats": {
     "cvar999": {
@@ -57,32 +86,17 @@
    }
   },
   {
-   "label": "ou_marginal/ft_dense_p515",
-   "toml": "configs/training/ou_marginal/dense_p515.toml",
-   "pooled": {
-    "n": 1000000,
-    "n_captured": 1000000,
-    "cvar95": 128.75,
-    "cvar999": 236.3,
-    "max": 404.86,
-    "viol_pct": 0.03
-   },
-   "replicate_stats": {
-    "cvar999": {
-     "se": 2.48
-    }
-   }
-  },
-  {
    "label": "mamba_p962_long",
    "toml": "configs/training/sweep/mamba_p962.toml",
+   "eval_commit": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 979330,
     "cvar95": 188.17,
     "cvar999": 221.27,
     "max": 269.55,
-    "viol_pct": 0.91
+    "viol_pct": 0.91,
+    "heat_load_viol_n": null
    },
    "replicate_stats": {
     "cvar999": {
@@ -93,17 +107,969 @@
   {
    "label": "fnpag",
    "toml": "configs/training/msr_aller_fnpag_train.toml",
+   "eval_commit": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 993679,
     "cvar95": 152.54,
     "cvar999": 236.66,
     "max": 579.23,
-    "viol_pct": 0.0
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
    },
    "replicate_stats": {
     "cvar999": {
      "se": 2.34
+    }
+   }
+  },
+  {
+   "label": "paper/rl/dense_p515_ppo_scratch",
+   "toml": "configs/training/paper/rl/dense_p515_ppo_scratch.toml",
+   "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999690,
+    "cvar95": 271.72,
+    "cvar999": 371.96,
+    "max": 485.5,
+    "viol_pct": 0.69,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.35
+    }
+   }
+  },
+  {
+   "label": "paper/rl/dense_p515_ppo_warm",
+   "toml": "configs/training/paper/rl/dense_p515_ppo_warm.toml",
+   "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 130.6,
+    "cvar999": 197.59,
+    "max": 378.26,
+    "viol_pct": 0.04,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.23
+    }
+   }
+  },
+  {
+   "label": "paper/rl/gru_p1014_ppo_scratch",
+   "toml": "configs/training/paper/rl/gru_p1014_ppo_scratch.toml",
+   "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999886,
+    "cvar95": 411.12,
+    "cvar999": 439.96,
+    "max": 619.79,
+    "viol_pct": 0.85,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.89
+    }
+   }
+  },
+  {
+   "label": "paper/rl/gru_p1014_ppo_warm",
+   "toml": "configs/training/paper/rl/gru_p1014_ppo_warm.toml",
+   "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999545,
+    "cvar95": 159.55,
+    "cvar999": 185.18,
+    "max": 288.91,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.53
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_gru_p1014",
+   "toml": "configs/training/ou_marginal/gru_p1014.toml",
+   "eval_commit": null,
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999288,
+    "cvar95": 150.45,
+    "cvar999": 183.18,
+    "max": 315.23,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": null
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.74
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_mamba_p962",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 120.06,
+    "cvar999": 173.93,
+    "max": 300.42,
+    "viol_pct": 0.11,
+    "heat_load_viol_n": 1148
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.18
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_mamba_p962_s2",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999996,
+    "cvar95": 131.66,
+    "cvar999": 159.34,
+    "max": 620.83,
+    "viol_pct": 0.04,
+    "heat_load_viol_n": 437
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.6
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_mamba_p962_s3",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 122.88,
+    "cvar999": 142.34,
+    "max": 266.46,
+    "viol_pct": 0.06,
+    "heat_load_viol_n": 567
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.47
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_dense_p515",
+   "toml": "configs/training/ou_marginal/hl_dense_p515.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 123.38,
+    "cvar999": 140.13,
+    "max": 243.48,
+    "viol_pct": 0.15,
+    "heat_load_viol_n": 1465
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.36
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_dense_p515_s2",
+   "toml": "configs/training/ou_marginal/hl_dense_p515_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999999,
+    "cvar95": 127.59,
+    "cvar999": 185.83,
+    "max": 254.58,
+    "viol_pct": 0.21,
+    "heat_load_viol_n": 2112
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.55
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_dense_p515_s3",
+   "toml": "configs/training/ou_marginal/hl_dense_p515_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999929,
+    "cvar95": 129.03,
+    "cvar999": 155.61,
+    "max": 827.29,
+    "viol_pct": 0.26,
+    "heat_load_viol_n": 2572
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.22
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_dense_p515_s2",
+   "toml": "configs/training/ou_marginal/ft_dense_p515_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 127.51,
+    "cvar999": 172.21,
+    "max": 668.46,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 110
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.43
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_dense_p515_s3",
+   "toml": "configs/training/ou_marginal/ft_dense_p515_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 136.26,
+    "cvar999": 311.97,
+    "max": 1183.74,
+    "viol_pct": 0.03,
+    "heat_load_viol_n": 272
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 6.55
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_lstm_p1082",
+   "toml": "configs/training/ou_marginal/hl_lstm_p1082.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 132.66,
+    "cvar999": 174.63,
+    "max": 348.61,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 46
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.03
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_gru_p1014",
+   "toml": "configs/training/ou_marginal/hl_gru_p1014.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 122.76,
+    "cvar999": 147.84,
+    "max": 287.09,
+    "viol_pct": 0.02,
+    "heat_load_viol_n": 159
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.9
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/hl_dense_p972",
+   "toml": "configs/training/ou_marginal/hl_dense_p972.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999999,
+    "cvar95": 127.14,
+    "cvar999": 169.96,
+    "max": 329.92,
+    "viol_pct": 0.27,
+    "heat_load_viol_n": 2670
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.63
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_dense_p972",
+   "toml": "configs/training/ou_marginal/ft_dense_p972.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999992,
+    "cvar95": 146.01,
+    "cvar999": 258.13,
+    "max": 805.02,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 149
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 5.57
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ft_lstm_p1082",
+   "toml": "configs/training/ou_marginal/ft_lstm_p1082.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999860,
+    "cvar95": 129.22,
+    "cvar999": 225.72,
+    "max": 1078.37,
+    "viol_pct": 10.74,
+    "heat_load_viol_n": 107435
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.57
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/mamba_p962",
+   "toml": "configs/training/ou_marginal/mamba_p962.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 150.48,
+    "cvar999": 193.53,
+    "max": 276.29,
+    "viol_pct": 0.08,
+    "heat_load_viol_n": 749
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.61
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/mamba_p962_s2",
+   "toml": "configs/training/ou_marginal/mamba_p962_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999896,
+    "cvar95": 151.42,
+    "cvar999": 198.78,
+    "max": 768.94,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 4
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.96
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/mamba_p962_s3",
+   "toml": "configs/training/ou_marginal/mamba_p962_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 146.58,
+    "cvar999": 172.26,
+    "max": 298.97,
+    "viol_pct": 0.03,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.42
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p515",
+   "toml": "configs/training/ou_marginal/dense_p515.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999992,
+    "cvar95": 155.73,
+    "cvar999": 187.75,
+    "max": 638.71,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 5
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.39
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p515_s2",
+   "toml": "configs/training/ou_marginal/dense_p515_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999969,
+    "cvar95": 154.5,
+    "cvar999": 294.02,
+    "max": 760.67,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 4.22
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p515_s3",
+   "toml": "configs/training/ou_marginal/dense_p515_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999907,
+    "cvar95": 161.37,
+    "cvar999": 199.73,
+    "max": 365.03,
+    "viol_pct": 0.03,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.46
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/lstm_p1082",
+   "toml": "configs/training/ou_marginal/lstm_p1082.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 144.14,
+    "cvar999": 167.88,
+    "max": 557.86,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.58
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/lstm_p1082_s2",
+   "toml": "configs/training/ou_marginal/lstm_p1082_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 167.29,
+    "cvar999": 208.44,
+    "max": 333.17,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.51
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/lstm_p1082_s3",
+   "toml": "configs/training/ou_marginal/lstm_p1082_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999990,
+    "cvar95": 146.35,
+    "cvar999": 181.72,
+    "max": 889.96,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 5
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.47
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/gru_p1014",
+   "toml": "configs/training/ou_marginal/gru_p1014.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999978,
+    "cvar95": 148.11,
+    "cvar999": 200.17,
+    "max": 1078.69,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 19
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 2.2
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/gru_p1014_s2",
+   "toml": "configs/training/ou_marginal/gru_p1014_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999989,
+    "cvar95": 145.07,
+    "cvar999": 175.3,
+    "max": 762.81,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 23
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.2
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/gru_p1014_s3",
+   "toml": "configs/training/ou_marginal/gru_p1014_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 158.72,
+    "cvar999": 195.33,
+    "max": 721.17,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.05
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p972",
+   "toml": "configs/training/ou_marginal/dense_p972.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999104,
+    "cvar95": 147.09,
+    "cvar999": 211.93,
+    "max": 286.83,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.85
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p972_s2",
+   "toml": "configs/training/ou_marginal/dense_p972_s2.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999998,
+    "cvar95": 157.14,
+    "cvar999": 187.23,
+    "max": 478.46,
+    "viol_pct": 0.19,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.48
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/dense_p972_s3",
+   "toml": "configs/training/ou_marginal/dense_p972_s3.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999997,
+    "cvar95": 145.95,
+    "cvar999": 179.24,
+    "max": 746.95,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.27
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_dense_p515_ppo_scratch",
+   "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999999,
+    "cvar95": 573.29,
+    "cvar999": 621.25,
+    "max": 766.26,
+    "viol_pct": 26.56,
+    "heat_load_viol_n": 265565
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.45
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_dense_p515_ppo_warm",
+   "toml": "configs/training/paper/rl/hl_dense_p515_ppo_warm.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 123.73,
+    "cvar999": 149.34,
+    "max": 253.16,
+    "viol_pct": 0.23,
+    "heat_load_viol_n": 2356
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.39
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_gru_p1014_ppo_scratch",
+   "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 565.99,
+    "cvar999": 610.77,
+    "max": 658.63,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.4
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_gru_p1014_ppo_warm",
+   "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_warm.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 123.58,
+    "cvar999": 155.62,
+    "max": 296.82,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 165
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.11
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_dense_p515_ppo_scratch_s2",
+   "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch_s2.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999341,
+    "cvar95": 225.17,
+    "cvar999": 261.84,
+    "max": 533.85,
+    "viol_pct": 0.12,
+    "heat_load_viol_n": 1161
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.43
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_dense_p515_ppo_scratch_s3",
+   "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch_s3.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999513,
+    "cvar95": 266.45,
+    "cvar999": 446.05,
+    "max": 647.67,
+    "viol_pct": 0.7,
+    "heat_load_viol_n": 6890
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.76
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_gru_p1014_ppo_scratch_s2",
+   "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s2.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999953,
+    "cvar95": 488.16,
+    "cvar999": 517.17,
+    "max": 546.41,
+    "viol_pct": 2.71,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.22
+    }
+   }
+  },
+  {
+   "label": "paper/rl/hl_gru_p1014_ppo_scratch_s3",
+   "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s3.toml",
+   "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999952,
+    "cvar95": 350.68,
+    "cvar999": 506.39,
+    "max": 560.14,
+    "viol_pct": 0.43,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.51
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/ftc",
+   "toml": "configs/training/ou_marginal/classical/ftc.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999992,
+    "cvar95": 243.83,
+    "cvar999": 349.65,
+    "max": 535.62,
+    "viol_pct": 0.12,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.47
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/energy_controller",
+   "toml": "configs/training/ou_marginal/classical/energy_controller.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 997564,
+    "cvar95": 264.75,
+    "cvar999": 340.4,
+    "max": 429.38,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.55
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/pred_guid",
+   "toml": "configs/training/ou_marginal/classical/pred_guid.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 998880,
+    "cvar95": 253.09,
+    "cvar999": 332.6,
+    "max": 424.57,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.4
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/ftc_joint",
+   "toml": "configs/training/ou_marginal/classical/ftc_joint.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 147.63,
+    "cvar999": 177.82,
+    "max": 241.76,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.5
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/energy_controller_joint",
+   "toml": "configs/training/ou_marginal/classical/energy_controller_joint.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999820,
+    "cvar95": 200.21,
+    "cvar999": 299.13,
+    "max": 915.42,
+    "viol_pct": 0.02,
+    "heat_load_viol_n": 181
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.71
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/pred_guid_joint",
+   "toml": "configs/training/ou_marginal/classical/pred_guid_joint.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999955,
+    "cvar95": 195.46,
+    "cvar999": 340.42,
+    "max": 1255.32,
+    "viol_pct": 0.01,
+    "heat_load_viol_n": 39
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 3.85
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical_ungated/piecewise_constant",
+   "toml": "configs/training/ou_marginal/classical_ungated/piecewise_constant.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999183,
+    "cvar95": 445.66,
+    "cvar999": 632.24,
+    "max": 940.25,
+    "viol_pct": 3.13,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.8
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical_ungated/equilibrium_glide",
+   "toml": "configs/training/ou_marginal/classical_ungated/equilibrium_glide.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 997936,
+    "cvar95": 332.89,
+    "cvar999": 476.74,
+    "max": 614.13,
+    "viol_pct": 0.54,
+    "heat_load_viol_n": 0
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.12
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/classical/fnpag",
+   "toml": "configs/training/ou_marginal/classical/fnpag.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999762,
+    "cvar95": 144.94,
+    "cvar999": 189.09,
+    "max": 690.96,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 10
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.84
     }
    }
   }
