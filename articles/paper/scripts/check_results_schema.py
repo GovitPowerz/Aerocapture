@@ -4,7 +4,8 @@ Fails loudly on the ways aggregate_results.py can degrade: a run whose parquet i
 in the bundle but missing from the file, a run summarized without its run.jsonl.gz
 (null best_val_rms / no actual_sims) when the log is present, a paired table or
 the headline re-quote marked missing, a tail sigma_run group short of its three
-seeds, or a run without the noise-regime flags (ADR-0003 / ADR-0006). Pure stdlib.
+seeds, a run without the noise-regime flags (ADR-0003 / ADR-0006), or a per-scenario
+study's run (rl/, ou_marginal/) flagged with the shared-path regime. Pure stdlib.
 
 Usage: uv run python articles/paper/scripts/check_results_schema.py [results.json]
 """
@@ -42,6 +43,9 @@ RUN_KEYS = (
 )
 PAIRED_KEYS = ("a", "b", "delta_p95", "delta_p95_ci", "delta_cvar95", "delta_cvar95_ci")
 TAIL_GROUPS = ("mamba_p962", "lstm_p1082", "dense_p515")
+# Studies evaluated under per_draw (aggregate_results.PER_DRAW_PREFIXES): a legacy flag on one of
+# their runs is a mislabelled regime, and results.typ's per_draw_regime() would refuse the row.
+PER_DRAW_PREFIXES = ("rl/", "ou_marginal/")
 
 
 def check(path: Path) -> tuple[list[str], int]:
@@ -70,6 +74,8 @@ def check(path: Path) -> tuple[list[str], int]:
             errors.append(f"{key}: legacy_prefix_regime is not a bool (ADR-0003: the regime is part of the number)")
         if run.get("noise_seeding") not in ("legacy", "per_draw"):
             errors.append(f"{key}: noise_seeding must be 'legacy' or 'per_draw', got {run.get('noise_seeding')!r} (ADR-0006)")
+        elif (run["noise_seeding"] == "per_draw") != key.startswith(PER_DRAW_PREFIXES):
+            errors.append(f"{key}: noise_seeding {run['noise_seeding']!r} contradicts the study's regime (per_draw iff under {PER_DRAW_PREFIXES})")
         if not isinstance(run.get("n"), int) or run["n"] <= 0:
             errors.append(f"{key}: n must be a positive int, got {run.get('n')!r}")
         has_log = (RUNS_DIR / key / "run.jsonl.gz").exists()

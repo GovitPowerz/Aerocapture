@@ -204,3 +204,24 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
     each network's tail loss over the classical laws' mean loss (2.5--4.0; the overwritten dense
     row had put it at 4.8). The colophon lists `compute_benchmark.json` and `data/probes/`. The
     committed `paper.pdf` is not recompiled here.
+- 2026-10-06 (#179): the bundle carries the per-scenario regime end to end. The 24
+  `runs/ou_marginal/` cells gain their `run.jsonl.gz` (stripped with `strip_run_logs.py`, 114 MB
+  for the tree; `SHA256SUMS.runlogs` lists 119 logs), so their `results.json` rows carry
+  `actual_sims` and the best validation RMS like every other study's; the #173 cells count their
+  training evals at 512 x 2 (`aggregate_results._infer_training_n_sims`). The Release asset the
+  logs live in is named once, `write_provenance.RELEASE_TAG` (`arxiv-v4`, uploaded by the v4
+  release, #183), and `fetch_run_logs.sh` reads the URL from the committed `provenance.json`.
+  `data/confirmatory_marginal.json` extracts every cell of the scorer's manifests
+  (`confirmatory_cells.txt` + `confirmatory_cells_v4.txt`: 56 rows, was 6) plus the per-10^6
+  heat-load violation count; `data/quote_marginal.json` extracts every cell of
+  `quote_results.json` (118 rows, was 36); new `data/heat_load_slope.json` copies the #192
+  ceiling study verbatim. `results.typ` gains `per_draw_regime(key)` (the v4 performance-table
+  rows read `results.json` through it only, as the shared-path rows read `legacy_regime`),
+  `slope()` / `slope_summary()` over the ceiling study, whose protocol record is asserted equal to
+  `quote_marginal.json`'s marginal regime; `check_results_schema.py` refuses a `rl/` or
+  `ou_marginal/` run flagged legacy. `make paper` runs the third extract, `make check` its
+  `--check`, and the v4 scorers have opt-in targets (`mc-confirmatory-v4`, `mc-quote-marginal`,
+  `mc-heat-load-slope`). `provenance.json`'s `noise_regime` names per_draw as the main-body regime
+  and the shared-path files as the development regime. No shared-path bundle file changes bytes,
+  every arxiv-v3 row of the two grown extracts keeps its values, no figure changes; the text is
+  untouched (the single-regime rewrite is #181).

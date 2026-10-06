@@ -21,7 +21,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 OUT = REPO / "articles/paper/data/provenance.json"
-RELEASE_TAG = "arxiv-v2"
+# The Release whose paper_run_logs.tar asset holds every run.jsonl.gz of data/SHA256SUMS.runlogs;
+# fetch_run_logs.sh reads the URL from the committed provenance.json, so this is the one place to
+# move it. arxiv-v4's asset is uploaded by the v4 release (issue #183): until then the arxiv-v2
+# asset exists but lacks the ou_marginal/ logs the bundle now lists.
+RELEASE_TAG = "arxiv-v4"
 RUN_LOGS_ASSET = f"https://github.com/GovitPowerz/Aerocapture/releases/download/{RELEASE_TAG}/paper_run_logs.tar"
 # Everything the figures, results.json and the PDF are built from.
 PAPER_INPUTS = (
@@ -67,10 +71,13 @@ def build() -> dict:
         "release_tag": RELEASE_TAG,
         "run_logs_asset": RUN_LOGS_ASSET,
         "noise_regime": (
-            "legacy for every committed cell except rl/* and ou_marginal/* (per_draw, issue #101) and every cell of "
-            "confirmatory_marginal.json (per_draw, issue #137); per run in results.json (ADR-0003, ADR-0006); "
-            "quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario "
-            "for the marginal one (issue #157); centered_depth.json carries both regimes, each cell labelled (issue #156)"
+            "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and "
+            "ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, "
+            "#174); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every "
+            "other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, "
+            "quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per "
+            "scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); "
+            "centered_depth.json carries both regimes, each cell labelled (issue #156)"
         ),
         "simulator_crate_version": tomllib.loads((REPO / "src/rust/Cargo.toml").read_text())["package"]["version"],
         "typst_version": typst,

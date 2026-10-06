@@ -4466,7 +4466,16 @@
       ],
       "heat_flux_p95": 188.1,
       "g_load_p95": 3.04,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 8488859.151479183,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1765000,
+        "curation": 1005000,
+        "reeval": 3015000,
+        "total": 11788000
+      }
     },
     "ou_marginal/classical/energy_controller_joint": {
       "key": "ou_marginal/classical/energy_controller_joint",
@@ -4504,7 +4513,16 @@
       ],
       "heat_flux_p95": 183.9,
       "g_load_p95": 2.9,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 3149237.715237379,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1787000,
+        "curation": 1007000,
+        "reeval": 3021000,
+        "total": 11818000
+      }
     },
     "ou_marginal/classical/equilibrium_glide": {
       "key": "ou_marginal/classical/equilibrium_glide",
@@ -4542,7 +4560,16 @@
       ],
       "heat_flux_p95": 195.2,
       "g_load_p95": 3.4,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 12032988.887295667,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1716000,
+        "curation": 1000000,
+        "reeval": 3000000,
+        "total": 11719000
+      }
     },
     "ou_marginal/classical/fnpag": {
       "key": "ou_marginal/classical/fnpag",
@@ -4580,7 +4607,16 @@
       ],
       "heat_flux_p95": 181.7,
       "g_load_p95": 2.78,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1969727.519828202,
+      "actual_sims": {
+        "n_gen": 301,
+        "n_pop": 300,
+        "training": 903000,
+        "validation": 246000,
+        "curation": 155000,
+        "reeval": 465000,
+        "total": 1769000
+      }
     },
     "ou_marginal/classical/ftc": {
       "key": "ou_marginal/classical/ftc",
@@ -4618,7 +4654,16 @@
       ],
       "heat_flux_p95": 195.6,
       "g_load_p95": 3.46,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 5937891.542964232,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1610000,
+        "curation": 1008000,
+        "reeval": 3024000,
+        "total": 11645000
+      }
     },
     "ou_marginal/classical/ftc_joint": {
       "key": "ou_marginal/classical/ftc_joint",
@@ -4656,7 +4701,16 @@
       ],
       "heat_flux_p95": 180.0,
       "g_load_p95": 2.68,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 2089522.450820596,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1797000,
+        "curation": 1012000,
+        "reeval": 3036000,
+        "total": 11848000
+      }
     },
     "ou_marginal/classical/piecewise_constant": {
       "key": "ou_marginal/classical/piecewise_constant",
@@ -4694,7 +4748,16 @@
       ],
       "heat_flux_p95": 179.1,
       "g_load_p95": 2.8,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 25978289.3502368,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1801000,
+        "curation": 1001000,
+        "reeval": 3003000,
+        "total": 11808000
+      }
     },
     "ou_marginal/classical/pred_guid": {
       "key": "ou_marginal/classical/pred_guid",
@@ -4732,7 +4795,16 @@
       ],
       "heat_flux_p95": 188.2,
       "g_load_p95": 3.01,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 7132452.432732964,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1725000,
+        "curation": 1005000,
+        "reeval": 3015000,
+        "total": 11748000
+      }
     },
     "ou_marginal/classical/pred_guid_joint": {
       "key": "ou_marginal/classical/pred_guid_joint",
@@ -4770,7 +4842,16 @@
       ],
       "heat_flux_p95": 184.3,
       "g_load_p95": 2.92,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 3206954.755729006,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1800000,
+        "curation": 1017000,
+        "reeval": 3051000,
+        "total": 11871000
+      }
     },
     "ou_marginal/classical_ungated/equilibrium_glide": {
       "key": "ou_marginal/classical_ungated/equilibrium_glide",
@@ -4808,7 +4889,16 @@
       ],
       "heat_flux_p95": 194.8,
       "g_load_p95": 3.4,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 12545294.236709012,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1704000,
+        "curation": 1003000,
+        "reeval": 3009000,
+        "total": 11719000
+      }
     },
     "ou_marginal/classical_ungated/piecewise_constant": {
       "key": "ou_marginal/classical_ungated/piecewise_constant",
@@ -4846,7 +4936,16 @@
       ],
       "heat_flux_p95": 197.5,
       "g_load_p95": 3.64,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 31064654.003505662,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 300,
+        "training": 6003000,
+        "validation": 1810000,
+        "curation": 1004000,
+        "reeval": 3012000,
+        "total": 11829000
+      }
     },
     "ou_marginal/ft_dense_p515": {
       "key": "ou_marginal/ft_dense_p515",
@@ -4884,7 +4983,16 @@
       ],
       "heat_flux_p95": 181.2,
       "g_load_p95": 2.68,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1446290.384170273,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 60,
+        "training": 1200600,
+        "validation": 1775000,
+        "curation": 1005000,
+        "reeval": 603000,
+        "total": 4583600
+      }
     },
     "ou_marginal/ft_dense_p515_s2": {
       "key": "ou_marginal/ft_dense_p515_s2",
@@ -4922,7 +5030,16 @@
       ],
       "heat_flux_p95": 181.9,
       "g_load_p95": 2.71,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1448576.1509066445,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 60,
+        "training": 1200600,
+        "validation": 1752000,
+        "curation": 1007000,
+        "reeval": 604200,
+        "total": 4563800
+      }
     },
     "ou_marginal/ft_dense_p515_s3": {
       "key": "ou_marginal/ft_dense_p515_s3",
@@ -4960,7 +5077,16 @@
       ],
       "heat_flux_p95": 182.1,
       "g_load_p95": 2.72,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1478446.4302892233,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 60,
+        "training": 1200600,
+        "validation": 1794000,
+        "curation": 1006000,
+        "reeval": 603600,
+        "total": 4604200
+      }
     },
     "ou_marginal/ft_gru_p1014": {
       "key": "ou_marginal/ft_gru_p1014",
@@ -4998,7 +5124,16 @@
       ],
       "heat_flux_p95": 181.5,
       "g_load_p95": 2.67,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 2005288.436979444,
+      "actual_sims": {
+        "n_gen": 2001,
+        "n_pop": 60,
+        "training": 1200600,
+        "validation": 1802000,
+        "curation": 1011000,
+        "reeval": 606600,
+        "total": 4620200
+      }
     },
     "ou_marginal/hl_dense_p515": {
       "key": "ou_marginal/hl_dense_p515",
@@ -5036,7 +5171,16 @@
       ],
       "heat_flux_p95": 174.5,
       "g_load_p95": 2.48,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1381674.5672990012,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13273000,
+        "curation": 10028000,
+        "reeval": 10268672,
+        "total": 54050696
+      }
     },
     "ou_marginal/hl_dense_p515_s2": {
       "key": "ou_marginal/hl_dense_p515_s2",
@@ -5074,7 +5218,16 @@
       ],
       "heat_flux_p95": 176.0,
       "g_load_p95": 2.53,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1363891.8050194567,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13373000,
+        "curation": 10030000,
+        "reeval": 10270720,
+        "total": 54154744
+      }
     },
     "ou_marginal/hl_dense_p515_s3": {
       "key": "ou_marginal/hl_dense_p515_s3",
@@ -5112,7 +5265,16 @@
       ],
       "heat_flux_p95": 173.9,
       "g_load_p95": 2.41,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1414390.287976731,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 12937000,
+        "curation": 10021000,
+        "reeval": 10261504,
+        "total": 53700528
+      }
     },
     "ou_marginal/hl_dense_p972": {
       "key": "ou_marginal/hl_dense_p972",
@@ -5150,7 +5312,16 @@
       ],
       "heat_flux_p95": 173.6,
       "g_load_p95": 2.4,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1353838.1100322688,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 12871000,
+        "curation": 10024000,
+        "reeval": 10264576,
+        "total": 53640600
+      }
     },
     "ou_marginal/hl_gru_p1014": {
       "key": "ou_marginal/hl_gru_p1014",
@@ -5188,7 +5359,16 @@
       ],
       "heat_flux_p95": 175.8,
       "g_load_p95": 2.51,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1430961.8147547613,
+      "actual_sims": {
+        "n_gen": 3395,
+        "n_pop": 512,
+        "training": 3476480,
+        "validation": 2336000,
+        "curation": 1699000,
+        "reeval": 1739776,
+        "total": 9251256
+      }
     },
     "ou_marginal/hl_lstm_p1082": {
       "key": "ou_marginal/hl_lstm_p1082",
@@ -5226,7 +5406,16 @@
       ],
       "heat_flux_p95": 174.6,
       "g_load_p95": 2.46,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1316141.7551283734,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13399000,
+        "curation": 10022000,
+        "reeval": 10262528,
+        "total": 54164552
+      }
     },
     "ou_marginal/hl_mamba_p962": {
       "key": "ou_marginal/hl_mamba_p962",
@@ -5264,7 +5453,16 @@
       ],
       "heat_flux_p95": 182.5,
       "g_load_p95": 2.69,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1286329.7145848582,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13037000,
+        "curation": 10019000,
+        "reeval": 10259456,
+        "total": 53796480
+      }
     },
     "ou_marginal/hl_mamba_p962_s2": {
       "key": "ou_marginal/hl_mamba_p962_s2",
@@ -5302,7 +5500,16 @@
       ],
       "heat_flux_p95": 179.2,
       "g_load_p95": 2.62,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1616733.9965657727,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13811000,
+        "curation": 10029000,
+        "reeval": 10269696,
+        "total": 54590720
+      }
     },
     "ou_marginal/hl_mamba_p962_s3": {
       "key": "ou_marginal/hl_mamba_p962_s3",
@@ -5340,7 +5547,16 @@
       ],
       "heat_flux_p95": 177.4,
       "g_load_p95": 2.59,
-      "best_val_rms_within_transform_only": null
+      "best_val_rms_within_transform_only": 1385806.4096151881,
+      "actual_sims": {
+        "n_gen": 20001,
+        "n_pop": 512,
+        "training": 20481024,
+        "validation": 13648000,
+        "curation": 10027000,
+        "reeval": 10267648,
+        "total": 54423672
+      }
     },
     "output_param/delta": {
       "key": "output_param/delta",

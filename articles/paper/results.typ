@@ -7,6 +7,10 @@
 //   marg(label)   -> a confirmatory_marginal.json cell (10 x 100 000, per-scenario noise)
 //   ou(label)     -> a quote_marginal.json cell (paired n = 1000; regime: "marginal" = one noise
 //                    path per scenario, "frozen" = the shared path)
+//   slope(cell, ceiling, eval)  -> a heat_load_slope.json row: the #192 ceiling leg `cell` ("mamba_p962" /
+//                    "dense_p515") fine-tuned under ceiling "q25" / "q27" / "q30", scored at its "own"
+//                    ceiling or at the "v4" limit (paired n = 1000, the marginal regime of ou())
+//   slope_summary(cell)  -> its CVaR95 slope per MJ/m2 and the source seeds' CVaR95 spread
 //   centered(label, regime)          -> a centered_depth.json cell (9M stress pool, n = 10 000, high
 //                                       regime; regime "per_draw" or "legacy", the file's pair, asserted; #156)
 //   centered_paired(a, b, regime)    -> its paired seed-versus-baseline deltas under one regime
@@ -17,13 +21,15 @@
 //                    retrained in-regime baseline arm (data/probes/<p>_probe_results.json): p95 of
 //                    the reference, three-seed mean p95 of the arm and its sigma_run
 //   span(xs)      -> the min--max range of a list of numbers, as math (f: fixed or signed, d decimals)
-// Every run and confirmatory cell of results.json / confirmatory_eval.json used by the headline
-// tables was flown under the legacy (shared-path) noise regime; legacy_regime() asserts it so a
-// re-quoted run cannot enter a table whose caption states that regime. confirmatory_marginal.json
-// is per_draw throughout, asserted at load (ADR-0003 / ADR-0006, issue #137). quote_marginal.json
+// The regime is part of the number (ADR-0003 / ADR-0006): a results.json run enters a table only
+// through legacy_regime(key) or per_draw_regime(key), each asserting the run's noise_seeding, so a
+// shared-path (development-regime) run cannot enter a per-scenario table or the reverse. The
+// confirmatory_eval.json cells are legacy throughout; confirmatory_marginal.json is per_draw
+// throughout, asserted at load (issues #137, #174). quote_marginal.json
 // (issue #157) pins legacy seeding for both of its regimes and reaches the per-scenario one through
 // a per-seed override of simulation.random_seed, asserted at load on the protocol record its source
-// writes (`regimes`, `seed_pool`; issue #166), so the assert tests the scoring script, not the extract.
+// writes (`regimes`, `seed_pool`; issue #166), so the assert tests the scoring script, not the extract;
+// heat_load_slope.json (issue #192) carries the same marginal protocol record and is asserted the same way.
 
 #let results = json("data/results.json")
 #let confirmatory = json("data/confirmatory_eval.json")
@@ -34,6 +40,11 @@
 #assert(quotes.regimes.keys() == ("frozen", "marginal") and quotes.regimes.values().all(r => r.noise_seeding == "legacy")
   and quotes.regimes.frozen.per_seed_override == none and quotes.regimes.marginal.per_seed_override != none,
   message: "quote_marginal.json does not carry the frozen / marginal pair of legacy-seeded regimes")
+#let heat_load = json("data/heat_load_slope.json")
+#assert(heat_load.regime.noise_seeding == "legacy" and heat_load.regime.per_seed_override != none
+  and heat_load.regime.per_seed_override == quotes.regimes.marginal.per_seed_override
+  and heat_load.seed_pool == quotes.seed_pool,
+  message: "heat_load_slope.json is not the marginal regime of quote_marginal.json (legacy seeding, per-scenario random_seed override, the same seed pool)")
 #let centered_depth = json("data/centered_depth.json")
 #assert(centered_depth.regimes.keys() == ("per_draw", "legacy")
   and centered_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"
@@ -76,6 +87,19 @@
   let c = quotes.cells.at(key)
   (capture_pct: c.capture_pct, cvar95: c.dv_cvar95, viol_pct: c.heat_load_viol_pct)
 }
+// A #192 ceiling leg scored on the paired n = 1000 pool: the ceiling it flew under (kJ/m2), capture %,
+// CVaR95 and worst case of the correction DV, heat-load p95 / max (MJ/m2) and the violation %.
+#let slope(cell, ceiling, eval: "own") = {
+  let key = "hs_" + cell + "_" + ceiling + "/" + eval
+  assert(key in heat_load.rows, message: "heat_load_slope.json has no row " + key)
+  let r = heat_load.rows.at(key)
+  (ceiling: r.ceiling_kj_m2, capture_pct: r.capture_pct, cvar95: r.dv_cvar95, max: r.dv_max,
+    heat_load_p95: r.heat_load_p95_mj_m2, heat_load_max: r.heat_load_max_mj_m2, viol_pct: r.heat_load_viol_pct)
+}
+#let slope_summary(cell) = {
+  assert(cell in heat_load.summary, message: "heat_load_slope.json has no summary for " + cell)
+  heat_load.summary.at(cell)
+}
 // A centered high-regime cell at sizing depth, under one of the file's two regimes: n, capture %
 // (+ CI), the conditional DV statistics (+ CIs) of run_stats.
 #let centered(label, regime) = {
@@ -110,6 +134,13 @@
 #let legacy_regime(key) = {
   let r = run(key)
   assert(r.noise_seeding == "legacy" and not r.legacy_prefix_regime, message: key + " is not a legacy-regime run")
+  r
+}
+// The per-scenario (per_draw) regime, asserted the same way: the v4 performance-table rows read
+// results.json through this accessor only, so a shared-path run cannot enter them.
+#let per_draw_regime(key) = {
+  let r = run(key)
+  assert(r.noise_seeding == "per_draw" and not r.legacy_prefix_regime, message: key + " is not a per-scenario (per_draw) run")
   r
 }
 

@@ -109,8 +109,8 @@ def _infer_training_n_sims(key: str) -> int:
     # Study F cells encode n_sims in the cell name; everything else trains at 10.
     if key.startswith("training_n_sims/"):
         return int(key.rsplit("_", 1)[1])
-    if key.startswith(("headline/", "tail_repeats/")):
-        return 2  # headline + tail sigma_run runs trained at n_sims=2
+    if key.startswith(("headline/", "tail_repeats/", "ou_marginal/hl_")):
+        return 2  # headline + tail sigma_run runs and the #173 512 x 2 cells trained at n_sims=2
     return 10
 
 

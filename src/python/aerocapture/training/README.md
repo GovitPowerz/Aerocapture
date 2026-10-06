@@ -748,22 +748,32 @@ validation_n_sims` sims each).
   articles/paper <target>`): `figures` (default) rebuilds the 18 `fig_*.svg` from `data/` + the
   bundle with real dependency semantics (a missing input is a make error, never a thinner
   figure); `results` = `aggregate_results.py` (results.json is deliberately NOT a make rule so a
-  fresh clone's mtimes never trigger it); `fetch-logs` (the 195 MB run logs
-  `articles/paper/data/runs/**/*.jsonl.gz` are untracked: `articles/paper/scripts/fetch_run_logs.sh`,
-  a Release asset on the `arxiv-v2` tag); `provenance` writes `data/provenance.json` (a content
+  fresh clone's mtimes never trigger it); `fetch-logs` (the run logs
+  `articles/paper/data/runs/**/*.jsonl.gz` are untracked: `articles/paper/scripts/fetch_run_logs.sh`
+  downloads the Release asset named by `data/provenance.json`'s `run_logs_asset`, the one place
+  the tag lives (`write_provenance.RELEASE_TAG`; `arxiv-v4`, whose asset the v4 release uploads,
+  issue #183); `provenance` writes `data/provenance.json` (a content
   SHA-256 over every tracked paper input plus Release tag, crate/typst/matplotlib versions,
   campaign TOML hashes; `--check` fails when stale); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD
   commit time, `--input git_head=<short sha>[-dirty]` for the colophon; `PDF=/tmp/x.pdf` leaves
-  the committed PDF alone); `confirmatory-marginal` writes `data/confirmatory_marginal.json`, the
-  cells and fields the paper quotes from the per_draw far-tail confirmatory
-  `experiments/ou_marginal/confirmatory_marginal.json` (`extract_confirmatory_marginal.py`, issue
-  #137); `quote-marginal` writes `data/quote_marginal.json`, the cells and fields Appendix E
-  quotes from the paired n = 1000 both-regime scoring `experiments/ou_marginal/quote_results.json`
-  (`extract_quote_marginal.py`, issue #157). `articles/paper/results.typ` is the compile-time
+  the committed PDF alone); `confirmatory-marginal` writes `data/confirmatory_marginal.json`,
+  every cell of the scorer's manifests (`experiments/ou_marginal/confirmatory_cells.txt` +
+  `confirmatory_cells_v4.txt`, the one cell list: scored, extracted and quotable from the same
+  line) and the quoted fields of the per_draw 10^6 confirmatory
+  `experiments/ou_marginal/confirmatory_marginal.json` (`extract_confirmatory_marginal.py`, issues
+  #137, #174, #179); `quote-marginal` writes `data/quote_marginal.json`, every cell and the quoted
+  fields of the paired n = 1000 both-regime scoring `experiments/ou_marginal/quote_results.json`
+  (`extract_quote_marginal.py`, issues #157, #175); `heat-load-slope` copies
+  `experiments/ou_marginal/heat_load_slope.json` to `data/heat_load_slope.json` verbatim
+  (`extract_heat_load_slope.py`, issue #192). `articles/paper/results.typ` is the compile-time
   seam: accessors over `results.json` / `confirmatory_eval.json` / `quant/finalists_results.json`
-  (legacy regime, `legacy_regime()`), `confirmatory_marginal.json` (per_draw, asserted at load)
+  (a `results.json` run enters a table only through `legacy_regime()` or `per_draw_regime()`, each
+  asserting the run's `noise_seeding`, so a shared-path run cannot enter a per-scenario table or
+  the reverse), `confirmatory_marginal.json` (per_draw, asserted at load),
   `quote_marginal.json` (its frozen / marginal regime pair asserted at load on the protocol record
-  its source writes, issue #166) and `centered_depth.json` (Section 7.3's centered cells at
+  its source writes, issue #166), `heat_load_slope.json` (`slope()` / `slope_summary()`; its
+  protocol record asserted equal to `quote_marginal.json`'s marginal regime) and
+  `centered_depth.json` (Section 7.3's centered cells at
   n = 10,000, per_draw / legacy pair asserted at load, issue #156) that fill every
   cell of the performance, paired-comparison, quantization-finalists, sizing-depth centered,
   per-scenario far-tail, shared-path-versus-per-scenario and retraining tables (the Viol. column of the performance table
@@ -773,10 +783,15 @@ validation_n_sims` sims each).
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
   regenerates it + `SHA256SUMS.runlogs`, the latter only when no fewer run logs are present than it
   lists) + `check_results_schema.py` +
-  `extract_confirmatory_marginal.py --check` + `extract_quote_marginal.py --check` + `write_provenance.py
+  `extract_confirmatory_marginal.py --check` + `extract_quote_marginal.py --check` +
+  `extract_heat_load_slope.py --check` + `write_provenance.py
   --check` + the `FROZEN` files present (the 7 data files with no producer in the tree) + `git
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets
-  re-fly cells (never default, never CI). Figures are byte-reproducible across macOS and Linux:
+  re-fly cells (never default, never CI; the v4 scorers are `mc-confirmatory-v4`,
+  `mc-quote-marginal`, `mc-heat-load-slope`, every one per_draw and resumable; `stress_depth.json`
+  (#176), `centered_depth_v4.json` (#177) and `quant_v4/` (#178) get theirs with the issue that
+  writes the file). `check_results_schema.py` also refuses a `rl/` or `ou_marginal/` run flagged
+  legacy (or any other flagged per_draw). Figures are byte-reproducible across macOS and Linux:
   `figlib` forces the Agg backend, sets `text.hinting = "none"`, `save` sets `svg.hashsalt` +
   `metadata={"Date": None}`, and `style()` registers the vendored STIX Two Text
   (`articles/paper/fonts/`, OFL) as the ONLY entry of that family. Bytes are stable only under the
