@@ -623,8 +623,8 @@ gradient then walks off it, as in arxiv-v3.
 `d92c6bbd...bc517d4d`, the model #174 scored), per-scenario noise throughout.
 Started 2026-10-06 from `feature/v4-champion-controls` at f3ee1406 (#202): the
 four quick steps below took about 7 minutes, then the two control retrains
-began. The controls (record 2) and the rustc check (record 6) join this section
-when they finish. Posted on #176.
+began; the controls (record 2) and the rustc check (record 6) close the section.
+Posted on #176.
 
 ### Reset state at 10^6
 
@@ -718,3 +718,44 @@ CVaR95 is worse than every classical scheme except FNPAG. For reference only
 `robustness_stress.json` had the shared-path NN at 90.1% against joint-FTC's
 94.5%. Section 7.2's off-nominal probe reports the deployed NN as the least
 robust of the five on capture.
+
+### Mechanism controls, seed 1 at 10^6
+
+`campaign.sh experiments/ou_marginal/jobs_controls.txt`, both from scratch at
+the champion's allocation (GA 512 x 2, 20000 gens, adaptive seeds, cubed),
+trainer seed 1, per_draw: `ctrl_window_p970` ran 11:53 to 16:06 (4 h 13 min);
+`ctrl_mamba_p962_nodv` ran 16:07 to 23:07, stopped by Ctrl-C at gen 8996
+(18:22) and resumed from that checkpoint at 20:15 (5 h 7 min of training).
+Then both on the 10^6 pool by the runner (eval commit 3c6fe51d: the checkout
+had moved to #196's branch, whose one commit touches `animate.py`, its test and
+the README only). DV in m/s over captured scenarios:
+
+| cell | capture | viol % any (flux / g / heat load) | p95 | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 (champion) | 100.0000% | 0.1148 (0.0000 / 0.0000 / 0.1148) | 116.5 | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/hl_mamba_p962_s2 | 99.9996% | 0.0437 (0.0000 / 0.0000 / 0.0437) | 127.2 | 131.7 | 159.3 +- 0.6 | 621 |
+| ou_marginal/hl_mamba_p962_s3 | 100.0000% | 0.0567 (0.0000 / 0.0000 / 0.0567) | 120.1 | 122.9 | 142.3 +- 0.5 | 266 |
+| ou_marginal/ctrl_window_p970 | 100.0000% | 0.1521 (0.0000 / 0.0000 / 0.1521) | 122.8 | 127.0 | 158.3 +- 0.6 | 258 |
+| ou_marginal/ctrl_mamba_p962_nodv | 100.0000% | 0.2471 (0.0000 / 0.0000 / 0.2471) | 122.7 | 125.8 | 145.6 +- 0.5 | 236 |
+
+Pre-registered rule (`confirmatory_marginal.py --table`, `#176 controls rule`):
+the champion's three-seed CVaR99.9 range is [142.3, 173.9]; the window control
+(158.3) and the no-predicted-DV control (145.6) both land inside it, so both owe
+seeds 2 and 3 before the paper reads them. The four repeats are registered in
+`jobs_controls.txt` (`ctrl_*_s2`, `ctrl_*_s3`, trainer seeds 2 and 3).
+
+On one seed each, neither removed ingredient shows a tail cost: the stateless
+window policy sits at the champion seeds' mean CVaR99.9 (158.5), the network
+without the predicted-DV inputs next to the best seed. Their bulk is a few m/s
+behind seed 1 (replicate median 113.8 and 114.3 against 110.2) and inside the
+seeds' CVaR95 range (120.1 to 131.7). The reset-state record shows that the
+trained Mamba depends on its own state; these two show that a policy trained
+without that state, or without those inputs, reaches the same tail. Section
+6.3's claim waits on the repeats.
+
+### Compute benchmark
+
+The committed `compute_benchmark.json` was measured with rustc 1.98.1
+(2026-09-01); the toolchain is now rustc 1.99.0 (2026-09-28). By step 6 the
+benchmark is re-run: `make -C articles/paper mc-compute-benchmark` on an idle
+machine, every scheme in one session.
