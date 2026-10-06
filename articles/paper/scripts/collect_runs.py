@@ -2,12 +2,14 @@
 
 Walks the campaign output trees and, for each run dir holding a final_eval.parquet,
 copies {best_model.json, best_params.json, final_eval.parquet, final_selection.json}
-and gzips the newest run_*.jsonl into articles/paper/data/runs/<study>/<cell>/.
+and gzips the run_*.jsonl fragments (one per launch of a resumed run) as one run.jsonl.gz into
+articles/paper/data/runs/<study>/<cell>/.
 Idempotent: a destination file is rewritten only when the source is newer.
 """
 
 import argparse
 import gzip
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -51,8 +53,8 @@ LEGACY = (
 # experiments/paper/18_rl_baseline.sh into training_output/paper/rl/ and are bundled as
 # rl/<cell> by the paper/ walk above), the classical retunes (#172, classical/<cell> and the
 # #188 classical_ungated/<cell>). The 60 x 10 scratch repeats have no parquet and stay out;
-# the #192 ceiling legs (hs_*) are a sensitivity study, quoted by heat_load_slope.py. Their run
-# logs are bundled like every other study's (issue #179) and join the v4 Release asset: the 512 x 2
+# the #192 ceiling legs (hs_*) are a sensitivity study, quoted by heat_load_slope.py. The bundled
+# cells' run logs travel like every other study's (issue #179) and join the v4 Release asset: the 512 x 2
 # logs are ~240 MB each raw, so run strip_run_logs.py on the new files before `make sums`.
 OU_MARGINAL_SKIP = ("hs_",)
 # Off-campaign studies under training_output/paper/ (scripts 13-16) whose cells were never
@@ -129,17 +131,23 @@ def _copy_if_newer(src: Path, dst: Path) -> bool:
     return True
 
 
-def _gzip_newest_jsonl(run_dir: Path, dst: Path) -> bool:
+def _gzip_run_log(run_dir: Path, dst: Path) -> bool:
+    """Gzip the run's whole log: a resumed run writes one run_*.jsonl per launch, and each
+    fragment supersedes the generations it re-logs (the resume generation is in both)."""
     logs = sorted(run_dir.glob("run_*.jsonl"), key=lambda p: p.stat().st_mtime)
     if not logs:
         return False
-    src = logs[-1]
-    if dst.exists() and dst.stat().st_mtime >= src.stat().st_mtime:
+    if dst.exists() and dst.stat().st_mtime >= logs[-1].stat().st_mtime:
         return False
+    lines: list[tuple[int, bytes]] = []
+    for log in logs:
+        new = [(json.loads(line)["generation"], line) for line in log.read_bytes().splitlines(keepends=True) if line.strip()]
+        if new:
+            lines = [(g, line) for g, line in lines if g < new[0][0]] + new
     dst.parent.mkdir(parents=True, exist_ok=True)
-    with open(src, "rb") as f_in, gzip.open(dst, "wb", compresslevel=9) as f_out:
-        shutil.copyfileobj(f_in, f_out)
-    shutil.copystat(src, dst)
+    with gzip.open(dst, "wb", compresslevel=9) as f_out:
+        f_out.writelines(line for _, line in lines)
+    shutil.copystat(logs[-1], dst)
     return True
 
 
@@ -168,7 +176,7 @@ def main(argv: list[str] | None = None) -> None:
             # rl: the RL cells' logs are the trainer's flat `rl_training_*.jsonl`, which
             # aggregate_results.actual_sims and _best_val_rms cannot read (they expect the
             # population `validation` records).
-            if dst.relative_to(OUT).parts[0] not in ("architecture_sweep", "rl") and _gzip_newest_jsonl(src, dst / "run.jsonl.gz"):
+            if dst.relative_to(OUT).parts[0] not in ("architecture_sweep", "rl") and _gzip_run_log(src, dst / "run.jsonl.gz"):
                 copied.append("run.jsonl.gz")
         status = "would collect" if args.dry_run else (f"updated {', '.join(copied)}" if copied else "up to date")
         print(f"  {src.relative_to(TRAINING)} -> {dst.relative_to(REPO)}  [{status}]")

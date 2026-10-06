@@ -752,7 +752,7 @@ validation_n_sims` sims each).
   `articles/paper/data/runs/**/*.jsonl.gz` are untracked: `articles/paper/scripts/fetch_run_logs.sh`
   downloads the Release asset named by `data/provenance.json`'s `run_logs_asset`, the one place
   the tag lives (`write_provenance.RELEASE_TAG`; `arxiv-v4`, whose asset the v4 release uploads,
-  issue #183); `provenance` writes `data/provenance.json` (a content
+  issue #183; `paper` runs `check-logs` right after it, since it is a no-op once any log is present); `provenance` writes `data/provenance.json` (a content
   SHA-256 over every tracked paper input plus Release tag, crate/typst/matplotlib versions,
   campaign TOML hashes; `--check` fails when stale); `pdf` (typst, `SOURCE_DATE_EPOCH` = HEAD
   commit time, `--input git_head=<short sha>[-dirty]` for the colophon; `PDF=/tmp/x.pdf` leaves
@@ -808,7 +808,7 @@ validation_n_sims` sims each).
   merged TOML, overrides, sim timeout, model bytes and pool, so an interrupted cell resumes
   without re-flying one and a store flown under anything else is refused; a saved cell is skipped
   unless `--force`; every save merges the cells the file holds by then, so invocations sharing
-  one `--out` may run concurrently; gate `tests/test_confirmatory_persistence.py`). `collect_runs._run_dirs` (the `ou_marginal/` walk skips `OU_MARGINAL_SKIP`, the #192 ceiling legs)
+  one `--out` may run concurrently; gate `tests/test_confirmatory_persistence.py`). `collect_runs._run_dirs` (the `ou_marginal/` walk skips `OU_MARGINAL_SKIP`, the #192 ceiling legs; `_gzip_run_log` bundles every `run_*.jsonl` fragment of a resumed run, later fragments superseding the generations they re-log)
   / `OFF_CAMPAIGN` and `aggregate_results.PAIRED` / `PER_DRAW_PREFIXES` decide what the bundle carries and stamp each
   run's `noise_seeding`; the `v4_*` pairs (#175) read the #173 and #172 cells and the v4 PPO cells (`v4_ppo_*`, seed repeats included) on the per-scenario 2M pool.
 - `experiments/ou_marginal/` — the frozen-vs-marginal noise quantification

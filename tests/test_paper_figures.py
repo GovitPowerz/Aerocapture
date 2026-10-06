@@ -338,17 +338,42 @@ def test_aggregate_training_n_sims_per_study(monkeypatch: pytest.MonkeyPatch) ->
     assert agg._infer_training_n_sims("training_n_sims/ga_50") == 50
 
 
-def test_fetch_run_logs_reads_the_asset_from_provenance() -> None:
-    """One place names the Release asset (write_provenance.RELEASE_TAG): the fetch script reads
-    the committed provenance.json's run_logs_asset, so the tag moves with the provenance."""
+def test_collect_bundles_every_fragment_of_a_resumed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A resumed run writes one run_*.jsonl per launch; the bundled log is all of them, each later
+    fragment superseding the generations it re-logs (ou_marginal/hl_gru_p1014 counted 3395 of its
+    20001 generations while the newest fragment alone was bundled)."""
+    import gzip
+    import os
+
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    import collect_runs as cr  # type: ignore[import-not-found]
+
+    run = tmp_path / "run"
+    run.mkdir()
+    for i, (name, gens) in enumerate((("run_000_a.jsonl", range(0, 4)), ("run_000_b.jsonl", range(2, 6)))):
+        (run / name).write_text("".join(json.dumps({"generation": g, "launch": i}) + "\n" for g in gens))
+        os.utime(run / name, (1_000_000 + i, 1_000_000 + i))
+    dst = tmp_path / "bundle/run.jsonl.gz"
+    assert cr._gzip_run_log(run, dst)
+    with gzip.open(dst, "rt") as f:
+        records = [json.loads(line) for line in f]
+    assert [(r["generation"], r["launch"]) for r in records] == [(0, 0), (1, 0), (2, 1), (3, 1), (4, 1), (5, 1)]
+    assert not cr._gzip_run_log(run, dst)
+
+
+def test_fetch_run_logs_reads_the_asset_from_provenance(tmp_path: Path) -> None:
+    """One place names the Release asset (write_provenance.RELEASE_TAG): the fetch script requests
+    the committed provenance.json's run_logs_asset, so the tag moves with the provenance. A stub
+    curl records the URL and fails, so nothing is downloaded or extracted."""
     prov = json.loads((PAPER / "data/provenance.json").read_text())
-    script = (SCRIPTS / "fetch_run_logs.sh").read_text()
-    assert "run_logs_asset" in script and "releases/download" not in script
+    assert "releases/download" not in (SCRIPTS / "fetch_run_logs.sh").read_text()
     assert prov["run_logs_asset"].endswith(f"/releases/download/{prov['release_tag']}/paper_run_logs.tar")
-    url = subprocess.run(
-        ["sed", "-n", r's/^ *"run_logs_asset": "\(.*\)",*$/\1/p', str(PAPER / "data/provenance.json")], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    assert url == prov["run_logs_asset"]
+    curl = tmp_path / "curl"
+    curl.write_text(f'#!/bin/sh\nfor a; do last="$a"; done\necho "$last" > {tmp_path / "url"}\nexit 22\n')
+    curl.chmod(0o755)
+    out = subprocess.run(["bash", str(SCRIPTS / "fetch_run_logs.sh")], capture_output=True, text=True, env={"PATH": f"{tmp_path}:/usr/bin:/bin"})
+    assert out.returncode != 0 and "not fetched" in out.stderr
+    assert (tmp_path / "url").read_text().strip() == prov["run_logs_asset"]
 
 
 def test_results_typ_asserts_the_regime_of_every_run_accessor() -> None:

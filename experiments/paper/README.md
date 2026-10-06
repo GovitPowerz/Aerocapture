@@ -58,7 +58,7 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   `run.jsonl.gz`): `articles/paper/data/runs/<study>/<cell>/` via
   `12_collect_results.sh`; the preserved legacy dirs land under
   `runs/legacy/<dir>/`. Tables/figures reproduce from the bundle WITHOUT
-  re-training: `make -C articles/paper paper` (fetch-logs -> results.json ->
+  re-training: `make -C articles/paper paper` (fetch-logs -> check-logs -> results.json ->
   confirmatory_marginal.json -> quote_marginal.json -> heat_load_slope.json ->
   figures -> provenance -> pdf; `make -C articles/paper check` verifies the
   checksums, the three per-scenario extracts and the figures; the opt-in `mc-*` targets re-fly

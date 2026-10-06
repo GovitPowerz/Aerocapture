@@ -1,7 +1,7 @@
 # Rebuild the paper's figures, results.json and PDF from the committed bundle.
 #
 #   make -C articles/paper                 figures (default): the 18 fig_*.svg from data/ + the bundle
-#   make -C articles/paper paper           fetch-logs (if absent) -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> figures -> provenance -> pdf
+#   make -C articles/paper paper           fetch-logs (if absent) -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> figures -> provenance -> pdf
 #   make -C articles/paper check           SHA256SUMS + results.json schema + the three per-scenario extracts + figures/results.json unchanged in git
 #   make -C articles/paper -B figures      force every figure (CI does this, then `check`)
 #   make -C articles/paper -n paper        print what would run
@@ -76,13 +76,13 @@ $(FIGS)/fig_training_n_sims.svg: $(DATA)/results.json
 
 # results.json is a committed bundle product consumed by the figures as a plain file
 # (deliberately no rule: a fresh clone's mtimes must not trigger a rebuild that needs
-# the 195 MB run logs; a missing file is "No rule to make target"). `make results`
+# the ~310 MB run logs; a missing file is "No rule to make target"). `make results`
 # regenerates it explicitly; aggregate_results.py exits non-zero without the logs.
 
 # ---------------------------------------------------------------------------
 # results.json <- aggregate_results.py over the bundle parquets + the run logs
 # ---------------------------------------------------------------------------
-RUN_LOGS := $(wildcard $(RUNS)/*/*/run.jsonl.gz)
+RUN_LOGS := $(shell find $(RUNS) -name run.jsonl.gz 2>/dev/null)
 
 results:
 	$(UVPY) articles/paper/scripts/aggregate_results.py
@@ -130,8 +130,10 @@ GIT_HEAD = $$(git rev-parse --short HEAD)$$(test -z "$$(git status --porcelain -
 pdf:
 	cd $(ROOT) && SOURCE_DATE_EPOCH=$$(git log -1 --format=%ct) typst compile --input git_head=$(GIT_HEAD) articles/paper/paper.typ $(PDF)
 
-# Recursive so the log wildcard is re-evaluated after fetch-logs.
+# Recursive so the log list is re-evaluated after fetch-logs. check-logs first: fetch-logs is a no-op
+# once any log is present, and an older asset's subset would drop actual_sims from the rows it lacks.
 paper: fetch-logs
+	$(MAKE) check-logs
 	$(MAKE) results
 	$(MAKE) confirmatory-marginal
 	$(MAKE) quote-marginal

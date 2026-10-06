@@ -5361,13 +5361,13 @@
       "g_load_p95": 2.51,
       "best_val_rms_within_transform_only": 1430961.8147547613,
       "actual_sims": {
-        "n_gen": 3395,
+        "n_gen": 20001,
         "n_pop": 512,
-        "training": 3476480,
-        "validation": 2336000,
-        "curation": 1699000,
-        "reeval": 1739776,
-        "total": 9251256
+        "training": 20481024,
+        "validation": 14224000,
+        "curation": 10030000,
+        "reeval": 10270720,
+        "total": 55005744
       }
     },
     "ou_marginal/hl_lstm_p1082": {

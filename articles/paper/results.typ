@@ -41,10 +41,10 @@
   and quotes.regimes.frozen.per_seed_override == none and quotes.regimes.marginal.per_seed_override != none,
   message: "quote_marginal.json does not carry the frozen / marginal pair of legacy-seeded regimes")
 #let heat_load = json("data/heat_load_slope.json")
-#assert(heat_load.regime.noise_seeding == "legacy" and heat_load.regime.per_seed_override != none
+#assert(heat_load.regime.noise_seeding == "legacy"
   and heat_load.regime.per_seed_override == quotes.regimes.marginal.per_seed_override
-  and heat_load.seed_pool == quotes.seed_pool,
-  message: "heat_load_slope.json is not the marginal regime of quote_marginal.json (legacy seeding, per-scenario random_seed override, the same seed pool)")
+  and heat_load.seed_pool == quotes.seed_pool and heat_load.n_sims == quotes.n_sims,
+  message: "heat_load_slope.json is not the marginal regime of quote_marginal.json (legacy seeding, per-scenario random_seed override, the same seed pool and n)")
 #let centered_depth = json("data/centered_depth.json")
 #assert(centered_depth.regimes.keys() == ("per_draw", "legacy")
   and centered_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"

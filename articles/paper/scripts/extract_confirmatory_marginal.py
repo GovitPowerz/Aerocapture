@@ -15,25 +15,23 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO / "experiments/ou_marginal"))
+
+from confirmatory_marginal import read_manifest  # noqa: E402
+
 SRC = REPO / "experiments/ou_marginal/confirmatory_marginal.json"
 OUT = REPO / "articles/paper/data/confirmatory_marginal.json"
 MANIFEST_REL = ("experiments/ou_marginal/confirmatory_cells.txt", "experiments/ou_marginal/confirmatory_cells_v4.txt")
 MANIFESTS = tuple(REPO / m for m in MANIFEST_REL)
-# heat_load_viol_n (the #173 outcome's "scenarios over the ceiling per 10^6") postdates the #137 rows
-# (fnpag, mamba_p962_long), which carry null for it.
-POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct", "heat_load_viol_n")
+POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
+# heat_load_viol_n (the #173 outcome's "scenarios over the ceiling per 10^6") postdates the rows scored
+# before it (#137's fnpag and mamba_p962_long, the arxiv-v3 fine-tunes and PPO cells): null on those.
+VIOL_N = "heat_load_viol_n"
 
 
 def manifest_labels(paths: tuple[Path, ...] = MANIFESTS) -> tuple[str, ...]:
-    """The 'label|toml[|model_dir]' rows of the scorer's manifests, first field, in order, deduplicated
-    (the line grammar of confirmatory_marginal.read_manifest: `#` starts a comment anywhere on a line)."""
-    labels: dict[str, None] = {}
-    for path in paths:
-        for raw in path.read_text().splitlines():
-            line = raw.split("#", 1)[0].strip()
-            if line:
-                labels[line.split("|", 1)[0].strip()] = None
-    return tuple(labels)
+    """The labels of the scorer's manifests (confirmatory_marginal.read_manifest), in order, deduplicated."""
+    return tuple(dict.fromkeys(label for path in paths for label, _, _ in read_manifest(path)))
 
 
 def build() -> dict:
@@ -52,6 +50,7 @@ def build() -> dict:
         "source": str(SRC.relative_to(REPO)),
         "manifests": list(MANIFEST_REL),
         "noise_seeding": src["noise_seeding"],
+        # The first scoring run's commit; a row scored later records its own eval_commit (null: scored at freeze_commit).
         "freeze_commit": src["freeze_commit"],
         "n_replicates": src["n_replicates"],
         "n_per_replicate": src["n_per_replicate"],
@@ -59,7 +58,8 @@ def build() -> dict:
             {
                 "label": label,
                 "toml": by_label[label]["toml"],
-                "pooled": {k: by_label[label]["pooled"].get(k) for k in POOLED},
+                "eval_commit": by_label[label].get("eval_commit"),
+                "pooled": {**{k: by_label[label]["pooled"][k] for k in POOLED}, VIOL_N: by_label[label]["pooled"].get(VIOL_N)},
                 "replicate_stats": {"cvar999": {"se": by_label[label]["replicate_stats"]["cvar999"]["se"]}},
             }
             for label in cells
