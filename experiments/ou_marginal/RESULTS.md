@@ -770,7 +770,8 @@ clock. DV in m/s over captured scenarios:
 | ou_marginal/ctrl_mamba_p962_nodv_s2 | 99.9972% | 28: 28 crash | 0.1211 (0.0000 / 0.0000 / 0.1211) | 129.5 | 181.3 +- 1.2 | 977 |
 | ou_marginal/ctrl_mamba_p962_nodv_s3 | 100.0000% | 0 | 0.1448 (0.0000 / 0.0000 / 0.1448) | 130.3 | 156.5 +- 0.5 | 212 |
 
-By family, trainer seeds 1 / 2 / 3 (seed-1 rows in the table above):
+By family, trainer seeds 1 / 2 / 3 (the seed-1 and champion rows are in the
+seed-1 table of the previous subsection):
 
 | family | CVaR99.9 s1 / s2 / s3 | CVaR99.9 mean +- sd | CVaR95 mean +- sd | replicate median s1 / s2 / s3 | non-captures per 10^6 |
 |---|---|---|---|---|---|
