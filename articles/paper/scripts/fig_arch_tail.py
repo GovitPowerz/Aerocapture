@@ -5,7 +5,7 @@ trained from scratch at the headline allocation (GA 512 x 2, 20 000 generations,
 density noise: the #173 `hl_*` runs), scored on the 10^6 per-scenario confirmatory pool
 (10 x 100 000 scenarios per cell, per_draw, asserted at load). Mamba-962 and Dense-515 carry
 three seeds (bar = seed mean), LSTM-1082, GRU-1014 and Dense-972 one. Whiskers on the right
-panel are +-1.96 replicate standard errors of CVaR99.9, drawn where they exceed the marker.
+panel are +-1.96 replicate standard errors of CVaR99.9 (hidden under the marker where shorter).
 The deployed cell is seed 1 of Mamba-962 (starred), fixed by the pre-registered rule before any
 10^6 score existed; nothing here was selected on this pool. The retuned classical references
 (joint-FTC and FNPAG, #172) are dashed lines. The sample maximum is not plotted: at 10^6

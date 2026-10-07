@@ -56,7 +56,7 @@ def main():
     ax.set_xlabel("compute cost (ms / sim, log scale)")
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")
     ax.set_title("Deployability: tail vs compute")
-    # Limits from the data: a decade of margin either side in x, the label stack above and below in y.
+    # Limits from the data: a factor of two of margin either side in x, the label stack above and below in y.
     ax.set_xlim(min(xs) / 2.0, max(xs) * 2.0)
     span = max(ys) - min(ys)
     ax.set_ylim(min(ys) - 0.45 * span, max(ys) + 0.35 * span)

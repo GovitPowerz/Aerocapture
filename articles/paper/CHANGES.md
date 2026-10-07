@@ -252,11 +252,14 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   (hollow), the Spearman over the nine quoted as descriptive; `fig_ablation` reads the v4 champion's
   `runs/ou_marginal/hl_mamba_p962/ablation_results.json` (bundled with its `fresh_pool_requote.json`,
   #176); `fig_robustness` reads `stress_depth.json` (n = 10 000, bootstrap CI whiskers) against each
-  scheme's 10^6 nominal. `figlib` gains `marginal()` and `stress_depth()`, both asserting per_draw.
+  scheme's 10^6 nominal. `figlib` gains `marginal()` and `stress_depth()`, both asserting per_draw,
+  and drops `robustness()` (no caller left).
   `fig_classical_vs_nn` reads the rustc 1.99.0 benchmark above. Appendix D keeps the three
   schemes v4 keeps (the deployed Mamba champion, the retuned joint-FTC and FNPAG), each card
   re-flown by `collect_appendix.py` on the final-evaluation pool under per-scenario noise (stated in
-  its `stats.json`, asserted by `appendix.typ`); the seven other cards are gone with their
-  `figures/appendix/` directories, and the appendix intro names the three. Left for the rest of
-  #180: `fig_objective_centering` (#177) and `quantization_sweep` (#178). The text is otherwise
-  untouched (#181).
+  its `stats.json`, asserted by `appendix.typ`, which takes the card title from the same file); the
+  seven other cards are gone with their `figures/appendix/` directories, and the appendix intro
+  names the three. Left for the rest of #180: `fig_objective_centering` (#177) and
+  `quantization_sweep` (#178). The text is otherwise untouched (#181): until then the six captions
+  describe the arxiv-v3 figures, and the Appendix D intro's "reproduce @tbl-perf" waits for the
+  per-scenario table.

@@ -12,8 +12,9 @@
   [#label], ..vals.pos().map(v => align(right)[#v])
 )
 
-#let scheme_report(slug, title) = {
+#let scheme_report(slug) = {
   let s = json(apx + slug + "/stats.json")
+  let title = s.title
   assert(s.noise_seeding == "per_draw", message: slug + ": the appendix cards are per-scenario noise (ADR-0006)")
   let cap = s.captured
   let con = s.constraints
@@ -62,6 +63,6 @@
   )
 }
 
-#scheme_report("nn_mamba", "NN -- Mamba (962 params, deployed)")
-#scheme_report("ftc", "FTC (joint reference, retuned)")
-#scheme_report("fnpag", "FNPAG (retuned)")
+#scheme_report("nn_mamba")
+#scheme_report("ftc")
+#scheme_report("fnpag")

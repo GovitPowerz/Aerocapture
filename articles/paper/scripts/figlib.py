@@ -143,10 +143,6 @@ def far_tail() -> dict:
     return {c["label"]: c for c in cells}
 
 
-def robustness() -> list:
-    return json.loads((DATA / "robustness_stress.json").read_text())["schemes"]
-
-
 def compute() -> list:
     return json.loads((DATA / "compute_benchmark.json").read_text())["schemes"]
 

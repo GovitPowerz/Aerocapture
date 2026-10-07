@@ -308,9 +308,10 @@ mc-heat-load-slope: need-sim
 	$(UVPY) -u experiments/ou_marginal/heat_load_slope.py
 
 # stress_depth.json (mc-stress-depth above) and the champion's runs/ou_marginal/hl_mamba_p962/
-# {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; their accessors come
-# with #181. Not yet producers: centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect)
-# get their mc-* target, accessor and check rule with the issue that writes the file.
+# {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; fig_robustness and
+# fig_ablation read them since #180, their results.typ accessors come with #181. Not yet producers:
+# centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect) get their mc-* target,
+# accessor and check rule with the issue that writes the file.
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json

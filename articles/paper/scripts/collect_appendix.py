@@ -5,10 +5,10 @@ FNPAG: #180), re-run 1000-sim MC on the reserved FINAL_EVAL (2M) pool under
 per-scenario density noise (`monte_carlo.noise_seeding = "per_draw"`, ADR-0006,
 stated in each stats.json) with trajectories, pinned to the bundle's deployed
 model + co-trained scaffolding so the numbers reproduce the per_draw rows of
-results.json (asserted), then render the report-style corridor + constraint SVGs
-and a stats.json into articles/paper/figures/appendix/<slug>/. Collector-vs-figure
-split: this reads training_output/; the committed SVGs + stats.json are the
-durable artifacts.
+results.json (the regime asserted, the numbers printed OK / DRIFT), then render
+the report-style corridor + constraint SVGs and a stats.json into
+articles/paper/figures/appendix/<slug>/. Collector-vs-figure split: this reads
+training_output/; the committed SVGs + stats.json are the durable artifacts.
 
 Usage:
     uv run python articles/paper/scripts/collect_appendix.py [--schemes SLUG ...] [--n-sims 1000]
@@ -32,8 +32,8 @@ CORRIDOR_NPZ = REPO / "articles/paper/data/corridor.npz"  # shared reachable cor
 N_TRAJ_SPAGHETTI = 300
 POINT_STRIDE = 3
 
-# (slug, title, run_dir under training_output/, training TOML, results.json key). The titles are
-# repeated in appendix.typ's scheme_report calls.
+# (slug, card title (stats.json `title`, read by appendix.typ), run_dir under training_output/,
+# training TOML, results.json key)
 SCHEMES = [
     (
         "nn_mamba",
@@ -201,7 +201,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--schemes", nargs="*", default=None, help="slugs to collect (default all)")
+    parser.add_argument("--schemes", nargs="*", default=None, choices=[s[0] for s in SCHEMES], help="slugs to collect (default all)")
     parser.add_argument("--n-sims", type=int, default=1000)
     args = parser.parse_args()
     wanted = set(args.schemes) if args.schemes else None

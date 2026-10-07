@@ -8,15 +8,17 @@ trained from scratch at the headline allocation (#173 `hl_*`, GA 512 x 2, 20 000
 hollow markers: the four bundled fine-tune runs (60 x 10, 2000 per-scenario generations from a
 shared-path champion), the other v4 recipe. The Spearman rank correlation is quoted over the
 nine same-allocation runs, pooled across families and read as descriptive (the runs are not
-exchangeable across families). Every v4 cell is heat-load feasible on the pool (no starred
-point). Data: articles/paper/data/results.json, confirmatory_marginal.json.
+exchangeable across families). No point is starred (the v3 star marked a cell over the heat-load
+ceiling on 14 % of its pool): on the 10^6 pool every plotted cell with a heat-load count exceeds
+the ceiling on 46 to 2670 scenarios per 10^6, none an outlier. Data: articles/paper/data/results.json,
+confirmatory_marginal.json.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 from scipy.stats import spearmanr
 
-# (confirmatory / results.json label, family, recipe)
+# (confirmatory / results.json label, family)
 HEADLINE = [
     ("ou_marginal/hl_mamba_p962", "mamba"),
     ("ou_marginal/hl_mamba_p962_s2", "mamba"),
