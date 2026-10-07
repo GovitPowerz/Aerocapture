@@ -38,6 +38,9 @@ set -euo pipefail
 # as `#176 controls rule`). The md5 and allocation checks are campaign.sh's.
 # OUTCOME (2026-10-06): both seed-1 controls landed inside (window 158.3, no-predicted-DV 145.6), so
 # jobs_controls.txt carries seeds 2 and 3 of both.
+# REPEATS (2026-10-07): CVaR99.9 s1 / s2 / s3 at 10^6, window 158.3 / 226.7 / 151.8, no-predicted-DV 145.6 /
+# 181.3 / 156.5 against the champion's 173.9 / 159.3 / 142.3 (Welch t 0.80 and 0.19): three seeds a side resolve
+# neither; the reading is in experiments/ou_marginal/RESULTS.md and on #176.
 #
 # ===== shared (arxiv-v3): the same two controls on the shared-path champion =====
 # Budgets (NOT 5000 gens: the paper itself shows that budget cannot resolve the
