@@ -156,8 +156,9 @@ def load_warm_start_bounds(save_dir: Path) -> list | None:
 
     The sidecar records the EXACT weight-slab bounds the chromosome/population
     was encoded under (adaptive bounds). Any consumer decoding a checkpointed
-    population (resume, final_select CLI) must overlay these specs -- decoding
-    under rebuilt Xavier bounds silently corrupts the weights.
+    population must overlay these specs (through `training_config.warm_start_weight_bounds`:
+    the resume and `run_param_specs`) -- decoding under rebuilt Xavier bounds
+    silently corrupts the weights.
     """
     bounds_path = save_dir / "warm_start_bounds.json"
     if not bounds_path.exists():

@@ -306,15 +306,13 @@ def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, s
     write_best_artifacts(x, config, specs, frame_dir, cwd=Path.cwd())
 
 
-def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, n_sims: int) -> dict[str, object]:
+def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, specs: list[ParamSpec], n_sims: int) -> dict[str, object]:
     """Decode a classical scheme's checkpoint best individual into dot-path TOML overrides.
 
     Supports both new real-valued (float64) and legacy binary (int8) checkpoints.
     """
     from aerocapture.training.encoding import decode_normalized
-    from aerocapture.training.param_spaces import PARAM_SPACES
 
-    specs = PARAM_SPACES[guidance_type]
     x = best_individual.astype(np.float64)
     params = decode_normalized(x, specs)
     return _build_overrides(guidance_type, params, n_sims)
@@ -378,13 +376,14 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    nn_frame: tuple[TrainingConfig, list[ParamSpec]] | None = None
-    if guidance_type == "neural_network":
-        from aerocapture.training.training_config import run_param_specs
+    from aerocapture.training.training_config import run_param_specs
 
-        # The trainer's own rebuild: `[[network.architecture]]`, the scaffolding tail, a warm-start run's recorded weight bounds.
-        config, _, specs = run_param_specs(toml_path, training_dir)
-        nn_frame = (config, specs)
+    # The trainer's own rebuild: `[[network.architecture]]`, the scaffolding tail, a warm-start run's recorded
+    # weight bounds, a piecewise run's segment count.
+    config, _, specs = run_param_specs(toml_path, training_dir)
+    if any(s.name == "ref_bank" for s in specs):
+        raise NotImplementedError("a joint-reference run flies a per-individual reference table that animate does not regenerate")
+    nn_frame = (config, specs) if guidance_type == "neural_network" else None
 
     with tempfile.TemporaryDirectory(prefix="animate_frame_cell_") as scratch_dir:  # NN frames' scratch cell, never the TOML's deploy path
         frame_dir = Path(scratch_dir)
@@ -393,7 +392,7 @@ def generate_animation(
             if nn_frame is not None:
                 _write_nn_frame_cell(best_chrom, *nn_frame, frame_dir)
                 return fly_mc(frame_dir, toml_path, extra_overrides={"simulation.n_sims": n_sims}, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
-            overrides = _decode_and_build_overrides(best_chrom, guidance_type, n_sims)
+            overrides = _decode_and_build_overrides(best_chrom, guidance_type, specs, n_sims)
             return fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
 
         # Step 1: Pre-compute axis ranges from the final checkpoint

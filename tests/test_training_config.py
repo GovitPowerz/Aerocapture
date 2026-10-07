@@ -109,26 +109,23 @@ class TestRunParamSpecs:
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         _, _, rebuilt = run_param_specs(toml_path, run_dir)
-        (run_dir / "warm_start_bounds.json").write_text(
-            json.dumps(
-                [
-                    {"name": "w_0", "p_min": -7.0, "p_max": 7.0, "default": 0.0},
-                    {"name": "w_1", "p_min": -0.5, "p_max": 0.5, "default": 0.1},
-                ]
-            )
-        )
+        n_weights = len(rebuilt) - 3  # the live scaffolding tail
+        (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": f"w_{i}", "p_min": -7.0 - i, "p_max": 7.0 + i} for i in range(n_weights)]))
         _, _, specs = run_param_specs(toml_path, run_dir)
 
         assert len(specs) == len(rebuilt)
-        assert [(s.name, s.p_min, s.p_max) for s in specs[:2]] == [("w_0", -7.0, 7.0), ("w_1", -0.5, 0.5)]
-        assert specs[2:] == rebuilt[2:]
+        assert [(s.name, s.p_min, s.p_max) for s in specs[:2]] == [("w_0", -7.0, 7.0), ("w_1", -8.0, 8.0)]
+        assert specs[n_weights:] == rebuilt[n_weights:]
 
-    def test_more_bounds_than_params_is_an_error(self, tmp_path: Path, toml_path: Path) -> None:
+    @pytest.mark.parametrize("delta", [-1, 1])
+    def test_bounds_not_spanning_the_weight_slab_is_an_error(self, tmp_path: Path, toml_path: Path, delta: int) -> None:
+        # One short would land the Xavier bound on the last weight, one long a weight bound on a scaffolding gene.
         from aerocapture.training.training_config import run_param_specs
 
         run_dir = tmp_path / "run"
         run_dir.mkdir()
         _, _, rebuilt = run_param_specs(toml_path, run_dir)
-        (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": f"w_{i}", "p_min": -1.0, "p_max": 1.0} for i in range(len(rebuilt) + 1)]))
+        n = len(rebuilt) - 3 + delta
+        (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": f"w_{i}", "p_min": -1.0, "p_max": 1.0} for i in range(n)]))
         with pytest.raises(SystemExit, match="warm_start_bounds.json has"):
             run_param_specs(toml_path, run_dir)

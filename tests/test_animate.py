@@ -317,6 +317,7 @@ class TestGenerateAnimation:
         with (
             patch.dict("sys.modules", {"aerocapture_rs": mock_aero}),
             patch("aerocapture.training.animate._load_pyo3", return_value=mock_aero),
+            patch("aerocapture.training.training_config.run_param_specs", return_value=(MagicMock(), {}, [])),
             patch("aerocapture.training.animate._decode_and_build_overrides", return_value={"guidance.type": "equilibrium_glide", "simulation.n_sims": n_sims}),
         ):
             gif_path = generate_animation(d, toml_path=toml_path, n_sims=n_sims, fps=2)
@@ -324,6 +325,32 @@ class TestGenerateAnimation:
         assert gif_path.exists()
         assert gif_path.suffix == ".gif"
         assert gif_path.stat().st_size > 0
+
+    def test_classical_frame_decodes_under_the_trainers_specs(self, tmp_path: Path) -> None:
+        # The canonical piecewise run trains 11 segments; PARAM_SPACES' static entry has 10.
+        from aerocapture.training.animate import generate_animation
+        from aerocapture.training.param_spaces import make_piecewise_constant_specs
+
+        toml_path = REPO / "configs/training/msr_aller_piecewise_constant_train.toml"
+        n = len(make_piecewise_constant_specs(11))
+        d = tmp_path / "run"
+        d.mkdir()
+        (d / "checkpoint_g00000.json").write_text(json.dumps({"generation": 0, "best_cost": 100.0, "cost_history": [100.0]}))
+        np.savez_compressed(d / "checkpoint_g00000.npz", population=np.full((4, n), 0.5), costs=np.full(4, 100.0), best_individual=np.full(n, 0.5))
+        flown: list[dict[str, object]] = []
+
+        def fly(cell_dir: Path | None, base_toml: Path, *, extra_overrides: dict[str, object], **kwargs: object) -> object:
+            flown.append(extra_overrides)
+            raise RuntimeError("stop after the first flight")
+
+        with (
+            patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
+            patch("aerocapture.training.animate.fly_mc", side_effect=fly),
+            pytest.raises(RuntimeError, match="stop after"),
+        ):
+            generate_animation(d, toml_path=toml_path, n_sims=4, fps=2)
+        [overrides] = flown
+        assert overrides["guidance.piecewise_constant.bank_angle_10"] == 0.0
 
     def test_scratch_model_is_removed_even_when_a_frame_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # The NN frames' scratch model lives in a temp dir that dies with the run, exception or not.

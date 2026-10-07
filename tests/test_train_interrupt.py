@@ -146,6 +146,57 @@ class TestResumePreservesCheckpointedBest:
         assert result["best_cost"] == checkpointed_best_cost
 
 
+class TestResumeOverlaysWarmStartBounds:
+    """A warm-start run's population is encoded under the weight bounds its
+    `warm_start_bounds.json` recorded; a resume must decode under them, not the
+    bounds `_setup_param_specs` rebuilds (the fresh-start splice is not on the
+    resume path)."""
+
+    def test_resume_decodes_under_the_recorded_bounds(self, tmp_path: Path) -> None:
+        from aerocapture.training.trainer import SingleAlgoTrainer
+        from aerocapture.training.training_config import _setup_param_specs
+
+        save_dir = tmp_path / "training_output"
+        save_dir.mkdir()
+        cfg = TrainingConfig(optimizer=OptimizerConfig(seed_strategy="fixed", n_pop=4, n_gen=1), guidance_type="neural_network")
+        cfg.save_dir = str(save_dir)
+        cfg.network.architecture = [{"type": "dense", "input_size": 3, "output_size": 2, "activation": "asinh"}]
+        rebuilt = _setup_param_specs(cfg, {}, verbose=False)
+        recorded = [{"name": s.name, "p_min": 3.0 * s.p_min, "p_max": 3.0 * s.p_max, "default": s.default} for s in rebuilt]
+        (save_dir / "warm_start_bounds.json").write_text(json.dumps(recorded))
+        rng_ck = np.random.default_rng(0)
+        save_checkpoint(
+            save_dir,
+            generation=3,
+            population=rng_ck.random((4, len(rebuilt))),
+            costs=np.full(4, 100.0),
+            best_cost=100.0,
+            best_individual=None,
+            cost_history=[100.0] * 3,
+            rng=rng_ck,
+            config=cfg,
+            cwd=None,
+            param_specs=rebuilt,
+        )
+
+        problem = FakeProblem(list(rebuilt), seeds=[42], toml_path="")
+        SingleAlgoTrainer.from_config(
+            cfg,
+            problem,
+            save_dir,
+            toml={},
+            cwd=str(tmp_path),
+            rng=np.random.default_rng(1),
+            resume_dir=save_dir,
+            from_scratch=False,
+            corridor_acc=None,
+            verbose=False,
+            checkpoint_interval=10,
+        )
+
+        assert [(s.p_min, s.p_max) for s in problem.param_specs] == [(e["p_min"], e["p_max"]) for e in recorded]
+
+
 class TestResumeGrowsPopulation:
     """End-to-end: resuming with a larger [optimizer] n_pop grows the population
     through the wired single-algo resume path (not just the resize_population
