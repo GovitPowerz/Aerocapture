@@ -252,7 +252,7 @@ mc-confirmatory: need-sim
 mc-corridor: need-sim
 	$(UVPY) articles/paper/scripts/collect_corridor.py --n-sims 300000
 
-# figures/appendix/<scheme>/{7 SVGs, stats.json} -- 1000 sims x 10 schemes with trajectories (~10 min).
+# figures/appendix/<scheme>/{7 SVGs, stats.json} -- 1000 sims x 3 schemes with trajectories, per-scenario noise (~2 min).
 mc-appendix: need-sim
 	$(UVPY) articles/paper/scripts/collect_appendix.py --n-sims 1000
 

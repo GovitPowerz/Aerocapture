@@ -1925,9 +1925,9 @@ measurements that do not transfer to flight processors -- the memory table does.
 = Appendix D: per-scheme mission reports
 
 Each scheme below gets a two-page mission-performance card on the final-evaluation
-Monte Carlo pool ($n = 1000$), pinned to its deployed policy so the statistics
-reproduce @tbl-perf; the FTC, PredGuid, and energy-controller cards use their
-co-optimized-reference variants (Section 7.1), matching those rows of @tbl-perf. The first page shows the corridor behaviour -- the classified
+Monte Carlo pool ($n = 1000$, per-scenario noise), pinned to its deployed policy so the statistics
+reproduce @tbl-perf: the deployed Mamba champion, the retuned joint-FTC (its
+co-optimized-reference variant, Section 7.1) and the retuned FNPAG. The first page shows the corridor behaviour -- the classified
 trajectory ensemble in the (energy, dynamic pressure), (energy, inclination), and
 (energy, bank) planes, with the undispersed nominal overlaid; the dynamic-pressure
 panel sets the ensemble against the shared occupancy envelope of @fig-corridor,
