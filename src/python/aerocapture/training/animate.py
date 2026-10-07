@@ -7,6 +7,7 @@ import json
 import re
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -14,7 +15,11 @@ import numpy as np
 import numpy.typing as npt
 from matplotlib.figure import Figure
 
-from aerocapture.training.cell_eval import fly_mc
+if TYPE_CHECKING:
+    from aerocapture.training.config import TrainingConfig
+    from aerocapture.training.param_spaces import ParamSpec
+
+from aerocapture.training.cell_eval import CellResult, fly_mc
 from aerocapture.training.charts import (
     _TC_BANK,
     _TC_ENERGY,
@@ -289,41 +294,39 @@ def _load_pyo3():  # type: ignore[no-untyped-def]
         raise RuntimeError(msg) from err
 
 
-def _decode_and_build_overrides(
-    best_individual: npt.NDArray,
-    guidance_type: str,
-    toml_data: dict,
-    n_sims: int,
-    nn_path: Path,
-) -> dict[str, object]:
-    """Decode a checkpoint's best individual into TOML overrides.
+def _nn_frame_specs(toml_path: Path, training_dir: Path) -> tuple[TrainingConfig, list[ParamSpec]]:
+    """The run's config and chromosome specs through the trainer's own path, as
+    `experiments/paper/audit_deployed_models.py` rebuilds a winner: `[[network.architecture]]`,
+    the scaffolding tail and a warm-start run's recorded weight bounds."""
+    from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
+    from aerocapture.training.warm_start import load_warm_start_bounds
 
-    Handles both neural_network (writes the model to the scratch `nn_path` and pins it; the
-    TOML's `[data] neural_network` path belongs to the config's default run and is never
-    written) and guidance-parameter schemes (returns full dot-path overrides).
+    config, toml_data = build_training_config_from_toml(str(toml_path))
+    specs = _setup_param_specs(config, toml_data, verbose=False)
+    bounds = load_warm_start_bounds(training_dir)
+    if bounds is not None:
+        specs = list(bounds) + specs[len(bounds) :]
+    return config, specs
+
+
+def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, specs: list[ParamSpec], frame_dir: Path) -> None:
+    """Decode a checkpoint's best individual into a scratch cell (best_model.json plus the
+    scaffolding best_params.json) with the trainer's writer, so the frame flies exactly as the
+    deployed winner would. The TOML's `[data] neural_network` is never written."""
+    from aerocapture.training.artifacts import write_best_artifacts
+
+    x = best_individual.astype(np.float64)
+    if x.shape[0] != len(specs):
+        raise ValueError(f"chromosome width {x.shape[0]} != {len(specs)} params under {config.sim.toml_config}")
+    write_best_artifacts(x, config, specs, frame_dir, cwd=Path.cwd())
+
+
+def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, n_sims: int) -> dict[str, object]:
+    """Decode a classical scheme's checkpoint best individual into dot-path TOML overrides.
+
     Supports both new real-valued (float64) and legacy binary (int8) checkpoints.
     """
-    from aerocapture.training.config import TrainingConfig
-    from aerocapture.training.encoding import decode_normalized, nn_param_specs_from_architecture
-
-    cfg = TrainingConfig()
-    cfg.guidance_type = guidance_type
-
-    net = toml_data.get("network", {})
-    if "layer_sizes" in net:
-        cfg.network.layer_sizes = net["layer_sizes"]
-    if "activations" in net:
-        cfg.network.activations = net["activations"]
-
-    if guidance_type == "neural_network":
-        from aerocapture.training.evaluate import write_nn_json
-
-        specs = nn_param_specs_from_architecture(cfg.network.layer_sizes, cfg.network.activations)
-        x = best_individual.astype(np.float64)
-        weights = np.array([s.p_min + float(x[i]) * (s.p_max - s.p_min) for i, s in enumerate(specs)])
-        write_nn_json(weights, cfg.network, nn_path)
-        return {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path)}
-
+    from aerocapture.training.encoding import decode_normalized
     from aerocapture.training.param_spaces import PARAM_SPACES
 
     specs = PARAM_SPACES[guidance_type]
@@ -390,15 +393,24 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    with tempfile.TemporaryDirectory(prefix="animate_frame_model_") as scratch_dir:  # NN frames' scratch model, never the TOML's deploy path
-        nn_path = Path(scratch_dir) / "model.json"
+    nn_frame = _nn_frame_specs(toml_path, training_dir) if guidance_type == "neural_network" else None
+
+    with tempfile.TemporaryDirectory(prefix="animate_frame_cell_") as scratch_dir:  # NN frames' scratch cell, never the TOML's deploy path
+        frame_dir = Path(scratch_dir)
+
+        def fly_frame(best_chrom: npt.NDArray) -> CellResult:
+            if nn_frame is not None:
+                _write_nn_frame_cell(best_chrom, *nn_frame, frame_dir)
+                return fly_mc(frame_dir, toml_path, extra_overrides={"simulation.n_sims": n_sims}, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+            overrides = _decode_and_build_overrides(best_chrom, guidance_type, n_sims)
+            return fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+
         # Step 1: Pre-compute axis ranges from the final checkpoint
         # NOTE: Axis ranges are computed from the final (most converged) checkpoint's trajectories.
         # Early-generation frames may have trajectories that extend beyond these limits and get clipped.
         # This is a deliberate trade-off to avoid running N extra MC evals just for range computation.
         last = checkpoints[-1]
-        last_overrides = _decode_and_build_overrides(last["best_chromosome"], guidance_type, toml_data, n_sims, nn_path)
-        last_results = fly_mc(None, toml_path, extra_overrides=last_overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+        last_results = fly_frame(last["best_chromosome"])
         assert last_results.trajectories is not None
         all_costs_for_range = np.concatenate([c["costs"] for c in checkpoints])
         axis_ranges = _compute_axis_ranges(last_results.trajectories, all_costs_for_range)
@@ -435,11 +447,7 @@ def generate_animation(
                     continue
 
                 # Decode + run MC (the last checkpoint was flown above for the axis ranges)
-                if ckpt is last:
-                    results = last_results
-                else:
-                    overrides = _decode_and_build_overrides(best_chrom, guidance_type, toml_data, n_sims, nn_path)
-                    results = fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
+                results = last_results if ckpt is last else fly_frame(best_chrom)
                 assert results.trajectories is not None
                 trajectories = results.trajectories
                 final_records = results.final_records

@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+REPO = Path(__file__).resolve().parents[1]
+
 
 class TestDiscoverCheckpoints:
     @pytest.fixture()
@@ -94,23 +96,96 @@ class TestBuildOverrides:
         assert overrides["guidance.lateral.tau"] == 15.0
         assert "guidance.equilibrium_glide.lateral.tau" not in overrides
 
-    def test_nn_frame_flies_a_scratch_model_not_the_toml_deploy_path(self, tmp_path: Path) -> None:
-        # Each NN frame used to overwrite the TOML's [data] neural_network, the deployed model of
-        # the config's default run, with a checkpoint's decode.
-        from aerocapture.training.animate import _decode_and_build_overrides
-        from aerocapture.training.config import NetworkConfig
-        from aerocapture.training.encoding import nn_param_specs_from_architecture
 
-        deployed = tmp_path / "run" / "best_model.json"
+class TestNnFrameCell:
+    """An NN frame is decoded through the trainer's own path (#196).
+
+    Before: animate rebuilt the specs from `[network] layer_sizes`, so every
+    `[[network.architecture]]` config decoded into the default dense network and the
+    scaffolding genes after the weights were never applied.
+    """
+
+    ARCH = [
+        {"type": "dense", "input_size": 17, "output_size": 4, "activation": "swish"},
+        {"type": "dense", "input_size": 4, "output_size": 2, "activation": "asinh"},
+    ]
+
+    @pytest.fixture()
+    def run(self, tmp_path: Path) -> tuple[Path, Path, Path]:
+        """(training dir with one checkpoint, leaf TOML, the TOML's deployed model) under tmp_path."""
+        from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
+
+        from tests.fixtures.factories import leaf_toml_with_architecture
+
+        deployed = tmp_path / "cell" / "best_model.json"
         deployed.parent.mkdir()
         deployed.write_text("the deployed model")
-        net = NetworkConfig()
-        n = len(nn_param_specs_from_architecture(net.layer_sizes, net.activations))
-        frame = tmp_path / "frame_model.json"
-        overrides = _decode_and_build_overrides(np.full(n, 0.5), "neural_network", {"data": {"neural_network": str(deployed)}}, 10, frame)
+        toml_path = tmp_path / "config.toml"
+        toml_path.write_text(
+            leaf_toml_with_architecture(REPO / "configs/training/msr_aller_nn_atan2_train.toml", self.ARCH) + f'[data]\nneural_network = "{deployed}"\n'
+        )
+        config, toml_data = build_training_config_from_toml(str(toml_path))
+        n = len(_setup_param_specs(config, toml_data, verbose=False))
+        assert n == 17 * 4 + 4 + 4 * 2 + 2 + 3  # weights + the three live scaffolding genes
+
+        d = tmp_path / "run"
+        d.mkdir()
+        (d / "checkpoint_g00000.json").write_text(json.dumps({"generation": 0, "best_cost": 100.0, "cost_history": [100.0]}))
+        rng = np.random.default_rng(196)
+        np.savez_compressed(d / "checkpoint_g00000.npz", population=rng.random((4, n)), costs=np.full(4, 100.0), best_individual=rng.random(n))
+        return d, toml_path, deployed
+
+    def test_frame_cell_is_the_trainers_own_decode(self, tmp_path: Path, run: tuple[Path, Path, Path]) -> None:
+        from aerocapture.training.animate import generate_animation
+        from aerocapture.training.artifacts import write_best_artifacts
+        from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
+
+        d, toml_path, deployed = run
+        flown: list[tuple[Path | None, Path, bytes, bytes]] = []
+
+        def fly(cell_dir: Path | None, base_toml: Path, **kwargs: object) -> object:
+            assert cell_dir is not None
+            flown.append((cell_dir, base_toml, (cell_dir / "best_model.json").read_bytes(), (cell_dir / "best_params.json").read_bytes()))
+            raise RuntimeError("stop after the first flight")
+
+        with (
+            patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
+            patch("aerocapture.training.animate.fly_mc", side_effect=fly),
+            pytest.raises(RuntimeError, match="stop after"),
+        ):
+            generate_animation(d, toml_path=toml_path, n_sims=4, fps=2)
+
+        config, toml_data = build_training_config_from_toml(str(toml_path))
+        specs = _setup_param_specs(config, toml_data, verbose=False)
+        with np.load(d / "checkpoint_g00000.npz") as data:
+            x = data["best_individual"]
+        expected = tmp_path / "expected"
+        expected.mkdir()
+        write_best_artifacts(x, config, specs, expected, cwd=REPO)
+
+        [(cell_dir, base_toml, model, params)] = flown
+        assert base_toml == toml_path
+        assert cell_dir != deployed.parent
+        assert model == (expected / "best_model.json").read_bytes()
+        assert params == (expected / "best_params.json").read_bytes()
+        assert [layer["input_size"] for layer in json.loads(model)["architecture"]] == [17, 4]
+        assert set(json.loads(params)) == {"nav.density_filter_gain", "nav.density_gain_max_delta", "shaping.max_bank_acceleration"}
         assert deployed.read_text() == "the deployed model"
-        assert overrides["data.neural_network"] == str(frame)
-        assert frame.exists()
+
+    def test_width_mismatch_errors_instead_of_decoding_another_network(self, run: tuple[Path, Path, Path]) -> None:
+        from aerocapture.training.animate import generate_animation
+
+        d, toml_path, _ = run
+        with np.load(d / "checkpoint_g00000.npz") as data:
+            kept = dict(data)
+        kept["best_individual"] = kept["best_individual"][:-1]
+        np.savez_compressed(d / "checkpoint_g00000.npz", **kept)
+        with (
+            patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
+            patch("aerocapture.training.animate.fly_mc", side_effect=AssertionError("must not fly")),
+            pytest.raises(ValueError, match="chromosome width"),
+        ):
+            generate_animation(d, toml_path=toml_path, n_sims=4, fps=2)
 
 
 class TestComputeAxisRanges:
@@ -273,14 +348,14 @@ class TestGenerateAnimation:
         scratch_root.mkdir()
         monkeypatch.setattr(tempfile, "tempdir", str(scratch_root))
 
-        def decode(best: object, guidance_type: str, toml_data: dict[str, object], n_sims: int, nn_path: Path) -> dict[str, object]:
-            assert nn_path.is_relative_to(scratch_root)
-            nn_path.write_text("a frame's model")
-            return {"simulation.n_sims": n_sims, "data.neural_network": str(nn_path)}
+        def write_cell(best: object, config: object, specs: object, frame_dir: Path) -> None:
+            assert frame_dir.is_relative_to(scratch_root)
+            (frame_dir / "best_model.json").write_text("a frame's model")
 
         with (
             patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
-            patch("aerocapture.training.animate._decode_and_build_overrides", side_effect=decode),
+            patch("aerocapture.training.animate._nn_frame_specs", return_value=(MagicMock(), [])),
+            patch("aerocapture.training.animate._write_nn_frame_cell", side_effect=write_cell),
             patch("aerocapture.training.animate.fly_mc", side_effect=RuntimeError("sim exploded")),
             pytest.raises(RuntimeError, match="sim exploded"),
         ):
