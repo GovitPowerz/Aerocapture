@@ -292,7 +292,7 @@ each save (default `null` keeps every checkpoint). The pruner
 | `neural_network_gru_pso` / `_magonly` | `msr_aller_gru_pso_train.toml` / `msr_aller_gru_pso_magonly_train.toml` |
 | `neural_network_lstm_pso` / `window_pso` / `transformer_pso` / `mamba_pso` | `msr_aller_{lstm,window,transformer,mamba}_pso_train.toml` |
 | `neural_network_gru_ppo` / `lstm_ppo` / `rl` / `atan2_rl` | `msr_aller_gru_ppo_train.toml` / `msr_aller_lstm_ppo_train.toml` / `msr_aller_rl_train.toml` / `msr_aller_nn_atan2_ppo_train.toml` |
-| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/`, `training/ou_marginal/` (`classical/`: the nine classical cells retuned under `per_draw`; `classical_ungated/`: two of them rerun with `max_violation_rate = 1.0`), `training/mamba3_962/` |
+| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/`, `training/ou_marginal/` (`hl_*`: the #173 headline-allocation cells; `ctrl_*`: the #176 mechanism controls on the v4 champion; `classical/`: the nine classical cells retuned under `per_draw`; `classical_ungated/`: two of them rerun with `max_violation_rate = 1.0`), `training/mamba3_962/` |
 
 `msr_aller_nn_atan2_train.toml` is the paper's atan2 environment (17-input calibrated mask +
 `[network] normalization`, `scaffolding = "live"`) that the sweep, probe and ou_marginal configs

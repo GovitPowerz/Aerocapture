@@ -6,10 +6,14 @@ same pool is selection-on-test (winner's curse, ~1-3 m/s optimism). This script
 re-runs the deployed model once on the untouched 8M-offset pool and prints the
 capture rate + DV mean/p50/p95/p99/CVaR95 to quote in the abstract.
 
+The noise regime is a flag and is stated in the output: `--noise-seeding legacy` (the
+default: one frozen density-noise path, the shared-path bundle's numbers) or `per_draw`
+(one realization per scenario, ADR-0006; the v4 champion's re-quote, issue #176).
+
 Usage (after experiments/paper/02 deploys the headline cell):
     uv run python articles/paper/scripts/fresh_pool_requote.py \
         training_output/paper/optimizer_budget/ga_300 \
-        --toml configs/training/paper/dense_p3998_ga.toml [--n-sims 1000]
+        --toml configs/training/paper/dense_p3998_ga.toml [--n-sims 1000] [--noise-seeding per_draw]
 """
 
 import argparse
@@ -29,6 +33,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--toml", required=True, help="the cell's training TOML")
     parser.add_argument("--n-sims", type=int, default=1000)
     parser.add_argument("--sim-timeout", type=float, default=5.0)
+    parser.add_argument("--noise-seeding", choices=("legacy", "per_draw"), default="legacy", help="density-noise regime (ADR-0006); stated in the output")
     args = parser.parse_args(argv)
 
     from aerocapture.training.cell_eval import evaluate_cell
@@ -41,8 +46,9 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(f"{model} not found -- train/deploy the cell first")
 
     scaffolding = load_scaffolding_overrides(run_dir)
+    regime = LEGACY_NOISE_REGIME if args.noise_seeding == "legacy" else {"monte_carlo.noise_seeding": "per_draw"}
     results = evaluate_cell(
-        run_dir, Path(args.toml), pool=(HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims), extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=args.sim_timeout
+        run_dir, Path(args.toml), pool=(HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims), extra_overrides=regime, sim_timeout_secs=args.sim_timeout
     )
 
     records = results.final_records
@@ -50,6 +56,7 @@ def main(argv: list[str] | None = None) -> None:
     dvc = np.sort(results.dv)
     out = {
         "pool": "fresh (offset 8M)",
+        "noise_seeding": args.noise_seeding,
         "n": int(len(records)),
         "capture_pct": round(100 * float(cap.mean()), 2),
         "dv_mean": round(float(dvc.mean()), 2),

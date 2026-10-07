@@ -1,0 +1,14 @@
+# Mechanism controls on the v4 champion (#176). name|target_gen|seed|checkpoint_source_dir ("" = scratch).
+# The champion is the scratch cell hl_mamba_p962 (#173's rule picked single-stage scratch), so both
+# controls train from scratch at its allocation and budget (GA 512 x 2, 20000 gens) under per_draw:
+# ctrl_window_p970 = matched observation history, no learned state; ctrl_mamba_p962_nodv = the
+# champion's architecture without the three predicted-DV inputs. Seed 1 first; the rule in
+# experiments/paper/15_state_controls.sh put both seed-1 controls inside the champion's seed range
+# (2026-10-06), so seeds 2 and 3 of each follow, s2 of both before s3.
+# Run: experiments/paper/15_state_controls.sh v4 (campaign.sh on this file, then the 10^6 scoring).
+ctrl_window_p970|20000|1|
+ctrl_mamba_p962_nodv|20000|1|
+ctrl_window_p970_s2|20000|2|
+ctrl_mamba_p962_nodv_s2|20000|2|
+ctrl_window_p970_s3|20000|3|
+ctrl_mamba_p962_nodv_s3|20000|3|

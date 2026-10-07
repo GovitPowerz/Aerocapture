@@ -615,3 +615,147 @@ so the scratch row is quoted as the three-seed spread, not one run. The
 warm-started cells deploy a checkpoint tied with the population cell at CVaR95
 (dense CI straddles zero, GRU +0.5) but 8-9 m/s worse at CVaR99.9; their policy
 gradient then walks off it, as in arxiv-v3.
+
+## v4 champion controls (#176)
+
+`experiments/paper/15_state_controls.sh v4` on the deployed champion
+`ou_marginal/hl_mamba_p962` (seed 1 of #173's rule; `best_model.json` sha256
+`d92c6bbd...bc517d4d`, the model #174 scored), per-scenario noise throughout.
+Started 2026-10-06 from `feature/v4-champion-controls` at f3ee1406 (#202): the
+four quick steps below took about 7 minutes, then the two control retrains
+began; the controls (record 2) and the rustc check (record 6) close the section.
+Posted on #176.
+
+### Reset state at 10^6
+
+`confirmatory_marginal.py --cells ou_marginal/v4_reset_state:<champion toml>:<champion dir>
+--extra-override guidance.neural_network.reset_state_every_tick=true` (eval
+commit f3ee1406), against the champion's #174 row; the reset state's non-captures
+re-flown without the wall clock. DV in m/s over captured scenarios:
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 | 100.0000% | 0 | 0.1148 (0.0000 / 0.0000 / 0.1148) | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/v4_reset_state | 99.9899% | 101: 99 crash, 2 timeout | 0.0264 (0.0000 / 0.0000 / 0.0264) | 807.7 | 860.3 +- 0.4 | 920 |
+
+Median per replicate 110.2 against 694.6-695.4; p95 116.5 against 789.1.
+
+Reading: capture holds to within 0.01 pts, but the whole distribution moves,
+not only the tail: the median goes from 110 to 695 m/s. The issue expected
+capture parity with a collapsed tail; without its state the policy still
+captures, at six times the median DV, so the state carries the bulk as well as
+the tail.
+
+### Input sensitivity
+
+`python -m aerocapture.training.ablation <champion dir> --toml <champion toml>
+--n-sims 1000 --sim-timeout 5 --cost-transform log`: the config's own Monte
+Carlo, per_draw (stated in `ablation_results.json`), costs in the log transform
+the paper's ablation figure reads (the config trains on cubed). Baseline cost
+4.716; every one of the 17 masked inputs costs something when zeroed:
+
+| rank | input | cost increase | rank | input | cost increase |
+|---|---|---|---|---|---|
+| 1 | orbital_energy | 4.193 | 10 | drag_accel | 0.616 |
+| 2 | predicted_dv1 | 1.799 | 11 | predicted_dv3 | 0.527 |
+| 3 | predicted_dv2 | 1.790 | 12 | lift_accel | 0.509 |
+| 4 | hdot_nominal | 1.368 | 13 | prev_bank_signed_cos | 0.495 |
+| 5 | radial_velocity | 1.289 | 14 | prev_realized_cos | 0.455 |
+| 6 | pdyn_error | 1.227 | 15 | eccentricity_excess | 0.259 |
+| 7 | accel_magnitude | 1.087 | 16 | prev_bank_signed_sin | 0.239 |
+| 8 | heat_flux_fraction | 0.788 | 17 | prev_realized_sin | 0.029 |
+| 9 | heat_load_fraction | 0.662 | | | |
+
+The arxiv-v3 headline (`runs/headline/mamba_p962`, n = 500) ranked
+eccentricity_excess first; the v4 champion ranks it 15th and leans on
+orbital_energy and the first two predicted-DV inputs. Section 8's
+input-sensitivity text changes with it.
+
+### Fresh-pool re-quote
+
+`fresh_pool_requote.py <champion dir> --toml <champion toml> --n-sims 1000
+--noise-seeding per_draw` (`<champion>/fresh_pool_requote.json`), against the
+champion's report.py `final_eval.parquet` on the 2M pool (also per_draw, n = 1000),
+same estimators (CVaR95 = mean of the top 50 captured DVs):
+
+| pool | capture | mean | p50 | p95 | p99 | CVaR95 | max |
+|---|---|---|---|---|---|---|---|
+| 2M (report.py final eval) | 100.0% | 110.65 | 110.19 | 116.36 | 120.75 | 119.65 | 148.3 |
+| 8M (fresh) | 100.0% | 111.03 | 110.47 | 116.88 | 120.63 | 122.75 | 185.2 |
+
+The fresh pool sits 0.4 m/s above on the mean and 3.1 m/s above on CVaR95, an
+average of 50 values at this n; the 10^6 pool's CVaR95 is 120.1.
+
+### Off-nominal stress at depth
+
+`stress_depth_eval.py --n-sims 10000` (`make -C articles/paper mc-stress-depth`,
+`articles/paper/data/stress_depth.json`): the champion and the four #172 retunes
+on the reserved 9M stress pool with atmosphere, density perturbation, navigation
+and nav filter at `high`, per_draw only, 2000 bootstrap resamples. DV in m/s over
+captured scenarios:
+
+| scheme | capture [95% CI] | mean [95% CI] | p95 | CVaR95 [95% CI] |
+|---|---|---|---|---|
+| NN (champion) | 85.29% [84.63, 85.98] | 221.6 [218.6, 224.7] | 445.0 | 658.4 [625.0, 692.1] |
+| joint-FTC | 95.88% [95.50, 96.26] | 183.7 [181.9, 185.7] | 304.8 | 468.4 [442.4, 497.0] |
+| FTC-fixed | 92.42% [91.91, 92.93] | 254.1 [252.0, 256.4] | 409.3 | 569.9 [543.1, 597.5] |
+| PredGuid | 89.30% [88.69, 89.88] | 273.9 [271.7, 276.1] | 418.5 | 572.4 [546.3, 598.7] |
+| FNPAG | 92.85% [92.34, 93.35] | 189.9 [186.7, 193.1] | 317.1 | 716.1 [665.1, 767.7] |
+
+Paired on scenario, NN minus each classical:
+
+| vs | capture pts [CI] | CVaR95 [CI] | both-captured mean [CI] (pairs) | NN win rate |
+|---|---|---|---|---|
+| joint-FTC | -10.59 [-11.23, -9.97] | +190.1 [+158.1, +222.5] | +43.3 [+40.6, +45.8] (8491) | 0.41 |
+| FTC-fixed | -7.13 [-7.83, -6.42] | +88.6 [+62.2, +113.4] | -24.7 [-27.3, -22.0] (8215) | 0.67 |
+| PredGuid | -4.01 [-4.75, -3.26] | +86.1 [+54.8, +117.4] | -46.9 [-49.6, -44.2] (7973) | 0.73 |
+| FNPAG | -7.56 [-8.26, -6.88] | -57.7 [-108.1, -5.0] | +25.7 [+22.3, +29.3] (8238) | 0.38 |
+
+Reading: under the high regime the champion has the lowest capture of the five,
+4 to 11 pts below every classical scheme with every CI clear of zero, and its
+CVaR95 is worse than every classical scheme except FNPAG. For reference only
+(different cells, legacy noise, n = 1000, unpaired across the two files):
+`robustness_stress.json` had the shared-path NN at 90.1% against joint-FTC's
+94.5%. Section 7.2's off-nominal probe reports the deployed NN as the least
+robust of the five on capture.
+
+### Mechanism controls, seed 1 at 10^6
+
+`campaign.sh experiments/ou_marginal/jobs_controls.txt`, both from scratch at
+the champion's allocation (GA 512 x 2, 20000 gens, adaptive seeds, cubed),
+trainer seed 1, per_draw: `ctrl_window_p970` ran 11:53 to 16:06 (4 h 13 min);
+`ctrl_mamba_p962_nodv` ran 16:07 to 23:07, stopped by Ctrl-C at gen 8996
+(18:22) and resumed from that checkpoint at 20:15 (5 h 7 min of training).
+Then both on the 10^6 pool by the runner (eval commit 3c6fe51d: the checkout
+had moved to #196's branch, whose one commit touches `animate.py`, its test and
+the README only). DV in m/s over captured scenarios:
+
+| cell | capture | viol % any (flux / g / heat load) | p95 | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 (champion) | 100.0000% | 0.1148 (0.0000 / 0.0000 / 0.1148) | 116.5 | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/hl_mamba_p962_s2 | 99.9996% | 0.0437 (0.0000 / 0.0000 / 0.0437) | 127.2 | 131.7 | 159.3 +- 0.6 | 621 |
+| ou_marginal/hl_mamba_p962_s3 | 100.0000% | 0.0567 (0.0000 / 0.0000 / 0.0567) | 120.1 | 122.9 | 142.3 +- 0.5 | 266 |
+| ou_marginal/ctrl_window_p970 | 100.0000% | 0.1521 (0.0000 / 0.0000 / 0.1521) | 122.8 | 127.0 | 158.3 +- 0.6 | 258 |
+| ou_marginal/ctrl_mamba_p962_nodv | 100.0000% | 0.2471 (0.0000 / 0.0000 / 0.2471) | 122.7 | 125.8 | 145.6 +- 0.5 | 236 |
+
+Pre-registered rule (`confirmatory_marginal.py --table`, `#176 controls rule`):
+the champion's three-seed CVaR99.9 range is [142.3, 173.9]; the window control
+(158.3) and the no-predicted-DV control (145.6) both land inside it, so both owe
+seeds 2 and 3 before the paper reads them. The four repeats are registered in
+`jobs_controls.txt` (`ctrl_*_s2`, `ctrl_*_s3`, trainer seeds 2 and 3).
+
+On one seed each, neither removed ingredient shows a tail cost: the stateless
+window policy sits at the champion seeds' mean CVaR99.9 (158.5), the network
+without the predicted-DV inputs next to the best seed. Their bulk is a few m/s
+behind seed 1 (replicate median 113.8 and 114.3 against 110.2) and inside the
+seeds' CVaR95 range (120.1 to 131.7). The reset-state record shows that the
+trained Mamba depends on its own state; these two show that a policy trained
+without that state, or without those inputs, reaches the same tail. Section
+6.3's claim waits on the repeats.
+
+### Compute benchmark
+
+The committed `compute_benchmark.json` was measured with rustc 1.98.1
+(2026-09-01); the toolchain is now rustc 1.99.0 (2026-09-28). By step 6 the
+benchmark is re-run: `make -C articles/paper mc-compute-benchmark` on an idle
+machine, every scheme in one session.

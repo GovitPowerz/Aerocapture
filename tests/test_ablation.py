@@ -93,3 +93,15 @@ def test_cost_transform_override_rejects_unknown() -> None:
     toml = "configs/training/msr_aller_nn_train_consolidated.toml"
     with pytest.raises(ValueError):
         _load_cost_kwargs(toml, cost_transform="bogus")
+
+
+def test_noise_seeding_is_resolved_from_the_toml() -> None:
+    """The ablation states the regime it flew: an override (it wins in fly_mc), the TOML's key, or ADR-0006's per_draw default."""
+    from aerocapture.training.ablation import _noise_seeding
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+
+    assert _noise_seeding("configs/training/ou_marginal/hl_mamba_p962.toml") == "per_draw"
+    assert _noise_seeding("configs/training/sweep/mamba_p962.toml") == "per_draw"
+    assert _noise_seeding("configs/test/test_ref_orig.toml") == "legacy"
+    assert _noise_seeding("configs/training/sweep/mamba_p962.toml", {**LEGACY_NOISE_REGIME, "lateral.x": 1.0}) == "legacy"
+    assert _noise_seeding("configs/test/test_ref_orig.toml", {"lateral.x": 1.0}) == "legacy"

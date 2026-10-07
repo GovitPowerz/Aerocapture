@@ -1,0 +1,294 @@
+{
+  "noise_seeding": "per_draw",
+  "stress_overrides": {
+    "monte_carlo.atmosphere.level": "high",
+    "monte_carlo.density_perturbation.level": "high",
+    "monte_carlo.navigation.level": "high",
+    "monte_carlo.nav_filter.level": "high"
+  },
+  "n_sims": 10000,
+  "n_boot": 2000,
+  "pool": "STRESS_EVAL 9M",
+  "cells": [
+    {
+      "label": "NN",
+      "run_dir": "ou_marginal/hl_mamba_p962",
+      "n": 10000,
+      "capture_pct": 85.29,
+      "dv_mean": 221.62,
+      "dv_p50": 173.22,
+      "dv_p95": 444.99,
+      "dv_p99": 848.63,
+      "dv_p999": 1381.29,
+      "dv_cvar95": 658.42,
+      "dv_cvar99": 1191.49,
+      "dv_max_descriptive": 1433.11,
+      "dv_mean_ci": [
+        218.58,
+        224.67
+      ],
+      "dv_p95_ci": [
+        435.52,
+        454.94
+      ],
+      "dv_cvar95_ci": [
+        625.02,
+        692.09
+      ],
+      "dv_p99_ci": [
+        657.79,
+        1044.1
+      ],
+      "dv_cvar99_ci": [
+        1094.97,
+        1253.38
+      ],
+      "capture_pct_ci": [
+        84.63,
+        85.98
+      ]
+    },
+    {
+      "label": "joint-FTC",
+      "run_dir": "ou_marginal/classical/ftc_joint",
+      "n": 10000,
+      "capture_pct": 95.88,
+      "dv_mean": 183.7,
+      "dv_p50": 159.49,
+      "dv_p95": 304.8,
+      "dv_p99": 516.82,
+      "dv_p999": 1342.65,
+      "dv_cvar95": 468.36,
+      "dv_cvar99": 903.98,
+      "dv_max_descriptive": 1390.19,
+      "dv_mean_ci": [
+        181.85,
+        185.68
+      ],
+      "dv_p95_ci": [
+        298.37,
+        310.82
+      ],
+      "dv_cvar95_ci": [
+        442.38,
+        496.95
+      ],
+      "dv_p99_ci": [
+        460.18,
+        590.7
+      ],
+      "dv_cvar99_ci": [
+        803.55,
+        1002.01
+      ],
+      "capture_pct_ci": [
+        95.5,
+        96.26
+      ]
+    },
+    {
+      "label": "FTC-fixed",
+      "run_dir": "ou_marginal/classical/ftc",
+      "n": 10000,
+      "capture_pct": 92.42,
+      "dv_mean": 254.14,
+      "dv_p50": 231.61,
+      "dv_p95": 409.34,
+      "dv_p99": 597.83,
+      "dv_p999": 1325.31,
+      "dv_cvar95": 569.85,
+      "dv_cvar99": 995.02,
+      "dv_max_descriptive": 1397.75,
+      "dv_mean_ci": [
+        251.95,
+        256.41
+      ],
+      "dv_p95_ci": [
+        402.07,
+        418.31
+      ],
+      "dv_cvar95_ci": [
+        543.13,
+        597.52
+      ],
+      "dv_p99_ci": [
+        542.18,
+        722.17
+      ],
+      "dv_cvar99_ci": [
+        897.58,
+        1083.15
+      ],
+      "capture_pct_ci": [
+        91.91,
+        92.93
+      ]
+    },
+    {
+      "label": "PredGuid",
+      "run_dir": "ou_marginal/classical/pred_guid",
+      "n": 10000,
+      "capture_pct": 89.3,
+      "dv_mean": 273.91,
+      "dv_p50": 256.89,
+      "dv_p95": 418.49,
+      "dv_p99": 600.33,
+      "dv_p999": 1361.1,
+      "dv_cvar95": 572.35,
+      "dv_cvar99": 991.69,
+      "dv_max_descriptive": 1454.69,
+      "dv_mean_ci": [
+        271.65,
+        276.1
+      ],
+      "dv_p95_ci": [
+        412.2,
+        424.86
+      ],
+      "dv_cvar95_ci": [
+        546.3,
+        598.74
+      ],
+      "dv_p99_ci": [
+        545.44,
+        645.15
+      ],
+      "dv_cvar99_ci": [
+        893.51,
+        1087.61
+      ],
+      "capture_pct_ci": [
+        88.69,
+        89.88
+      ]
+    },
+    {
+      "label": "FNPAG",
+      "run_dir": "ou_marginal/classical/fnpag",
+      "n": 10000,
+      "capture_pct": 92.85,
+      "dv_mean": 189.94,
+      "dv_p50": 155.11,
+      "dv_p95": 317.14,
+      "dv_p99": 1170.35,
+      "dv_p999": 1507.78,
+      "dv_cvar95": 716.07,
+      "dv_cvar99": 1380.38,
+      "dv_max_descriptive": 1534.74,
+      "dv_mean_ci": [
+        186.74,
+        193.14
+      ],
+      "dv_p95_ci": [
+        304.36,
+        332.7
+      ],
+      "dv_cvar95_ci": [
+        665.11,
+        767.71
+      ],
+      "dv_p99_ci": [
+        1063.73,
+        1260.95
+      ],
+      "dv_cvar99_ci": [
+        1322.89,
+        1420.69
+      ],
+      "capture_pct_ci": [
+        92.34,
+        93.35
+      ]
+    }
+  ],
+  "paired": [
+    {
+      "a": "NN",
+      "b": "joint-FTC",
+      "n_pairs": 8491,
+      "delta_mean": 43.295,
+      "delta_mean_ci": [
+        40.646,
+        45.779
+      ],
+      "win_rate_a": 0.412,
+      "wilcoxon_p": 2.4010786933304074e-156,
+      "delta_capture_pts": -10.59,
+      "delta_capture_pts_ci": [
+        -11.23,
+        -9.97
+      ],
+      "delta_cvar95": 190.07,
+      "delta_cvar95_ci": [
+        158.05,
+        222.54
+      ]
+    },
+    {
+      "a": "NN",
+      "b": "FTC-fixed",
+      "n_pairs": 8215,
+      "delta_mean": -24.728,
+      "delta_mean_ci": [
+        -27.274,
+        -21.999
+      ],
+      "win_rate_a": 0.665,
+      "wilcoxon_p": 4.573648570322879e-129,
+      "delta_capture_pts": -7.13,
+      "delta_capture_pts_ci": [
+        -7.83,
+        -6.42
+      ],
+      "delta_cvar95": 88.57,
+      "delta_cvar95_ci": [
+        62.15,
+        113.35
+      ]
+    },
+    {
+      "a": "NN",
+      "b": "PredGuid",
+      "n_pairs": 7973,
+      "delta_mean": -46.897,
+      "delta_mean_ci": [
+        -49.642,
+        -44.178
+      ],
+      "win_rate_a": 0.733,
+      "wilcoxon_p": 0.0,
+      "delta_capture_pts": -4.01,
+      "delta_capture_pts_ci": [
+        -4.75,
+        -3.26
+      ],
+      "delta_cvar95": 86.07,
+      "delta_cvar95_ci": [
+        54.81,
+        117.36
+      ]
+    },
+    {
+      "a": "NN",
+      "b": "FNPAG",
+      "n_pairs": 8238,
+      "delta_mean": 25.74,
+      "delta_mean_ci": [
+        22.318,
+        29.265
+      ],
+      "win_rate_a": 0.381,
+      "wilcoxon_p": 2.726631565453855e-203,
+      "delta_capture_pts": -7.56,
+      "delta_capture_pts_ci": [
+        -8.26,
+        -6.88
+      ],
+      "delta_cvar95": -57.65,
+      "delta_cvar95_ci": [
+        -108.09,
+        -4.95
+      ]
+    }
+  ]
+}

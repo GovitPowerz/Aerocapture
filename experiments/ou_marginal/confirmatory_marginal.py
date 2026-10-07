@@ -32,10 +32,15 @@ and its partial store deleted. The store refuses a replicate flown under another
 merged TOML, override set, model or pool, compared by content (delete it to re-fly).
 A cell is classified right after it is saved, so an interrupted re-fly reruns on its own.
 
-`--table` flies nothing: it prints the manifest's scored cells as the 10^6 table
-(capture from the pooled counts) and evaluates the #173 recipe rule as amended.
+`--extra-override K=V` (repeatable) flies every cell given under it and is recorded in the row
+(`extra_overrides`, reused by the non-capture re-fly); a scored row whose overrides differ stops the
+run (#176's reset-state cell: guidance.neural_network.reset_state_every_tick=true).
 
-Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--cells ...] [--manifest FILE] [--n 100000] [--table]
+`--table` flies nothing: it prints the manifest's scored cells as the 10^6 table
+(capture from the pooled counts) and evaluates the #173 recipe rule as amended and the #176
+controls rule.
+
+Usage: uv run python -u experiments/ou_marginal/confirmatory_marginal.py [--cells ...] [--manifest FILE] [--n 100000] [--extra-override K=V] [--table]
 """
 
 from __future__ import annotations
@@ -55,6 +60,10 @@ DEFAULT_MANIFEST = Path(__file__).resolve().parent / "confirmatory_cells.txt"
 # The #173 recipe rule's three-seed cells: S, scratch at 512 x 2; F, the fine-tune of the shared-path champion.
 RECIPE_S = tuple(f"ou_marginal/hl_mamba_p962{s}" for s in ("", "_s2", "_s3"))
 RECIPE_F = tuple(f"ou_marginal/ft_mamba_p962{s}" for s in ("", "_s2", "_s3"))
+# The #176 mechanism controls (seed 1), retrained at the champion's allocation; read against RECIPE_S's
+# seed range. Their seed repeats are `<control>_s2` / `_s3`.
+CONTROLS = ("ou_marginal/ctrl_window_p970", "ou_marginal/ctrl_mamba_p962_nodv")
+PER_DRAW = {"monte_carlo.noise_seeding": "per_draw"}  # every flight's regime; a row's extra_overrides go on top
 
 
 def read_manifest(path: Path) -> list[tuple[str, str, str | None]]:
@@ -133,6 +142,25 @@ def recipe_rule(by_label: dict[str, dict]) -> dict | None:
     }
 
 
+def controls_rule(by_label: dict[str, dict]) -> dict | None:
+    """#176's rule, pre-registered before either control ran: a control whose pooled CVaR99.9 lands
+    inside the intact champion's three-seed range (RECIPE_S, min to max) gets seeds 2 and 3 before
+    the paper reads it; one outside needs no repeats. Each scored control lists its repeats' CVaR99.9
+    (None until scored). None until the three champion seeds are scored."""
+    if not all(k in by_label for k in RECIPE_S):
+        return None
+    seeds = [by_label[k]["pooled"]["cvar999"] for k in RECIPE_S]
+    lo, hi = min(seeds), max(seeds)
+    controls = {}
+    for k in CONTROLS:
+        if k in by_label:
+            v = by_label[k]["pooled"]["cvar999"]
+            inside = lo <= v <= hi
+            repeats = {r: by_label[r]["pooled"]["cvar999"] if r in by_label else None for r in (f"{k}_s2", f"{k}_s3")}
+            controls[k] = {"cvar999": v, "inside_range": inside, "seeds_2_3_required": inside, "repeats": repeats}
+    return {"champion_range": [lo, hi], "controls": controls, "not_scored": [k for k in CONTROLS if k not in by_label]}
+
+
 def classify_non_captures(cell: dict, cell_dir: Path, commit: str) -> dict:
     """Terminal outcomes of a cell's recorded `failed_seeds` (the first 50 per replicate) re-flown
     with no wall-clock limit: ifinal 1 / 4 a crash / pending crash, 2 a timeout (the simulation's own
@@ -147,7 +175,8 @@ def classify_non_captures(cell: dict, cell_dir: Path, commit: str) -> dict:
     if cell.get("model_sha256", sha) != sha:
         raise SystemExit(f"{cell['label']}: {cell_dir}/best_model.json is not the model the row was scored with: audit it or delete the row to re-score")
     seeds = [s for rep in cell["replicates"] for s in rep.get("failed_seeds", [])]
-    res = cell_eval.evaluate_cell(cell_dir, toml, seeds, extra_overrides={"monte_carlo.noise_seeding": "per_draw"}, sim_timeout_secs=None)
+    overrides = {**PER_DRAW, **(cell.get("extra_overrides") or {})}  # the row's own flight, minus the wall clock
+    res = cell_eval.evaluate_cell(cell_dir, toml, seeds, extra_overrides=overrides, sim_timeout_secs=None)
     ifinal, ecc = res.final_records[:, FR_IFINAL], res.final_records[:, FR_ECC]
     outcomes = {"crash": ifinal == 1, "pending_crash": ifinal == 4, "hyperbolic": (ifinal == 3) & (ecc >= 1.0), "timeout": ifinal == 2, "capture": res.captured}
     return {"n_reflown": len(seeds), "outcomes": {k: int(m.sum()) for k, m in outcomes.items()}, "eval_commit": commit, "model_sha256": sha}
@@ -159,7 +188,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--replicates", type=int, default=10)
     parser.add_argument("--cells", nargs="+", default=[], metavar="LABEL:TOML[:MODEL_DIR]")
     parser.add_argument("--manifest", type=Path, help=f"one 'label|toml[|model_dir]' per line (default {DEFAULT_MANIFEST.name} when no --cells)")
-    parser.add_argument("--table", action="store_true", help="print the scored cells' 10^6 table and the #173 recipe rule; fly nothing")
+    parser.add_argument(
+        "--extra-override",
+        action="append",
+        default=[],
+        metavar="K=V",
+        help="applied to every sim of every cell given (#176's reset-state cell: guidance.neural_network.reset_state_every_tick=true)",
+    )
+    parser.add_argument("--table", action="store_true", help="print the scored cells' 10^6 table and the #173 / #176 rules; fly nothing")
     args = parser.parse_args(argv)
 
     import confirmatory_eval as ce  # type: ignore[import-not-found]  # articles/paper/scripts via sys.path
@@ -177,7 +213,10 @@ def main(argv: list[str] | None = None) -> None:
             print(f"not scored yet: {', '.join(missing)}")
         rule = recipe_rule(scored)
         print(f"#173 recipe rule: {rule}" if rule else "#173 recipe rule: not evaluable until the three hl_mamba_p962 and three ft_mamba_p962 seeds are scored")
+        controls = controls_rule(scored)
+        print(f"#176 controls rule: {controls}" if controls else "#176 controls rule: not evaluable until the three hl_mamba_p962 seeds are scored")
         return
+    extra = ce._parse_extra_overrides(args.extra_override)
 
     # Same pools as the paper's confirmatory: every cell must share the base MC seed
     # or the paired replicate deltas would silently break.
@@ -217,6 +256,10 @@ def main(argv: list[str] | None = None) -> None:
     for label, toml, model_dir in cells:
         cell_dir = REPO / (model_dir or f"training_output/{label}")
         if label in by_label:
+            # Compared as flown: the oldest rows recorded the regime itself as their extra_overrides.
+            scored_under = by_label[label].get("extra_overrides")
+            if {**PER_DRAW, **(scored_under or {})} != {**PER_DRAW, **extra}:
+                raise SystemExit(f"{label}: scored under extra_overrides {scored_under}, not {extra or None}: delete the row to re-score")
             print(f"{label}: already done, skipping")
         else:
             # Quotable only once the run is over (an RL dir carries a best_model.json from the first
@@ -228,7 +271,7 @@ def main(argv: list[str] | None = None) -> None:
                 continue
             print(f"== {label} ({toml})", flush=True)
             store = ce._partial_store(OUT, label)
-            cell = ce._eval_cell(label, toml, pools, None, {}, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=store)
+            cell = ce._eval_cell(label, toml, pools, None, extra, cell_dir=cell_dir, sim_timeout=5.0, noise_seeding="per_draw", store=store)
             cell["eval_commit"] = freeze_commit  # the file-level freeze_commit is the first run's; rows added later record their own
             save(label, cell)
             ce._drop_partial(OUT, label)

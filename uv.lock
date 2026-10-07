@@ -1778,11 +1778,11 @@ wheels = [
 
 [[package]]
 name = "types-networkx"
-version = "3.6.1.20260911"
+version = "3.6.1.20261006"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e9/8c/a788d233be06b9f20fbaaf4b090bbd6423ea8d67d27e47115fa22a930c6b/types_networkx-3.6.1.20260911.tar.gz", hash = "sha256:d592c4520b05f87e7b94087ce7f244194209ad213633a605131f6ab89cd6f8ea", size = 76365, upload-time = "2026-09-11T06:45:10.322Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/a9/a55d05982aafa8777530b287c3dbcc6127914bd1e5f2343b17a5c9def1f0/types_networkx-3.6.1.20261006.tar.gz", hash = "sha256:6c27cc7b49c8b49c4ac7ca2460299a5b43c4dad221e558eb4a9b59c78f19709d", size = 76482, upload-time = "2026-10-06T08:15:37.926Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/65/24c71d89a4f4ce053912ed46fe036e2e86019199c08b4d0e49568e4ee18c/types_networkx-3.6.1.20260911-py3-none-any.whl", hash = "sha256:e0ea7f786451bd2e16d7b657a1208edcb80c5e01b86e15b1c78bdeca9db620cf", size = 167431, upload-time = "2026-09-11T06:45:08.865Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/d0/81f49b8450029396433262c1b036f1928fa073e578991bd9e22ebeb54a60/types_networkx-3.6.1.20261006-py3-none-any.whl", hash = "sha256:8e2fedb83bb906c0d37a6ae020da3adc4abbd6bd999d8dd3d3266216bd6fae07", size = 167424, upload-time = "2026-10-06T08:15:36.734Z" },
 ]
 
 [[package]]
@@ -1832,34 +1832,34 @@ wheels = [
 
 [[package]]
 name = "types-seaborn"
-version = "0.13.2.20260728"
+version = "0.13.2.20261006"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
     { name = "pandas-stubs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/ad/d4fdc6c2393f6d6cdd8d37c299497591429de0c447b5e3e05c4d2381ea1a/types_seaborn-0.13.2.20260728.tar.gz", hash = "sha256:b86af2dfa1acef233c14f2bed1adbb5111173108ff3703584f5480907ce1a62c", size = 29849, upload-time = "2026-07-28T04:52:06.681Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/34/edc30350ef36e0de71ee2e5f76f54d3d2c2073fe0d6872f4272f9ec24abe/types_seaborn-0.13.2.20261006.tar.gz", hash = "sha256:159c8e572dcec89263de2a84eb4071519c655383bbee66767061566880eb3a8c", size = 30080, upload-time = "2026-10-06T08:16:01.119Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/7e/b7c35fceb56bc19948df7d254df565cde0a98b670b7185e0adaf8165e46d/types_seaborn-0.13.2.20260728-py3-none-any.whl", hash = "sha256:8022d591631ebe90ca52f93ac6fa0da5f12b9f2d8c8c2eca5c076472a37b6d50", size = 40842, upload-time = "2026-07-28T04:52:05.635Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/2e/c463d868786f726004be726d5042ace43c49a156a48d53d3ca43d56888ab/types_seaborn-0.13.2.20261006-py3-none-any.whl", hash = "sha256:3bc4c6fdfa9f5a2d5d5d8fe99cba6b3c501fec702cfc57ba10604d2d59ac4570", size = 40860, upload-time = "2026-10-06T08:16:00.116Z" },
 ]
 
 [[package]]
 name = "types-setuptools"
-version = "84.0.0.20260812"
+version = "84.0.0.20261006"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/cd/3b2a3362a526f91c33f785a291462b2ec448ae531101c62372fc30a21f53/types_setuptools-84.0.0.20260812.tar.gz", hash = "sha256:09bedc248ebbb7a232c9419dfcdca329706e61bf2aa5743e9424d027f1d956b4", size = 46545, upload-time = "2026-08-12T03:52:42.316Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/36/012e992d81f3c3575e6428d53c2bbe266858cf1b7df7335476ab99f17908/types_setuptools-84.0.0.20261006.tar.gz", hash = "sha256:0f123655f44390a15ec62c9fa30b57f6dafe53014524d28b62cab1edbc303059", size = 46604, upload-time = "2026-10-06T08:15:27.42Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/e5/3a41cab4066465593facd660b2683c017f3d88d3297cdd26db0677b8e479/types_setuptools-84.0.0.20260812-py3-none-any.whl", hash = "sha256:799c08e4bc6a288e8a0b538afb5f5ff320a08927ba8dbedb30c74ee3ba5d867b", size = 70320, upload-time = "2026-08-12T03:52:41.154Z" },
+    { url = "https://files.pythonhosted.org/packages/de/24/add82014f533f2ebf62088b39db86d6a341bb0fd94af50b3a3c1e8886683/types_setuptools-84.0.0.20261006-py3-none-any.whl", hash = "sha256:f435ec88f8f2319316969e37b5a1ca49496b276889124de249b422b061b492fe", size = 70326, upload-time = "2026-10-06T08:15:26.289Z" },
 ]
 
 [[package]]
 name = "types-tabulate"
-version = "0.10.0.20260508"
+version = "0.10.0.20261006"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/11/af/c100d86897d3fdb010d8f813569fa80355b5cb553f51080e37d4f3c451bb/types_tabulate-0.10.0.20260508.tar.gz", hash = "sha256:8e51f159e8b24976849706ae2ed1dc9adba8ebbd080b17e494ebb66a8cc92c74", size = 8395, upload-time = "2026-05-08T04:47:58.921Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/da/c0/548058b63e3f29dc2f3c8643ce63095022855d3c7ad00e548388e99e9b3c/types_tabulate-0.10.0.20261006.tar.gz", hash = "sha256:505bb455e337e85f2cf1dfa56c25322ef70059f095673861114444fae3e9e8d7", size = 8606, upload-time = "2026-10-06T08:15:18.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/36/443b700f54a585cf8ed4e76d8ad08b12df6914f8782a2788ecd0d8491519/types_tabulate-0.10.0.20260508-py3-none-any.whl", hash = "sha256:b1e1a2d0456fbd655a71690b09a7aaeffdf2978d32049184ea436492aa51d20a", size = 8137, upload-time = "2026-05-08T04:47:57.872Z" },
+    { url = "https://files.pythonhosted.org/packages/12/5f/28fa88d90e5cfd3586d4a39d4f6efffa7e1f804a7f6bc6f49fa9f9a4c671/types_tabulate-0.10.0.20261006-py3-none-any.whl", hash = "sha256:b4c5772065de6f5d104daf31a72ce0e78abe07d3b1c7b23e28566b5c95f4faf1", size = 8178, upload-time = "2026-10-06T08:15:17.54Z" },
 ]
 
 [[package]]

@@ -1,0 +1,20 @@
+# Matched-history control on the v4 champion (#176): the window_ctrl_p970 architecture (an explicit
+# 5-tick observation history through a zero-parameter FIFO window, no learned state, 970 weights
+# against the Mamba's 962) trained from scratch under per-draw noise seeding at the champion's
+# allocation and budget (GA 512 x 2, 20000 gens; adaptive seeds and the cubed transform come from
+# the family config). Driven by experiments/ou_marginal/campaign.sh
+# experiments/ou_marginal/jobs_controls.txt; decision rule in experiments/paper/15_state_controls.sh.
+base = ["../paper/window_ctrl_p970.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+n_pop = 512
+training_n_sims = 2
+
+[data]
+neural_network = "training_output/ou_marginal/ctrl_window_p970/best_model.json"
+
+[checkpoints]
+keep_last = 3
