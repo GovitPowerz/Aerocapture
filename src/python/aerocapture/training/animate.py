@@ -294,21 +294,6 @@ def _load_pyo3():  # type: ignore[no-untyped-def]
         raise RuntimeError(msg) from err
 
 
-def _nn_frame_specs(toml_path: Path, training_dir: Path) -> tuple[TrainingConfig, list[ParamSpec]]:
-    """The run's config and chromosome specs through the trainer's own path, as
-    `experiments/paper/audit_deployed_models.py` rebuilds a winner: `[[network.architecture]]`,
-    the scaffolding tail and a warm-start run's recorded weight bounds."""
-    from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
-    from aerocapture.training.warm_start import load_warm_start_bounds
-
-    config, toml_data = build_training_config_from_toml(str(toml_path))
-    specs = _setup_param_specs(config, toml_data, verbose=False)
-    bounds = load_warm_start_bounds(training_dir)
-    if bounds is not None:
-        specs = list(bounds) + specs[len(bounds) :]
-    return config, specs
-
-
 def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, specs: list[ParamSpec], frame_dir: Path) -> None:
     """Decode a checkpoint's best individual into a scratch cell (best_model.json plus the
     scaffolding best_params.json) with the trainer's writer, so the frame flies exactly as the
@@ -393,7 +378,13 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    nn_frame = _nn_frame_specs(toml_path, training_dir) if guidance_type == "neural_network" else None
+    nn_frame: tuple[TrainingConfig, list[ParamSpec]] | None = None
+    if guidance_type == "neural_network":
+        from aerocapture.training.training_config import run_param_specs
+
+        # The trainer's own rebuild: `[[network.architecture]]`, the scaffolding tail, a warm-start run's recorded weight bounds.
+        config, _, specs = run_param_specs(toml_path, training_dir)
+        nn_frame = (config, specs)
 
     with tempfile.TemporaryDirectory(prefix="animate_frame_cell_") as scratch_dir:  # NN frames' scratch cell, never the TOML's deploy path
         frame_dir = Path(scratch_dir)

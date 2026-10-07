@@ -455,27 +455,14 @@ def main() -> None:
     from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
     from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
-    from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml  # noqa: PLC0415
-    from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
+    from aerocapture.training.training_config import run_param_specs  # noqa: PLC0415
 
     training_dir = Path(args.training_dir)
-    config, toml_data = build_training_config_from_toml(args.toml)
+    config, toml_data, param_specs = run_param_specs(args.toml, training_dir, announce_overlay=True)
     config.sim.sim_timeout_secs = args.sim_timeout
 
     if config.optimizer.validation_n_sims <= 0:
         raise SystemExit("ERROR: [optimizer] validation_n_sims is 0 -- no validation pool exists to select on. Set validation_n_sims > 0 in the TOML.")
-
-    param_specs = _setup_param_specs(config, toml_data, verbose=False)
-    bounds = load_warm_start_bounds(training_dir)
-    if bounds is not None:
-        # Overlay the EXACT weight-slab bounds the checkpoint population was
-        # encoded under (adaptive warm-start bounds). Decoding under rebuilt
-        # Xavier bounds would silently corrupt the weights.
-        n_weights = len(bounds)
-        if n_weights > len(param_specs):
-            raise SystemExit(f"ERROR: warm_start_bounds.json has {n_weights} specs but config yields {len(param_specs)} params")
-        param_specs = list(bounds) + param_specs[n_weights:]
-        print(f"  Overlaid {n_weights} weight-spec bounds from warm_start_bounds.json")
 
     state = load_selection_state(training_dir)
     base_mc_seed = state.base_mc_seed

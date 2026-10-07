@@ -354,7 +354,7 @@ class TestGenerateAnimation:
 
         with (
             patch("aerocapture.training.animate._load_pyo3", return_value=MagicMock()),
-            patch("aerocapture.training.animate._nn_frame_specs", return_value=(MagicMock(), [])),
+            patch("aerocapture.training.training_config.run_param_specs", return_value=(MagicMock(), {}, [])),
             patch("aerocapture.training.animate._write_nn_frame_cell", side_effect=write_cell),
             patch("aerocapture.training.animate.fly_mc", side_effect=RuntimeError("sim exploded")),
             pytest.raises(RuntimeError, match="sim exploded"),

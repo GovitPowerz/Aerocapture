@@ -174,9 +174,9 @@ provenance / val_rms / promoted, `champion_val_rms`, `n_candidates` vs `n_dedupe
 describes a winner the artifacts don't have. Cost: <= n_candidates x validation_n_sims sims,
 once (~5% of a 2000-gen budget at paper scale). Retro CLI: `python -m
 aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoint-patch]
-[--sim-timeout S]` rebuilds the config via `build_training_config_from_toml`, overlays
-`warm_start_bounds.json` weight-spec bounds when present (decoding under rebuilt Xavier bounds
-would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
+[--sim-timeout S]` rebuilds the config and chromosome via `training_config.run_param_specs`
+(`warm_start_bounds.json` weight-spec bounds overlaid when present: decoding under rebuilt Xavier
+bounds would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
 the TOML), validates the chromosome width, errors when `validation_n_sims = 0`, then re-runs the
 rule and rewrites artifacts + checkpoint, then the sidecar (last, as in `finalize`: a campaign
 runner reads a sidecar newer than the latest checkpoint as a finished selection;
@@ -316,7 +316,10 @@ use `--sim-timeout` against NaN hangs).
 - `trainer.py` - the `Trainer` Protocol, `run_loop`, `SingleAlgoTrainer`, `IslandsTrainer` (each
   with `from_config`), the loop's `_apply_seed_strategy` / `_maybe_curate`,
   `_build_validation_payload`, `_persist_islands_promotion`.
-- `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`,
+- `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`, `run_param_specs`
+  (the offline rebuild of a run's chromosome specs with its `warm_start_bounds.json` overlaid, shared
+  by `animate`, the `final_select` CLI and `experiments/paper/audit_deployed_models.py`, #203; the
+  trainer's own resume splices the bounds in `initial_population.py`),
   `check_ref_trajectory_wiring`, `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
 - `checkpoint.py` - `save_checkpoint` / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
   `_restore_seed_curator`, `_check_resume_chromosome_shape`.
@@ -630,8 +633,8 @@ use `--sim-timeout` against NaN hangs).
   typst` / `cargo install typst-cli`); without it charts are still generated, no PDF.
 - `animate.py` — GIF of the training evolution: replays checkpoints, re-runs MC per frame, 2x2
   panels (corridor with envelope fills, inclination, bank angle, cost CDF with ECDF overlay). An NN
-  frame is decoded through the trainer's own path (`build_training_config_from_toml` +
-  `_setup_param_specs` + `write_best_artifacts`, warm-start bounds overlaid) into a scratch cell
+  frame is decoded through the trainer's own path (`training_config.run_param_specs` +
+  `write_best_artifacts`, warm-start bounds overlaid) into a scratch cell
   flown with `fly_mc`, so `[[network.architecture]]` and the scaffolding genes apply as at deploy
   (#196); the TOML's `[data] neural_network` is never written.
 - `corridor.py` — `CorridorAccumulator`: during `piecewise_constant` training each generation's

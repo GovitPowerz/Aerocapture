@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
+import pytest
 from aerocapture.training.optimizer import OptimizerConfig
 
 
@@ -62,3 +64,71 @@ g_load_limit = 15.0
     cost_cfg = _toml.get("cost_function", {})
     dv_threshold = float(cost_cfg.get("dv_threshold", 1000.0))
     assert dv_threshold == 1000.0
+
+
+class TestRunParamSpecs:
+    """`run_param_specs` is the one rebuild of a run's chromosome specs (#203): the
+    trainer's `build_training_config_from_toml` + `_setup_param_specs`, with the run's
+    `warm_start_bounds.json` overlaid. The three offline consumers (animate, the
+    final_select CLI, the deploy audit) decode through it, so a decode change cannot
+    land in one and not the others.
+    """
+
+    ARCH = [
+        {"type": "dense", "input_size": 17, "output_size": 4, "activation": "swish"},
+        {"type": "dense", "input_size": 4, "output_size": 2, "activation": "asinh"},
+    ]
+    REPO = Path(__file__).resolve().parents[1]
+
+    @pytest.fixture()
+    def toml_path(self, tmp_path: Path) -> Path:
+        from tests.fixtures.factories import leaf_toml_with_architecture
+
+        p = tmp_path / "config.toml"
+        p.write_text(leaf_toml_with_architecture(self.REPO / "configs/training/msr_aller_nn_atan2_train.toml", self.ARCH))
+        return p
+
+    def test_is_the_trainers_own_rebuild_without_a_sidecar(self, tmp_path: Path, toml_path: Path) -> None:
+        from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml, run_param_specs
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        config, toml_data, specs = run_param_specs(toml_path, run_dir)
+
+        expected_config, expected_toml = build_training_config_from_toml(str(toml_path))
+        expected = _setup_param_specs(expected_config, expected_toml, verbose=False)
+        assert config.guidance_type == expected_config.guidance_type == "neural_network"
+        assert config.network.architecture == expected_config.network.architecture
+        assert toml_data == expected_toml
+        assert specs == expected
+        assert len(specs) == 17 * 4 + 4 + 4 * 2 + 2 + 3  # weights + the three live scaffolding genes
+
+    def test_overlays_the_recorded_weight_bounds(self, tmp_path: Path, toml_path: Path) -> None:
+        from aerocapture.training.training_config import run_param_specs
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        _, _, rebuilt = run_param_specs(toml_path, run_dir)
+        (run_dir / "warm_start_bounds.json").write_text(
+            json.dumps(
+                [
+                    {"name": "w_0", "p_min": -7.0, "p_max": 7.0, "default": 0.0},
+                    {"name": "w_1", "p_min": -0.5, "p_max": 0.5, "default": 0.1},
+                ]
+            )
+        )
+        _, _, specs = run_param_specs(toml_path, run_dir)
+
+        assert len(specs) == len(rebuilt)
+        assert [(s.name, s.p_min, s.p_max) for s in specs[:2]] == [("w_0", -7.0, 7.0), ("w_1", -0.5, 0.5)]
+        assert specs[2:] == rebuilt[2:]
+
+    def test_more_bounds_than_params_is_an_error(self, tmp_path: Path, toml_path: Path) -> None:
+        from aerocapture.training.training_config import run_param_specs
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        _, _, rebuilt = run_param_specs(toml_path, run_dir)
+        (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": f"w_{i}", "p_min": -1.0, "p_max": 1.0} for i in range(len(rebuilt) + 1)]))
+        with pytest.raises(SystemExit, match="warm_start_bounds.json has"):
+            run_param_specs(toml_path, run_dir)
