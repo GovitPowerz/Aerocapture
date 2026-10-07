@@ -85,12 +85,12 @@
 #assert((ou_dense, ou_fnpag).all(c => calc.abs(c.cvar999 - ou_near) < 1), message: "the dense fine-tune and FNPAG do not both sit within 1 m/s of " + str(ou_near))
 // The single-core compute quotes (data/compute_benchmark.json). The benchmark is wall-clock, so a
 // re-run moves every row and the prose reads them: ms per simulation, the network's factor below
-// FNPAG, its cost of state over the dense network, and at the 100x flight-processor scaling
+// FNPAG and over FTC, its cost of state over the dense network, and at the 100x flight-processor scaling
 // FNPAG's derived per-replan cost and the network's whole-simulation cost per 1 s update.
 #let ms(label) = R.bench(label).ms_per_sim
 #let ms_vs_fnpag = int(calc.round(ms("FNPAG") / ms("NN-mamba")))
+#let ms_vs_ftc = ms("NN-mamba") / ms("FTC")
 #let ms_state = ms("NN-mamba") / ms("NN-dense")
-#assert(calc.abs(ms("NN-mamba") / ms("FTC") - 3.5) < 0.25, message: "the Compute paragraph states the network costs roughly three and a half times FTC")
 #let fl_replan_ms = 100 * R.bench("FNPAG").ms_per_replan_derived
 #let fl_update_ms = 100 * R.bench("NN-mamba").us_per_update_incl_sim / 1000
 #assert(calc.abs((1000 / fl_update_ms) / (2000 / fl_replan_ms) - 30) < 5, message: "the Compute paragraph states the two deadline margins differ by a factor of thirty")
@@ -1067,7 +1067,7 @@ advantage is precisely where the mission is sized.
 
 *Compute.* On a single idle core, the dense network runs at $#R.fixed(ms("NN-dense"), d: 2)$ ms per simulation and the stateful
 Mamba at $#R.fixed(ms("NN-mamba"), d: 2)$ ms, against $#R.fixed(ms("FTC"), d: 2)$ ms for FTC and $#R.fixed(ms("FNPAG"))$ ms for FNPAG (@fig-classical). The network is
-roughly three and a half times FTC -- the same fast class -- and $#ms_vs_fnpag times$ faster than the numerical
+about $#R.fixed(ms_vs_ftc) times$ FTC -- the same fast class -- and $#ms_vs_fnpag times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
 below keeps robustness a separate axis. The selective-state-space core costs about $#R.fixed(ms_state) times$ the

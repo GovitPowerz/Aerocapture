@@ -35,19 +35,19 @@ Every scheme is evaluated on frozen 10 × 100,000-scenario confirmatory pools (n
 
 | Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
 |---|---|---|---|---|---|---|---|---|
-| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3 SD) | 249 | 3.07 |
-| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.98 |
-| Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 85.5 |
-| Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 3.07 |
-| PPO baseline | NN — dense, 515 params, PPO from scratch (inputs, scaffolding and pools of the efficiency reference) | per-scenario | 10⁶ | 99.97 | 0.69 | 372.0 ± 1.4 | 486 | 1.98 |
-| PPO baseline | NN — dense, 515 params, PPO warm-started from the efficiency reference | per-scenario | 10⁶ | 100.00 | 0.04 | 197.6 ± 2.2 | 378 | 1.98 |
+| **Deployed** | NN — Mamba, 962 params, per-scenario fine-tune | per-scenario | 10⁶ | 99.9995 | 0.00 | **163.0 ± 0.3** (3 seeds: 163.2 ± 1.3 SD) | 249 | 2.84 |
+| Efficiency reference | NN — dense, 515 params, per-scenario fine-tune | per-scenario | 10⁶ | 100.00 | 0.03 | 236.3 ± 2.5 | 405 | 1.86 |
+| Best classical | FNPAG | per-scenario | 10⁶ | 99.37 | 0.00 | 236.7 ± 2.3 | 579 | 82.4 |
+| Historical champion | NN — Mamba, 962 params, shared-path training | per-scenario | 10⁶ | 97.93 | 0.91 | 221.3 ± 0.5 | 270 | 2.84 |
+| PPO baseline | NN — dense, 515 params, PPO from scratch (inputs, scaffolding and pools of the efficiency reference) | per-scenario | 10⁶ | 99.97 | 0.69 | 372.0 ± 1.4 | 486 | 1.86 |
+| PPO baseline | NN — dense, 515 params, PPO warm-started from the efficiency reference | per-scenario | 10⁶ | 100.00 | 0.04 | 197.6 ± 2.2 | 378 | 1.86 |
 
 Violation % is the fraction of the 10⁶ scenarios exceeding any `[flight.constraints]` limit (heat flux, g-load, integrated heat load). Training promotes only feasible candidates (validation-pool violation rate at or below `[optimizer] max_violation_rate`, default 0; [ADR-0005](docs/adr/0005-feasibility-before-performance-in-selection.md)); cells trained before that rule are quoted with their measured rate.
 
 - **A small stateful network wins where the mission is sized.** On the shallow tail the dense fine-tune wins (CVaR95: dense 128.8, Mamba 138.7, FNPAG 152.5); on the far tail that sizes the tanks the recurrent policy holds 163 while the dense network and FNPAG both sit near 237, with the smallest worst case of any scheme.
 - **Honest noise costs the networks more than the classical laws.** Cells trained on the shared noise path lose 54–84 m/s of CVaR95 under per-scenario noise where the classical schemes lose 11–31; the historical champion drops to 97.9% capture. Retraining under per-scenario noise restores capture and feasibility for every cell, and fine-tuning from the frozen champion is the winning recipe where it is feasible.
 - **Policy gradients do not compete under the matched protocol** (paper Section 5, issues #101 and #154). PPO from scratch captures but pays +67 m/s (dense) and +257 m/s (GRU) paired mean over the population-trained cell of the same architecture and brushes the heat-flux limit (0.69% and 0.85% of the 10⁶ confirmatory scenarios); PPO warm-started from the dense champion deploys it (+1.1 m/s paired) and then drifts off it, and warm-started from the GRU champion it is already off the champion at its first validation gate (+11 m/s paired). Paired deltas are on the 2M pool (n = 1000, per-scenario noise). Raw data: `rl/*` keys in `articles/paper/data/results.json` (2M pool, n = 1000, paired) and `experiments/ou_marginal/confirmatory_marginal.json` (10⁶).
-- **FNPAG is the classical reference under honest noise,** at ~28× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
+- **FNPAG is the classical reference under honest noise,** at ~29× the network's per-simulation compute, but its tail is fat: CVaR95 152, CVaR99.9 237, and a 579 m/s worst case, with 0.6% of scenarios not captured.
 - **A learned model of the plant does not plan here** (issue #113, [experiments/world_model/](experiments/world_model/README.md)). GRU and one-step MLP dynamics models trained on 10,000 flights beat "nothing changes" for 60 to 160 ticks of free run, and the planner needs the whole pass. All six predict a crash for every constant bank from entry, FNPAG's corrector then pins the minimum bank, and every learned-model planner pays 770 to 965 m/s of correction ΔV where the same corrector on a clairvoyant replay of the plant pays 137. The write-up diagnoses four failure modes; pooling three training seeds recovers most of the lost calibration.
 
 ### Historical result and evaluation correction
@@ -56,10 +56,10 @@ The paper's main body (arxiv-v3) was evaluated under the historical shared-noise
 
 | Role | Scheme | Regime | n | Capture % | Violation % | CVaR99.9 | Max | ms/sim |
 |---|---|---|---|---|---|---|---|---|
-| Historical headline | NN — Mamba, 962 params | shared path | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 3.07 |
-| Efficiency reference | NN — dense, 515 params | shared path | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.98 |
-| Best classical | FTC (joint reference) | shared path | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.91 |
-| Reference NPC | FNPAG | shared path | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 85.5 |
+| Historical headline | NN — Mamba, 962 params | shared path | 10⁶ | 100.00 | 0.00 | 123.3 ± 0.1 | 140 | 2.84 |
+| Efficiency reference | NN — dense, 515 params | shared path | 10⁶ | 100.00 | 0.01 | 128.7 ± 0.4 | 183 | 1.86 |
+| Best classical | FTC (joint reference) | shared path | 10⁶ | 100.00 | 0.00 | 165.1 ± 0.3 | 192 | 0.85 |
+| Reference NPC | FNPAG | shared path | 10⁶ | 99.98 | 0.00 | 198.7 ± 1.7 | 658 | 82.4 |
 
 Two shared-path findings survive the correction unchanged: **reference co-optimization is the classical lever** (letting the optimizer co-tune FTC's constant-bank reference, `[reference] joint_bank = true`, drops its CVaR95 from 244 to 143; a feedback law cannot out-perform the target it tracks), and **internal state earns its keep on the extreme tail, not the median** (every converged architecture lands at 108–112 m/s typical cost; the state-reset control collapses the shared-path champion's CVaR99.9 from 123 to 414).
 
@@ -201,7 +201,7 @@ Seven guidance schemes, all trainable by the population optimizers below:
 |---|---|---|---|
 | **Neural Network** | Maps a configurable subset of 35 candidate inputs (orbital/aero/thermal state, reference-trajectory interpolations, seam-free `(sin,cos)` bank history, live predicted correction-ΔV components) to a bank angle. v1 dense or v2 heterogeneous architectures (`dense`, `gru`, `lstm`, `window`, `transformer`, `mamba`, plus experimental `mamba3`/`cfc`/`slstm`/`mlstm` probe cells); per-input normalization embedded in the model JSON, data-driven via `calibrate_inputs.py`; signed (`atan2_signed`, `scaled_pi`, `delta`) or magnitude (`acos_tanh`) bank decoders | arch-dependent (+3 / +17 with live / full co-trained scaffolding) | **Deployed headline** — signed bank, full envelope (capture + exit) |
 | **FTC** | Predictor-corrector with reference trajectory tracking | 23 | **Best classical** (with a co-optimized reference) |
-| **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slowest (~87 ms/sim); requires ref trajectory |
+| **FNPAG** | Lu's numerical predictor-corrector (onboard 3D predictor with J2–J4 gravity, RK4, nav-scaled atmosphere) | 22 | Accurate but slowest (~82 ms/sim); requires ref trajectory |
 | **Equilibrium Glide** | Balances gravity, centrifugal, and lift forces | 24 | Independent (no reference) |
 | **Energy Controller** | Tracks reference energy dissipation profile | 19 | Requires ref trajectory |
 | **PredGuid** | Apollo/Shuttle-heritage drag tracking | 20 | Requires ref trajectory |
