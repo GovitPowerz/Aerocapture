@@ -57,6 +57,7 @@ from aerocapture.training.seeds import (
     base_mc_seed_from_toml,
     make_reserved_seeds,
 )
+from aerocapture.training.training_config import warm_start_weight_bounds
 from aerocapture.training.weight_stats import compute_weight_stats
 
 if TYPE_CHECKING:
@@ -414,6 +415,12 @@ class SingleAlgoTrainer:
                 # n_iter is not checkpointed: alpha re-anneals from alpha_start
                 # over the stretched schedule, re-expanding a converged swarm.
                 print("  NOTE: QPSO resume restarts the alpha anneal at alpha_start (paper runs are single-shot --from-scratch)")
+        if resumed is not None and resume_dir is not None and config.guidance_type == "neural_network":
+            # The checkpointed population was encoded under the warm-start bounds, not the rebuilt
+            # ones: overlay in place, as the fresh-start splice does (the problem decodes through this list).
+            bounds = warm_start_weight_bounds(config, problem.param_specs, Path(resume_dir))
+            if bounds is not None:
+                problem.param_specs[: len(bounds)] = bounds
         seed_weights = _load_seed_weights(config, cwd, verbose) if resumed is None and not from_scratch else None
         if resumed is not None and verbose:
             # The checkpointed best is re-validated unconditionally in `prologue`

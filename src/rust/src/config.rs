@@ -543,7 +543,7 @@ pub struct TomlNetwork {
     // Python-only from here down: never relayed to SimData. Mirrored on
     // training/config.py::NetworkConfig; populated from the TOML by
     // training_config.py::build_training_config_from_toml (rl/train.py::_parse_network_config
-    // and animate.py::_decode_and_build_overrides read layer_sizes/activations directly).
+    // reads layer_sizes/activations directly).
     #[allow(dead_code)]
     #[serde(default)]
     pub(crate) layer_sizes: Option<Vec<usize>>,

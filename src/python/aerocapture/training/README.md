@@ -174,9 +174,9 @@ provenance / val_rms / promoted, `champion_val_rms`, `n_candidates` vs `n_dedupe
 describes a winner the artifacts don't have. Cost: <= n_candidates x validation_n_sims sims,
 once (~5% of a 2000-gen budget at paper scale). Retro CLI: `python -m
 aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoint-patch]
-[--sim-timeout S]` rebuilds the config via `build_training_config_from_toml`, overlays
-`warm_start_bounds.json` weight-spec bounds when present (decoding under rebuilt Xavier bounds
-would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
+[--sim-timeout S]` rebuilds the config and chromosome via `training_config.run_param_specs`
+(`warm_start_bounds.json` weight-spec bounds overlaid when present: decoding under rebuilt Xavier
+bounds would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
 the TOML), validates the chromosome width, errors when `validation_n_sims = 0`, then re-runs the
 rule and rewrites artifacts + checkpoint, then the sidecar (last, as in `finalize`: a campaign
 runner reads a sidecar newer than the latest checkpoint as a finished selection;
@@ -316,8 +316,13 @@ use `--sim-timeout` against NaN hangs).
 - `trainer.py` - the `Trainer` Protocol, `run_loop`, `SingleAlgoTrainer`, `IslandsTrainer` (each
   with `from_config`), the loop's `_apply_seed_strategy` / `_maybe_curate`,
   `_build_validation_payload`, `_persist_islands_promotion`.
-- `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`,
-  `check_ref_trajectory_wiring`, `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
+- `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`, `run_param_specs`
+  (the offline rebuild of a run's chromosome specs with its `warm_start_bounds.json` overlaid, shared
+  by `animate`, the `final_select` CLI and `experiments/paper/audit_deployed_models.py`, #203),
+  `warm_start_weight_bounds` (the sidecar's weight-slab specs, checked to span the config's weight
+  slab; also overlaid in place by `SingleAlgoTrainer.from_config` on resume, where the fresh-start
+  splice in `initial_population.py` does not run), `check_ref_trajectory_wiring`,
+  `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
 - `checkpoint.py` - `save_checkpoint` / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
   `_restore_seed_curator`, `_check_resume_chromosome_shape`.
 - `artifacts.py` - `write_best_artifacts`, `deploy_optimized_artifacts`, `_emit_warm_start_artifacts`.
@@ -629,11 +634,12 @@ use `--sim-timeout` against NaN hangs).
   `lib.typ` (page style, colors, headings). External dependency: the `typst` CLI (`brew install
   typst` / `cargo install typst-cli`); without it charts are still generated, no PDF.
 - `animate.py` — GIF of the training evolution: replays checkpoints, re-runs MC per frame, 2x2
-  panels (corridor with envelope fills, inclination, bank angle, cost CDF with ECDF overlay). An NN
-  frame is decoded through the trainer's own path (`build_training_config_from_toml` +
-  `_setup_param_specs` + `write_best_artifacts`, warm-start bounds overlaid) into a scratch cell
-  flown with `fly_mc`, so `[[network.architecture]]` and the scaffolding genes apply as at deploy
-  (#196); the TOML's `[data] neural_network` is never written.
+  panels (corridor with envelope fills, inclination, bank angle, cost CDF with ECDF overlay). Every
+  frame decodes under the trainer's own specs (`training_config.run_param_specs`, so a piecewise
+  run's segment count applies; a joint-reference run raises, its per-individual reference table is
+  not regenerated). An NN frame goes through `write_best_artifacts` (warm-start bounds overlaid)
+  into a scratch cell flown with `fly_mc`, so `[[network.architecture]]` and the scaffolding genes
+  apply as at deploy (#196); the TOML's `[data] neural_network` is never written.
 - `corridor.py` — `CorridorAccumulator`: during `piecewise_constant` training each generation's
   trajectories (plus 11 constant-bank sentinel chromosomes from 0° to 180° in 18° steps, tracing
   the full lift-up / lift-down range) are classified (`classify_trajectories`, asymmetric
@@ -718,9 +724,12 @@ dependency).
 With `adaptive_bounds = true` (default) the NN-weight ParamSpec bounds are derived post-Adam from
 each layer slab's max-abs value with a 2x margin (floored at the Xavier × `bound_multiplier`
 half-width), so encoding never clips; they persist to `<save_dir>/warm_start_bounds.json`
-(`warm_start.load_warm_start_bounds`, also read by the `final_select` CLI) and
-`build_warm_start_chromosome` returns `(chromosome, weight_specs)` whose specs replace
-`param_specs[0..n_weights)` so every optimizer decodes under the bounds the encoding used.
+(`warm_start.load_warm_start_bounds`) and `build_warm_start_chromosome` returns
+`(chromosome, weight_specs)` whose specs replace `param_specs[0..n_weights)` so every optimizer
+decodes under the bounds the encoding used. A single-algo resume skips that branch and overlays the
+sidecar itself (`training_config.warm_start_weight_bounds` in `SingleAlgoTrainer.from_config`;
+before #203 it decoded the resumed population under the rebuilt bounds); the offline consumers get
+it through `run_param_specs`.
 `adaptive_bounds = false` falls back to static Xavier × `bound_multiplier` bounds plus a >5%
 clip-rate guard. The cache key covers architecture + input_mask + output_param +
 supervisor_schemes + per-scheme mtime + scaffolding source path/mtime + bound_multiplier +

@@ -294,21 +294,6 @@ def _load_pyo3():  # type: ignore[no-untyped-def]
         raise RuntimeError(msg) from err
 
 
-def _nn_frame_specs(toml_path: Path, training_dir: Path) -> tuple[TrainingConfig, list[ParamSpec]]:
-    """The run's config and chromosome specs through the trainer's own path, as
-    `experiments/paper/audit_deployed_models.py` rebuilds a winner: `[[network.architecture]]`,
-    the scaffolding tail and a warm-start run's recorded weight bounds."""
-    from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
-    from aerocapture.training.warm_start import load_warm_start_bounds
-
-    config, toml_data = build_training_config_from_toml(str(toml_path))
-    specs = _setup_param_specs(config, toml_data, verbose=False)
-    bounds = load_warm_start_bounds(training_dir)
-    if bounds is not None:
-        specs = list(bounds) + specs[len(bounds) :]
-    return config, specs
-
-
 def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, specs: list[ParamSpec], frame_dir: Path) -> None:
     """Decode a checkpoint's best individual into a scratch cell (best_model.json plus the
     scaffolding best_params.json) with the trainer's writer, so the frame flies exactly as the
@@ -321,15 +306,13 @@ def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, s
     write_best_artifacts(x, config, specs, frame_dir, cwd=Path.cwd())
 
 
-def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, n_sims: int) -> dict[str, object]:
+def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, specs: list[ParamSpec], n_sims: int) -> dict[str, object]:
     """Decode a classical scheme's checkpoint best individual into dot-path TOML overrides.
 
     Supports both new real-valued (float64) and legacy binary (int8) checkpoints.
     """
     from aerocapture.training.encoding import decode_normalized
-    from aerocapture.training.param_spaces import PARAM_SPACES
 
-    specs = PARAM_SPACES[guidance_type]
     x = best_individual.astype(np.float64)
     params = decode_normalized(x, specs)
     return _build_overrides(guidance_type, params, n_sims)
@@ -393,7 +376,14 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
-    nn_frame = _nn_frame_specs(toml_path, training_dir) if guidance_type == "neural_network" else None
+    from aerocapture.training.training_config import run_param_specs
+
+    # The trainer's own rebuild: `[[network.architecture]]`, the scaffolding tail, a warm-start run's recorded
+    # weight bounds, a piecewise run's segment count.
+    config, _, specs = run_param_specs(toml_path, training_dir)
+    if any(s.name == "ref_bank" for s in specs):
+        raise NotImplementedError("a joint-reference run flies a per-individual reference table that animate does not regenerate")
+    nn_frame = (config, specs) if guidance_type == "neural_network" else None
 
     with tempfile.TemporaryDirectory(prefix="animate_frame_cell_") as scratch_dir:  # NN frames' scratch cell, never the TOML's deploy path
         frame_dir = Path(scratch_dir)
@@ -402,7 +392,7 @@ def generate_animation(
             if nn_frame is not None:
                 _write_nn_frame_cell(best_chrom, *nn_frame, frame_dir)
                 return fly_mc(frame_dir, toml_path, extra_overrides={"simulation.n_sims": n_sims}, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
-            overrides = _decode_and_build_overrides(best_chrom, guidance_type, n_sims)
+            overrides = _decode_and_build_overrides(best_chrom, guidance_type, specs, n_sims)
             return fly_mc(None, toml_path, extra_overrides=overrides, include_trajectories=True, sim_timeout_secs=sim_timeout_secs)
 
         # Step 1: Pre-compute axis ranges from the final checkpoint

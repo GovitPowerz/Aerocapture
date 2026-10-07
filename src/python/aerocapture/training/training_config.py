@@ -2,8 +2,10 @@
 
 The one TOML -> `TrainingConfig` chokepoint (`build_training_config_from_toml`,
 shared by the train CLI and the `final_select` CLI), `_setup_param_specs` (the
-optimizer's gene list), and the small config readers the artifact writers and
-the CLI share. A leaf: imports no loop, checkpoint or artifact module.
+optimizer's gene list), `run_param_specs` (the offline rebuild of a run's chromosome
+specs: animate, the final_select CLI, the deploy audit), and the small config
+readers the artifact writers and the CLI share. A leaf: imports no loop,
+checkpoint or artifact module.
 """
 
 from __future__ import annotations
@@ -315,3 +317,40 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
             raise SystemExit(1) from exc
 
     return cfg, _toml_data
+
+
+def warm_start_weight_bounds(config: TrainingConfig, specs: list[ParamSpec], run_dir: Path) -> list[ParamSpec] | None:
+    """The EXACT weight-slab bounds `<run_dir>/warm_start_bounds.json` recorded (what a warm-start
+    run's population was encoded under; decoding under rebuilt Xavier bounds silently corrupts
+    the weights), or None without a sidecar. Raises SystemExit when they do not span `specs`'
+    weight slab, the invariant the fresh-start splice asserts (wrong TOML for this run).
+    """
+    from aerocapture.training.param_spaces import active_scaffolding_specs  # noqa: PLC0415
+    from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
+
+    bounds = load_warm_start_bounds(run_dir)
+    if bounds is None:
+        return None
+    n_weights = len(specs) - len(active_scaffolding_specs(config.network.scaffolding))
+    if len(bounds) != n_weights:
+        raise SystemExit(f"ERROR: warm_start_bounds.json has {len(bounds)} specs but the config's weight slab has {n_weights} params")
+    return bounds
+
+
+def run_param_specs(toml_path: str | Path, run_dir: Path, announce_overlay: bool = False) -> tuple[TrainingConfig, dict, list[ParamSpec]]:
+    """A run's config, resolved TOML and chromosome specs, as the trainer encoded them.
+
+    The one rebuild for the offline consumers of a checkpointed population (animate,
+    the final_select CLI, the deploy audit; the trainer's own resume overlays the same
+    `warm_start_weight_bounds` in place in `SingleAlgoTrainer.from_config`):
+    `build_training_config_from_toml` + `_setup_param_specs`, with the run's
+    `warm_start_bounds.json` overlaid when present.
+    """
+    config, toml_data = build_training_config_from_toml(str(toml_path))
+    specs = _setup_param_specs(config, toml_data, verbose=False)
+    bounds = warm_start_weight_bounds(config, specs, run_dir)
+    if bounds is not None:
+        specs = [*bounds, *specs[len(bounds) :]]
+        if announce_overlay:
+            print(f"  Overlaid {len(bounds)} weight-spec bounds from warm_start_bounds.json")
+    return config, toml_data, specs

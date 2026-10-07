@@ -70,10 +70,14 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   before re-collecting -- the collector skips and warns on dirs whose
   `best_model.json` is newer than their parquet.
 - Deployed-model audit: `uv run python experiments/paper/audit_deployed_models.py`
-  rebuilds every run's winner from its final checkpoint and byte-compares it with the
+  rebuilds every run's winner from its final checkpoint (through
+  `training_config.run_param_specs`) and byte-compares it with the
   deployed `best_model.json`, flags byte-identical models across dirs and compares each
   with its bundle copy; `--repair` rewrites a mismatched model (old file kept as
   `best_model.json.pre-repair`). Run it before collecting or quoting a model.
+  A warm-start run resumed before #203 trained its post-resume generations under the
+  rebuilt Xavier bounds, not its `warm_start_bounds.json`: the audit reports it as a
+  mismatch, and `--repair` would deploy a decode the optimizer never flew.
 - Appendix cards: `articles/paper/figures/appendix/<scheme>/` (7 report-style
   SVGs + `stats.json` per scheme, built by `articles/paper/scripts/collect_appendix.py`
   from training_output). Committed -- `appendix.typ` reads each `stats.json` at

@@ -43,8 +43,7 @@ import numpy.typing as npt
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 from aerocapture.training.artifacts import write_best_artifacts
 from aerocapture.training.final_select import load_selection_state
-from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
-from aerocapture.training.warm_start import load_warm_start_bounds
+from aerocapture.training.training_config import run_param_specs
 
 REPO = Path(__file__).resolve().parents[2]
 TRAINING = REPO / "training_output"
@@ -103,11 +102,7 @@ def winner_chromosome(run: Path) -> npt.NDArray[np.float64]:
 
 
 def rebuild(run: Path, toml: Path, dest: Path) -> None:
-    config, toml_data = build_training_config_from_toml(str(toml))
-    specs = _setup_param_specs(config, toml_data, verbose=False)
-    bounds = load_warm_start_bounds(run)
-    if bounds is not None:
-        specs = list(bounds) + specs[len(bounds) :]
+    config, _toml_data, specs = run_param_specs(toml, run)
     x = winner_chromosome(run)
     if x.shape[0] != len(specs):
         raise ValueError(f"chromosome width {x.shape[0]} != {len(specs)} params under {toml.relative_to(REPO)}")
