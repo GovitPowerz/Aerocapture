@@ -4,8 +4,9 @@ The per-scenario-noise (per_draw) 10^6 confirmatory the paper's performance tabl
 results.typ (issues #137, #174). Its source, experiments/ou_marginal/confirmatory_marginal.json, is
 written by confirmatory_marginal.py next to it (hours per cell); this extract keeps every cell of
 the scorer's manifests (confirmatory_cells.txt, the arxiv-v3 rows; confirmatory_cells_v4.txt, every
-v4 row: issue #179) and only the fields the paper quotes, so the bundle carries them under
-data/SHA256SUMS and the provenance digest. The manifests are the one cell list: a cell added to a
+v4 row: issue #179) and only the fields the paper quotes (plus the survival subsample of the
+cells fig_survival.py draws, issue #180), so the bundle carries them under data/SHA256SUMS and
+the provenance digest. The manifests are the one cell list: a cell added to a
 manifest is scored, extracted and quotable from the same line. `make check` runs `--check`, which
 fails when the committed extract is not what the source yields. Pure stdlib.
 """
@@ -27,6 +28,17 @@ POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
 # heat_load_viol_n (the #173 outcome's "scenarios over the ceiling per 10^6") postdates the rows scored
 # before it (#137's fnpag and mamba_p962_long, the arxiv-v3 fine-tunes and PPO cells): null on those.
 VIOL_N = "heat_load_viol_n"
+# fig_survival.py reads the pooled sorted subsample (every ~100th order statistic, ~10k values, ~75 KB
+# per cell) of its finalists only; the other cells carry the pooled statistics alone.
+SURVIVAL_CELLS = frozenset(
+    {
+        "ou_marginal/hl_mamba_p962",
+        "ou_marginal/hl_dense_p515",
+        "ou_marginal/hl_lstm_p1082",
+        "ou_marginal/classical/ftc_joint",
+        "ou_marginal/classical/fnpag",
+    }
+)
 
 
 def manifest_labels(paths: tuple[Path, ...] = MANIFESTS) -> tuple[str, ...]:
@@ -61,6 +73,7 @@ def build() -> dict:
                 "eval_commit": by_label[label].get("eval_commit"),
                 "pooled": {**{k: by_label[label]["pooled"][k] for k in POOLED}, VIOL_N: by_label[label]["pooled"].get(VIOL_N)},
                 "replicate_stats": {"cvar999": {"se": by_label[label]["replicate_stats"]["cvar999"]["se"]}},
+                **({"survival_sample": by_label[label]["survival_sample"]} if label in SURVIVAL_CELLS else {}),
             }
             for label in cells
         ],

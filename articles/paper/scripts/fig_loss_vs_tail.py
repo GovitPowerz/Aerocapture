@@ -1,73 +1,80 @@
-"""fig_loss_vs_tail -- validation loss orders seeds within a family, not across.
+"""fig_loss_vs_tail -- validation loss against the sizing tail for the v4 runs.
 
-Scatter of best validation RMS (the training objective; all cells share the
-cubed transform and the converged n=2/512 budget, so the RMS scale is
-comparable) against far-tail CVaR99.9 (n=10000) for the eleven converged runs.
-Within every family the seeds order identically on both axes (overall Spearman
-rho ~ 0.91); the BETWEEN-family offsets are what the loss cannot see -- the
-lowest-loss run (the LSTM s1, also the heat-load-infeasible one) is not the
-best tail, and the dense cells sit above the Mamba at matched loss. Backs
-paper section 6.3.
+Scatter of best validation RMS (the training objective: cubed-transform cost over the reserved
+validation pool, `best_val_rms_within_transform_only` of data/results.json, read from each run's
+run.jsonl.gz) against far-tail CVaR99.9 on the 10^6 per-scenario confirmatory pool
+(10 x 100 000 scenarios per cell, per_draw, asserted at load). Filled markers: the nine runs
+trained from scratch at the headline allocation (#173 `hl_*`, GA 512 x 2, 20 000 generations);
+hollow markers: the four bundled fine-tune runs (60 x 10, 2000 per-scenario generations from a
+shared-path champion), the other v4 recipe. The Spearman rank correlation is quoted over the
+nine same-allocation runs, pooled across families and read as descriptive (the runs are not
+exchangeable across families). Every v4 cell is heat-load feasible on the pool (no starred
+point). Data: articles/paper/data/results.json, confirmatory_marginal.json.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 from scipy.stats import spearmanr
 
-# (far_tail_eval label, results.json runs key, family, display note)
-CELLS = [
-    ("mamba_p962_long", "headline/mamba_p962", "mamba", "s1"),
-    ("paper/tail_repeats/mamba962_s2", "tail_repeats/mamba962_s2", "mamba", "s2"),
-    ("paper/tail_repeats/mamba962_s3", "tail_repeats/mamba962_s3", "mamba", "s3"),
-    ("lstm_p1082_long", "headline/lstm_p1082", "lstm", "s1"),
-    ("paper/tail_repeats/lstm1082_s2", "tail_repeats/lstm1082_s2", "lstm", "s2"),
-    ("paper/tail_repeats/lstm1082_s3", "tail_repeats/lstm1082_s3", "lstm", "s3"),
-    ("gru_p1014_long", "headline/gru_p1014", "gru", "s1"),
-    ("dense_p515_ga_paper_best", "headline/dense_p515", "dense", "s1"),
-    ("paper/tail_repeats/dense515_s2", "tail_repeats/dense515_s2", "dense", "s2"),
-    ("paper/tail_repeats/dense515_s3", "tail_repeats/dense515_s3", "dense", "s3"),
-    ("dense_p972_ga_paper_best", "headline/dense_p972", "dense", "972"),
+# (confirmatory / results.json label, family, recipe)
+HEADLINE = [
+    ("ou_marginal/hl_mamba_p962", "mamba"),
+    ("ou_marginal/hl_mamba_p962_s2", "mamba"),
+    ("ou_marginal/hl_mamba_p962_s3", "mamba"),
+    ("ou_marginal/hl_lstm_p1082", "lstm"),
+    ("ou_marginal/hl_gru_p1014", "gru"),
+    ("ou_marginal/hl_dense_p515", "dense"),
+    ("ou_marginal/hl_dense_p515_s2", "dense"),
+    ("ou_marginal/hl_dense_p515_s3", "dense"),
+    ("ou_marginal/hl_dense_p972", "dense"),
 ]
-INFEASIBLE = {"lstm_p1082_long"}  # heat-load violations on 14.4% of the sizing pool
+FINE_TUNE = [
+    ("ou_marginal/ft_dense_p515", "dense"),
+    ("ou_marginal/ft_dense_p515_s2", "dense"),
+    ("ou_marginal/ft_dense_p515_s3", "dense"),
+    ("ou_marginal/ft_gru_p1014", "gru"),
+]
 
 
 def main():
     fl.style()
     runs = fl.results()["runs"]
-    ft = fl.far_tail()
+    conf = fl.marginal()
 
     fig, ax = plt.subplots(figsize=(7.4, 3.6))
-    xs_all, ys_all = [], []
     seen = set()
-    for ft_label, run_key, fam, _note in CELLS:
-        rms = runs[run_key]["best_val_rms_within_transform_only"] / 1e6
-        cv = ft[ft_label]["cvar999"]
-        xs_all.append(rms)
-        ys_all.append(cv)
-        marker = "*" if ft_label in INFEASIBLE else "o"
-        size = 220 if ft_label in INFEASIBLE else 70
-        ax.scatter([rms], [cv], color=fl.C[fam], marker=marker, s=size, zorder=4, edgecolor="white", linewidth=0.8, label=fam if fam not in seen else None)
+    xs, ys = [], []
+    for label, fam in HEADLINE:
+        assert runs[label]["noise_seeding"] == "per_draw", label
+        rms = runs[label]["best_val_rms_within_transform_only"] / 1e6
+        cv = conf[label]["pooled"]["cvar999"]
+        xs.append(rms)
+        ys.append(cv)
+        ax.scatter([rms], [cv], color=fl.C[fam], marker="o", s=70, zorder=4, edgecolor="white", linewidth=0.8, label=fam if fam not in seen else None)
         seen.add(fam)
+    for label, fam in FINE_TUNE:
+        assert runs[label]["noise_seeding"] == "per_draw", label
+        rms = runs[label]["best_val_rms_within_transform_only"] / 1e6
+        cv = conf[label]["pooled"]["cvar999"]
+        ax.scatter([rms], [cv], facecolor="white", edgecolor=fl.C[fam], marker="o", s=70, zorder=3, linewidth=1.4)
+    ax.scatter([], [], facecolor="white", edgecolor="#444444", marker="o", s=70, linewidth=1.4, label="fine-tune recipe (60 $\\times$ 10)")
 
-    # No connector lines: reviewer R1-S6 -- lines between independently trained
-    # runs read as trajectories/ordered observations. Family color carries the
-    # grouping; within-family ordering is stated in the annotation and caption.
-
-    rho = spearmanr(xs_all, ys_all).statistic
+    # No connector lines (reviewer R1-S6: lines between independently trained runs read as trajectories).
+    rho = spearmanr(xs, ys).statistic
     ax.annotate(
-        f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs_all)}, descriptive)\nwithin-family: identically ordered\nbetween families: offsets decide",
-        xy=(0.02, 0.96),
+        f"Spearman $\\rho$ = {rho:.2f} (n = {len(xs)} headline-allocation runs, descriptive)",
+        xy=(0.98, 0.5),
         xycoords="axes fraction",
-        va="top",
+        ha="right",
+        va="center",
         fontsize=8.5,
         color="#444444",
     )
-    ax.annotate("infeasible\n(heat load)", xy=(1.276, 123.24), xytext=(8, -18), textcoords="offset points", fontsize=8, color=fl.C["lstm"], fontweight="bold")
 
     ax.set_xlabel("best validation RMS ($\\times 10^6$, cubed-transform cost space)")
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")
-    ax.set_title("Validation loss vs the sizing tail (11 converged runs)")
-    ax.legend(loc="lower right", fontsize=8)
+    ax.set_title("Validation loss vs the sizing tail (v4 runs, $10^6$ per-scenario pool)")
+    ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
     fl.save(fig, "fig_loss_vs_tail")
 

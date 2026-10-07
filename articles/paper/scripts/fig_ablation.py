@@ -1,10 +1,10 @@
-"""fig_ablation -- what the deployed Mamba headline uses (interpretability, §9).
+"""fig_ablation -- what the deployed v4 Mamba uses (closed-loop input sensitivity, Section 8).
 
-Per-input cost increase when each candidate input is zeroed (ablated), ranked, for
-the deployed Mamba_962. The net leans on the engineered autoregressive/reference
-inputs (eccentricity_excess, hdot_nominal, pdyn_error, predicted_dv2/3) -- the reason
-internal recurrence is redundant in the BULK. Data: the bundled
-headline/mamba_p962/ablation_results.json (cost transform = log for a clean ranking).
+Per-input cost increase when each candidate input is zeroed (ablated), ranked, for the deployed
+champion ou_marginal/hl_mamba_p962 (#176: `aerocapture.training.ablation`, n = 1000 scenarios of
+the config's own Monte Carlo under per-scenario noise, costs in the log transform for a clean
+ranking; both recorded in the file and asserted here). Data: the bundled
+runs/ou_marginal/hl_mamba_p962/ablation_results.json.
 """
 
 import json
@@ -17,7 +17,8 @@ TOP_N = 12
 
 def main():
     fl.style()
-    a = json.loads((fl.RUNS / "headline/mamba_p962/ablation_results.json").read_text())
+    a = json.loads((fl.RUNS / "ou_marginal/hl_mamba_p962/ablation_results.json").read_text())
+    assert a["noise_seeding"] == "per_draw" and a["cost_transform"] == "log", (a["noise_seeding"], a["cost_transform"])
     ranked = [x for x in a["ranked"] if not x.get("masked_out") and x["delta"] > 0][:TOP_N]
     ranked = ranked[::-1]  # largest at top
     names = [x["name"] for x in ranked]
@@ -28,7 +29,7 @@ def main():
     ax.set_yticks(range(len(names)))
     ax.set_yticklabels(names, fontsize=8.5)
     ax.set_xlabel("cost increase when input zeroed (log-transform units)")
-    ax.set_title(f"Mamba-962 input importance (top {TOP_N})", fontsize=10, loc="left")
+    ax.set_title(f"Mamba-962 (deployed) input importance (top {TOP_N}, n = {a['n_sims']}, per-scenario noise)", fontsize=10, loc="left")
     for i, d in enumerate(deltas):
         ax.annotate(f"{d:.2f}", (d, i), textcoords="offset points", xytext=(3, 0), va="center", fontsize=7.5)
     ax.margins(x=0.12)
