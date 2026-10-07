@@ -232,3 +232,12 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   cells (5001 or 15001 of 20001) and `classical_baselines/fnpag` (6 of 372) are re-collected too:
   only their `actual_sims` moves, the best validation RMS and every figure stay. `make paper` runs
   `check-logs` after `fetch-logs`, which is a no-op once any log is present.
+- 2026-10-08 (#176): `compute_benchmark.json` is re-measured under rustc 1.99.0 (the #170 follow-up
+  run used 1.98.1) on one idle core: Mamba 2.84 ms (was 3.07), dense 1.86 (1.98), FTC 0.85
+  (0.91), FNPAG 82.4 (85.5). The network's factor below FNPAG moves from 28x to 29x wherever it is
+  quoted, the scheme table caption's slow class from 86 to 82 ms/sim, FNPAG's per-replan share
+  from 0.27 to 0.26 ms (27 to 26 ms at the 100x scaling), and Appendix A's compiler to 1.99 with a
+  repeat spread of 0.2--0.8% of the median. The 1.5x cost of state, the 4 us per update and the
+  factor of thirty between deadline margins hold. The Compute paragraph's "roughly three and a
+  half times FTC" (3.36 on this run) now reads the file. `fig_classical_vs_nn` moves with the four
+  timings. The committed `paper.pdf` is not recompiled here.

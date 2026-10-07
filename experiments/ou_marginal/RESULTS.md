@@ -798,7 +798,23 @@ is needed to reach that tail. Section 6.3's mechanism claim is restated on these
 
 ### Compute benchmark
 
-The committed `compute_benchmark.json` was measured with rustc 1.98.1
-(2026-09-01); the toolchain is now rustc 1.99.0 (2026-09-28). By step 6 the
-benchmark is re-run: `make -C articles/paper mc-compute-benchmark` on an idle
-machine, every scheme in one session.
+The previous `compute_benchmark.json` was measured with rustc 1.98.1
+(2026-09-01); the toolchain is now rustc 1.99.0 (2026-09-28), so step 6 re-ran
+it: `make -C articles/paper mc-compute-benchmark` on an idle M4 Pro under
+`caffeinate -i`, every scheme in one session (200 sims each, n_threads = 1,
+median of 5 timed repeats after a warmup). The installed extension carries
+rustc 1.99.0's std paths (`/rustc/b940084d7`). ms per simulation:
+
+| scheme | rustc 1.98.1 | rustc 1.99.0 | change | repeat sd / median |
+|---|---|---|---|---|
+| NN-mamba | 3.07 | 2.84 | -7.4% | 0.5% |
+| NN-dense | 1.98 | 1.86 | -6.2% | 0.8% |
+| FTC | 0.91 | 0.85 | -6.7% | 0.2% |
+| FNPAG | 85.54 | 82.39 | -3.7% | 0.3% |
+
+Ratios: FNPAG / NN-mamba 27.9 -> 29.0, NN-mamba / FTC 3.39 -> 3.36, NN-mamba /
+NN-dense 1.55 -> 1.53. The script times the arxiv-v3 cells (`mamba_p962_long`,
+`dense_p515_ga_paper_best`, `ftc`, `fnpag`) under the shared-path regime. The
+champion `ou_marginal/hl_mamba_p962` flies 771.1 s on average against
+`mamba_p962_long`'s 734.1 s (final-eval pools), so its ms per simulation is not
+measured here.
