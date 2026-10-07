@@ -753,6 +753,48 @@ trained Mamba depends on its own state; these two show that a policy trained
 without that state, or without those inputs, reaches the same tail. Section
 6.3's claim waits on the repeats.
 
+### Mechanism controls, three seeds at 10^6
+
+The rule's repeats, `15_state_controls.sh v4` rerun from `feature/v4-champion-controls`
+at ad3998eb (the checkout moved to main at 2479d491, the #202 merge with the same
+tree, before the scoring): `ctrl_window_p970_s2` 2026-10-06 23:40 to 10-07 03:31,
+`ctrl_mamba_p962_nodv_s2` 03:32 to 08:35, `ctrl_window_p970_s3` 08:36 to 12:36,
+`ctrl_mamba_p962_nodv_s3` 12:37 to 18:11, none interrupted; the four scored at
+10^6 by 18:29 (eval commit 2479d491), non-captures re-flown without the wall
+clock. DV in m/s over captured scenarios:
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/ctrl_window_p970_s2 | 99.9999% | 1: 1 crash | 0.3263 (0.0000 / 0.0000 / 0.3263) | 131.2 | 226.7 +- 1.4 | 379 |
+| ou_marginal/ctrl_window_p970_s3 | 100.0000% | 0 | 0.1151 (0.0000 / 0.0000 / 0.1151) | 124.8 | 151.8 +- 0.6 | 240 |
+| ou_marginal/ctrl_mamba_p962_nodv_s2 | 99.9972% | 28: 28 crash | 0.1211 (0.0000 / 0.0000 / 0.1211) | 129.5 | 181.3 +- 1.2 | 977 |
+| ou_marginal/ctrl_mamba_p962_nodv_s3 | 100.0000% | 0 | 0.1448 (0.0000 / 0.0000 / 0.1448) | 130.3 | 156.5 +- 0.5 | 212 |
+
+By family, trainer seeds 1 / 2 / 3 (seed-1 rows in the table above):
+
+| family | CVaR99.9 s1 / s2 / s3 | CVaR99.9 mean +- sd | CVaR95 mean +- sd | replicate median s1 / s2 / s3 | non-captures per 10^6 |
+|---|---|---|---|---|---|
+| champion (`hl_mamba_p962`) | 173.9 / 159.3 / 142.3 | 158.5 +- 15.8 | 124.9 +- 6.0 | 110.2 / 116.1 / 112.6 | 0 / 4 / 0 |
+| window, no learned state | 158.3 / 226.7 / 151.8 | 178.9 +- 41.5 | 127.7 +- 3.3 | 113.8 / 113.7 / 112.8 | 0 / 1 / 0 |
+| no predicted-DV inputs | 145.6 / 181.3 / 156.5 | 161.1 +- 18.3 | 128.5 +- 2.4 | 114.3 / 114.8 / 115.8 | 0 / 28 / 0 |
+
+Every non-capture re-flown is a crash.
+
+Reading (descriptive: the pre-registered rule says when repeats are owed, not
+how three seeds decide): against the champion's three seeds, the window
+control's mean CVaR99.9 is 20.4 m/s higher and the no-predicted-DV control's
+2.6 m/s higher, Welch t 0.80 and 0.19 on three seeds a side. Neither difference
+is resolved. The window's mean rests on one seed (s2, 226.7); its other two sit
+inside the champion's range, and its seed spread (sd 41.5) is the widest of the
+three families. CVaR95 and the median are also inside the seed spread (CVaR95
++2.8 and +3.7, t 0.71 and 0.98; the champion's s2 median 116.1 is above every
+control seed's). So at the champion's allocation and budget, neither learned
+state nor the three predicted-DV inputs buys a tail advantage that three seeds
+resolve. The reset-state record still holds: the trained Mamba depends on its
+own state. What these controls do not support is that a stateful architecture
+is needed to reach that tail. Section 6.3's mechanism claim is restated on these numbers
+(#181).
+
 ### Compute benchmark
 
 The committed `compute_benchmark.json` was measured with rustc 1.98.1
