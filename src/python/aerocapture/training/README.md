@@ -876,7 +876,8 @@ validation_n_sims` sims each).
   selection was interrupted is finished by a zero-generation resume (byte-identical to an
   uninterrupted run), and report.py writes the n = 1000 `final_eval.parquet` per cell;
   `classical_cells.txt` is the `quote_marginal.py --manifest` sanity set (each retuned cell next
-  to its shared-path parent). `classical_campaign.sh classical_ungated` (#188) reruns
+  to its shared-path parent; `ftc_joint_high` has no row, its high-regime numbers come from
+  `centered_depth_eval.py --v4` on the 9M stress pool). `classical_campaign.sh classical_ungated` (#188) reruns
   piecewise_constant and equilibrium_glide from `configs/training/ou_marginal/classical_ungated/`,
   the #172 cell with `max_violation_rate = 1.0`, so the rerun selects by validation RMS alone like
   its ungated shared-path parent; outputs `training_output/ou_marginal/classical_ungated/<cell>/`,

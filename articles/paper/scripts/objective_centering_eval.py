@@ -48,35 +48,42 @@ V4_CELLS = [(label, f"ou_marginal/centered/dense_{label}", f"configs/training/ou
 V4_OUT = REPO / "articles/paper/data/objective_centering_v4.json"
 
 
-def _derive_n_pop(jsonl_path: str, fallback: int) -> int:
+def _read_run_log(jsonl_paths: list[str]) -> list[dict]:
+    """The run's generation records across its run_*.jsonl fragments, oldest first: a resumed run
+    writes one per launch and a later fragment supersedes the generations it re-logs
+    (collect_runs._gzip_run_log bundles them the same way)."""
+    records: list[dict] = []
+    for path in jsonl_paths:
+        new = []
+        with open(path) as fh:
+            for line in fh:
+                try:
+                    r = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if r.get("generation") is not None:
+                    new.append(r)
+        if new:
+            records = [r for r in records if r["generation"] < new[0]["generation"]] + new
+    return records
+
+
+def _derive_n_pop(records: list[dict], fallback: int) -> int:
     """Population size = length of a generation's all_costs array; fallback if absent."""
-    with open(jsonl_path) as fh:
-        for line in fh:
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            ac = r.get("all_costs")
-            if isinstance(ac, list) and ac:
-                return len(ac)
+    for r in records:
+        ac = r.get("all_costs")
+        if isinstance(ac, list) and ac:
+            return len(ac)
     return fallback
 
 
-def extract_convergence(jsonl_path: str, n_pop: int, n_sims: int) -> list[list]:
+def extract_convergence(records: list[dict], n_pop: int, n_sims: int) -> list[list]:
     """Per-validation [cumulative_training_sims, capture_rate]. Transform-independent."""
     series: list[list] = []
-    with open(jsonl_path) as fh:
-        for line in fh:
-            try:
-                r = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            v = r.get("validation") or {}
-            cap = v.get("capture_rate")
-            gen = r.get("generation")
-            if cap is None or gen is None:
-                continue
-            series.append([int(gen) * n_pop * n_sims, float(cap)])
+    for r in records:
+        cap = (r.get("validation") or {}).get("capture_rate")
+        if cap is not None:
+            series.append([int(r["generation"]) * n_pop * n_sims, float(cap)])
     series.sort(key=lambda p: p[0])
     return series
 
@@ -96,12 +103,8 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     stats = {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
-    jsonls = sorted(glob.glob(str(scheme_dir / "run_*.jsonl")))
-    if jsonls:
-        n_pop = _derive_n_pop(jsonls[-1], N_POP)
-        stats["convergence"] = extract_convergence(jsonls[-1], n_pop, n_sims_train)
-    else:
-        stats["convergence"] = []
+    records = _read_run_log(sorted(glob.glob(str(scheme_dir / "run_*.jsonl"))))  # run_000_<UTC stamp>: name order is launch order
+    stats["convergence"] = extract_convergence(records, _derive_n_pop(records, N_POP), n_sims_train)
     return stats
 
 
@@ -114,6 +117,8 @@ def main(argv: list[str] | None = None) -> None:
     cells_out, convergence = [], {}
     for label, run_dir, toml, n_sims_train in cells:
         if not (REPO / "training_output" / run_dir / "final_eval.parquet").exists():
+            if args.v4:
+                sys.exit(f"{run_dir} is not deployed: every v4 lever cell is required (no thinner file)")
             print(f"  skip {label} ({run_dir} not deployed yet)")
             continue
         s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims, regime)

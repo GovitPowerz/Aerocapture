@@ -271,6 +271,32 @@ def test_lever_scorer_v4_flies_per_draw_and_states_it(tmp_path: Path, sim: ToySi
     assert sim.calls == [{"monte_carlo.noise_seeding": "per_draw", **oce.STRESS_OVERRIDES}] * 5
 
 
+def test_lever_scorer_v4_requires_every_cell_deployed(tmp_path: Path, sim: ToySim, oce: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = tmp_path / "training_output" / oce.V4_CELLS[0][1]
+    d.mkdir(parents=True)
+    (d / "final_eval.parquet").write_bytes(b"")
+    monkeypatch.setattr(oce, "REPO", tmp_path)
+    monkeypatch.setattr(oce, "V4_OUT", tmp_path / "objective_centering_v4.json")
+    with pytest.raises(SystemExit, match="not deployed"):
+        oce.main(["--v4", "--n-sims", "40"])
+    assert not (tmp_path / "objective_centering_v4.json").exists()
+
+
+def test_lever_scorer_convergence_spans_every_launch_of_a_resumed_run(tmp_path: Path, oce: ModuleType) -> None:
+    """A resumed run writes one run_*.jsonl per launch; the later one re-logs from its resume generation on."""
+
+    def frag(name: str, gens: range, cap: float) -> None:
+        recs = [{"generation": g, "all_costs": [0.0] * 4, "validation": {"capture_rate": cap + g}} for g in gens]
+        (tmp_path / name).write_text("".join(json.dumps(r) + "\n" for r in recs))
+
+    frag("run_000_20261001T000000.jsonl", range(1, 6), 0.0)  # crashed after g5, last checkpoint g3
+    frag("run_000_20261002T000000.jsonl", range(3, 8), 100.0)
+    (tmp_path / "run_000_20261003T000000.jsonl").write_text("")  # a zero-generation resume (final selection only)
+    records = oce._read_run_log(sorted(str(p) for p in tmp_path.glob("run_*.jsonl")))
+    assert oce._derive_n_pop(records, 256) == 4
+    assert oce.extract_convergence(records, 4, 2) == [[8 * g, (0.0 if g < 3 else 100.0) + g] for g in range(1, 8)]
+
+
 def test_lever_scorer_default_mode_flies_the_shared_path(tmp_path: Path, sim: ToySim, oce: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 

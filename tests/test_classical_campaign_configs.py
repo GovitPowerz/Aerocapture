@@ -7,7 +7,7 @@ CLI flags), resolves to its parent everywhere else, and is driven by
 `experiments/ou_marginal/classical_cells.txt`. The #188 `classical_ungated/<cell>.toml`
 reruns differ from their #172 cell only in the opened feasibility ceiling. `ftc_joint_high` (#177)
 is Section 7.3's high-regime joint-FTC retuned the same way, the tenth cell of the `classical`
-campaign. Pure Python (no bindings).
+campaign, kept out of the medium-regime quote manifest. Pure Python (no bindings).
 """
 
 from __future__ import annotations
@@ -40,6 +40,8 @@ CELLS = {
     "ftc_joint_high": ("paper/robustness_retrain/ftc_joint_high", 2000),
 }
 ALLOCATION_KEYS = ("algorithm", "n_gen", "n_pop", "training_n_sims")
+# High-regime cells stay out of the medium-regime quote manifest (scored by centered_depth_eval.py --v4).
+UNQUOTED = {"ftc_joint_high"}
 UNGATED = ("piecewise_constant", "equilibrium_glide")
 CAMPAIGNS = ("classical", "classical_ungated")
 
@@ -100,7 +102,7 @@ def test_manifest_scores_every_campaign_cell(campaign: str, monkeypatch: pytest.
 
     prefix = f"ou_marginal/{campaign}/"
     rows = {label.removeprefix(prefix): toml for label, toml, _ in read_manifest(MANIFEST) if label.startswith(prefix)}
-    assert sorted(rows) == sorted(p.stem for p in (CAMPAIGN_ROOT / campaign).glob("*.toml"))
+    assert sorted(rows) == sorted(p.stem for p in (CAMPAIGN_ROOT / campaign).glob("*.toml") if p.stem not in UNQUOTED)
     for cell, toml in rows.items():
         scheme = load_toml_with_bases(CAMPAIGN_ROOT / campaign / f"{cell}.toml")["guidance"]["type"]
         assert toml == f"training_output/{prefix}{cell}/optimized_{scheme}.toml"

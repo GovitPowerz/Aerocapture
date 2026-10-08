@@ -47,7 +47,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 MODE="${1:-v4}"
-trap 'echo; echo "Ctrl-C -- stopping (re-run to resume)"; exit 130' INT
+trap 'echo; echo "Ctrl-C -- stopping (v4 / v4-dense: re-run to resume; shared restarts the interrupted cell from scratch)"; exit 130' INT
 
 v4() {
   echo "=== 1. baseline: classical/ftc_joint_high under per_draw (classical_campaign.sh classical) ==="
