@@ -803,8 +803,10 @@ validation_n_sims` sims each).
   diff HEAD --exit-code` on figures, results.json and provenance.json; the opt-in `mc-*` targets
   re-fly cells (never default, never CI; the v4 scorers are `mc-confirmatory-v4`,
   `mc-quote-marginal`, `mc-heat-load-slope`, every one per_draw and resumable, and
-  `mc-stress-depth` (#176, per_draw, one ~30 min pass); `centered_depth_v4.json` (#177) and
-  `quant_v4/` (#178) get theirs with the issue that writes the file). `check_results_schema.py` also refuses a `rl/` or `ou_marginal/` run flagged
+  `mc-stress-depth` (#176, per_draw, one ~30 min pass), `mc-centered-depth-v4` and
+  `mc-objective-centering-v4` (#177, per_draw, minutes once `14_objective_centering.sh v4` / `v4-dense`
+  have trained the cells; the files land with the issue's outcome, their accessors with #181);
+  `quant_v4/` (#178) gets theirs with the issue that writes the file). `check_results_schema.py` also refuses a `rl/` or `ou_marginal/` run flagged
   legacy (or any other flagged per_draw). Figures are byte-reproducible across macOS and Linux:
   `figlib` forces the Agg backend, sets `text.hinting = "none"`, `save` sets `svg.hashsalt` +
   `metadata={"Date": None}`, and `style()` registers the vendored STIX Two Text
@@ -841,7 +843,8 @@ validation_n_sims` sims each).
   `campaign.sh <jobs file>` (the NN campaign runner, helpers shared with `classical_campaign.sh` in
   `campaign_lib.sh`: one `name|target_gen|seed|checkpoint_source_dir`
   per line trains `configs/training/ou_marginal/<name>.toml` into `training_output/ou_marginal/<name>/`
-  with `--seed`, from scratch or from the source's copied `checkpoint_g20000`; every repeat job
+  (`<name>` may carry one subdirectory: `centered/<cell>`, the #177 jobs of `jobs_centering.txt` and
+  `jobs_centering_dense.txt`) with `--seed`, from scratch or from the source's copied `checkpoint_g20000`; every repeat job
   strips `rng_state` from its copied checkpoint, because a checkpoint resume restores the saved
   trainer RNG state and would silently override `--seed`; same resumable contract as below, plus
   the run-local deploy path, the checkpoint allocation against the TOML, a byte-identical
@@ -867,7 +870,8 @@ validation_n_sims` sims each).
   `classical_campaign.sh` (#172) retunes the nine classical cells of the paper's 01 / 07 scripts
   under per_draw at their shared-path GA allocation (2000 x 300 x 10, FNPAG 300 gens; configs
   `configs/training/ou_marginal/classical/`, which state the regime and allocation in the leaf,
-  outputs `training_output/ou_marginal/classical/<cell>/`), same resumable contract, plus: the
+  outputs `training_output/ou_marginal/classical/<cell>/`; since #177 the campaign ends with
+  `ftc_joint_high`, Section 7.3's high-regime joint-FTC retuned the same way), same resumable contract, plus: the
   allocation is read from the TOML and checked against every checkpoint, a cell whose final
   selection was interrupted is finished by a zero-generation resume (byte-identical to an
   uninterrupted run), and report.py writes the n = 1000 `final_eval.parquet` per cell;

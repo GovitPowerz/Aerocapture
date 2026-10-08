@@ -5,8 +5,12 @@ Same machinery / regime / pool as robustness_retrain_eval.py, so the deployed
 off-nominal numbers are directly comparable. Convergence is read on
 validation.capture_rate (NOT rms_cost, which is in each cell's transform space).
 
+`--v4` (issue #177) scores the five dense lever cells retrained under per-scenario noise
+(experiments/ou_marginal/jobs_centering_dense.txt) under that regime, into
+objective_centering_v4.json; the arxiv-v3 objective_centering.json stays.
+
 Usage:
-    uv run python articles/paper/scripts/objective_centering_eval.py [--n-sims 1000]
+    uv run python articles/paper/scripts/objective_centering_eval.py [--v4] [--n-sims 1000]
 """
 
 import argparse
@@ -18,6 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
+from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME  # noqa: E402
 from aerocapture.training.paper_stats import run_stats  # noqa: E402
 
 # (label, run_dir under training_output/, training TOML). n_sims is the training
@@ -38,6 +43,9 @@ STRESS_OVERRIDES = {
     "monte_carlo.nav_filter.level": "high",
 }
 OUT = REPO / "articles/paper/data/objective_centering.json"
+# The v4 lever cells (#177): the five dense cells above retrained under per-scenario noise.
+V4_CELLS = [(label, f"ou_marginal/centered/dense_{label}", f"configs/training/ou_marginal/centered/dense_{label}.toml", n) for label, _, _, n in CELLS[:5]]
+V4_OUT = REPO / "articles/paper/data/objective_centering_v4.json"
 
 
 def _derive_n_pop(jsonl_path: str, fallback: int) -> int:
@@ -73,9 +81,8 @@ def extract_convergence(jsonl_path: str, n_pop: int, n_sims: int) -> list[list]:
     return series
 
 
-def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int) -> dict:
+def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int, regime: dict[str, str]) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
@@ -84,7 +91,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
         scheme_dir,
         Path(toml),
         pool=(STRESS_EVAL_SEED_OFFSET, n_eval),
-        extra_overrides={**LEGACY_NOISE_REGIME, **STRESS_OVERRIDES},
+        extra_overrides={**regime, **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
@@ -101,13 +108,15 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-sims", type=int, default=1000)
+    parser.add_argument("--v4", action="store_true", help="the #177 per-scenario lever cells, per_draw, into objective_centering_v4.json")
     args = parser.parse_args(argv)
+    cells, regime, out = (V4_CELLS, {"monte_carlo.noise_seeding": "per_draw"}, V4_OUT) if args.v4 else (CELLS, LEGACY_NOISE_REGIME, OUT)
     cells_out, convergence = [], {}
-    for label, run_dir, toml, n_sims_train in CELLS:
+    for label, run_dir, toml, n_sims_train in cells:
         if not (REPO / "training_output" / run_dir / "final_eval.parquet").exists():
             print(f"  skip {label} ({run_dir} not deployed yet)")
             continue
-        s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims)
+        s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims, regime)
         convergence[label] = s.pop("convergence")
         cells_out.append(s)
         print(
@@ -115,20 +124,18 @@ def main(argv: list[str] | None = None) -> None:
             f" | CVaR95 {s.get('dv_cvar95'):7.1f} | conv pts {len(convergence[label])}"
         )
     if cells_out:
-        OUT.write_text(
-            json.dumps(
-                {
-                    "stress_overrides": STRESS_OVERRIDES,
-                    "n_sims_eval": args.n_sims,
-                    "pool": "STRESS_EVAL 9M",
-                    "n_pop": N_POP,
-                    "cells": cells_out,
-                    "convergence": convergence,
-                },
-                indent=2,
-            )
-        )
-        print(f"\nwrote {OUT}")
+        record = {
+            "stress_overrides": STRESS_OVERRIDES,
+            "n_sims_eval": args.n_sims,
+            "pool": "STRESS_EVAL 9M",
+            "n_pop": N_POP,
+            "cells": cells_out,
+            "convergence": convergence,
+        }
+        if args.v4:  # the arxiv-v3 file's bytes stay as committed
+            record = {"noise_seeding": "per_draw", **record}
+        out.write_text(json.dumps(record, indent=2))
+        print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

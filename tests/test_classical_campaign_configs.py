@@ -5,7 +5,9 @@ full GA allocation in its own file (a config that base-inherits it does not inhe
 CLI flags), resolves to its parent everywhere else, and is driven by
 `experiments/ou_marginal/classical_campaign.sh` and scored through
 `experiments/ou_marginal/classical_cells.txt`. The #188 `classical_ungated/<cell>.toml`
-reruns differ from their #172 cell only in the opened feasibility ceiling. Pure Python (no bindings).
+reruns differ from their #172 cell only in the opened feasibility ceiling. `ftc_joint_high` (#177)
+is Section 7.3's high-regime joint-FTC retuned the same way, the tenth cell of the `classical`
+campaign. Pure Python (no bindings).
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ CELLS = {
     "equilibrium_glide": ("msr_aller_eqglide_train", 2000),
     "piecewise_constant": ("msr_aller_piecewise_constant_train", 2000),
     "fnpag": ("msr_aller_fnpag_train", 300),
+    "ftc_joint_high": ("paper/robustness_retrain/ftc_joint_high", 2000),
 }
 ALLOCATION_KEYS = ("algorithm", "n_gen", "n_pop", "training_n_sims")
 UNGATED = ("piecewise_constant", "equilibrium_glide")

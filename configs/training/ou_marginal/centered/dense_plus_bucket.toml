@@ -1,0 +1,19 @@
+# Objective-centering lever cell under per-scenario noise (#177, optional: the figure's dense
+# bars): paper/objective_centering/dense_plus_bucket_high (the stacked objective with the middle curation bucket) trained from scratch under per-draw noise
+# seeding at the shared study's iso-compute allocation (GA 256 x 2; 16000 gens from the jobs file:
+# B = 8.19 M sims). Driven by experiments/paper/14_objective_centering.sh v4-dense (campaign.sh on
+# experiments/ou_marginal/jobs_centering_dense.txt); scored by objective_centering_eval.py --v4.
+base = ["../../paper/objective_centering/dense_plus_bucket_high.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+n_pop = 256
+training_n_sims = 2
+
+[data]
+neural_network = "training_output/ou_marginal/centered/dense_plus_bucket/best_model.json"
+
+[checkpoints]
+keep_last = 3

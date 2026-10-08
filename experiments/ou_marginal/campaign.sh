@@ -6,7 +6,8 @@
 # Jobs file: one `name|target_gen|seed|checkpoint_source_dir` per line, value
 # order, '#' comments. Job <name> trains configs/training/ou_marginal/<name>.toml
 # into training_output/ou_marginal/<name>/ with trainer --seed <seed> (eval pools
-# unchanged). An empty checkpoint_source_dir trains from scratch; otherwise the
+# unchanged); <name> may carry a subdirectory (centered/<cell>, the #177 study).
+# An empty checkpoint_source_dir trains from scratch; otherwise the
 # job copies <source>/checkpoint_g20000.{json,npz} once and continues from it
 # (a fine-tune), stripping the copied rng_state when seed != 1: the resume path
 # restores a checkpointed RNG and would silently override --seed (the first
@@ -40,7 +41,7 @@ JOBS=$(grep -v '^[[:space:]]*#' "$1" | grep -v '^[[:space:]]*$' || true)
 cd "$(dirname "$0")/../.."
 SEED_GEN=20000
 # Every line is checked before the first job trains: a typo must not surface hours in.
-job_re='^[A-Za-z0-9_]+[|][1-9][0-9]*[|][1-9][0-9]*[|][^|[:space:]]*$'
+job_re='^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?[|][1-9][0-9]*[|][1-9][0-9]*[|][^|[:space:]]*$'
 for job in $JOBS; do
   name="${job%%|*}"; src="${job##*|}"
   if ! [[ "$job" =~ $job_re ]] || [ ! -f "configs/training/ou_marginal/${name}.toml" ]; then
