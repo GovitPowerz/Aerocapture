@@ -55,23 +55,23 @@ $(FIGS)/fig_%.svg: $(SCRIPTS)/fig_%.py $(FIGLIB)
 SWEEP_MANIFESTS := $(ROOT)/configs/training/sweep/manifest.json $(ROOT)/configs/training/sweep/manifest_floor.json
 SWEEP_PARQUETS := $(wildcard $(RUNS)/architecture_sweep/*/final_eval.parquet)
 
-$(FIGS)/fig_ablation.svg: $(RUNS)/headline/mamba_p962/ablation_results.json
-$(FIGS)/fig_arch_tail.svg: $(DATA)/confirmatory_eval.json
-$(FIGS)/fig_classical_vs_nn.svg: $(DATA)/confirmatory_eval.json $(DATA)/compute_benchmark.json
+$(FIGS)/fig_ablation.svg: $(RUNS)/ou_marginal/hl_mamba_p962/ablation_results.json
+$(FIGS)/fig_arch_tail.svg: $(DATA)/confirmatory_marginal.json
+$(FIGS)/fig_classical_vs_nn.svg: $(DATA)/confirmatory_marginal.json $(DATA)/compute_benchmark.json
 $(FIGS)/fig_corridor.svg: $(DATA)/corridor.npz
 $(FIGS)/fig_cost_transform.svg: $(DATA)/far_tail_eval.json
 $(FIGS)/fig_curation.svg: $(DATA)/results.json $(DATA)/far_tail_eval.json
 $(FIGS)/fig_islands.svg:
 $(FIGS)/fig_joint_reference.svg: $(DATA)/results.json
-$(FIGS)/fig_loss_vs_tail.svg: $(DATA)/results.json $(DATA)/far_tail_eval.json
+$(FIGS)/fig_loss_vs_tail.svg: $(DATA)/results.json $(DATA)/confirmatory_marginal.json
 $(FIGS)/fig_objective_centering.svg: $(DATA)/objective_centering.json $(DATA)/centered_depth.json
 $(FIGS)/fig_optimizer.svg: $(DATA)/results.json
 $(FIGS)/fig_output_param.svg: $(DATA)/results.json
 $(FIGS)/fig_pareto.svg: $(SWEEP_MANIFESTS) $(SWEEP_PARQUETS)
 $(FIGS)/fig_plateau.svg: $(DATA)/plateau.json
-$(FIGS)/fig_robustness.svg: $(DATA)/robustness_stress.json
+$(FIGS)/fig_robustness.svg: $(DATA)/stress_depth.json $(DATA)/confirmatory_marginal.json
 $(FIGS)/fig_seed_strategy.svg: $(DATA)/results.json $(DATA)/sigma_extras.json
-$(FIGS)/fig_survival.svg: $(DATA)/confirmatory_eval.json
+$(FIGS)/fig_survival.svg: $(DATA)/confirmatory_marginal.json
 $(FIGS)/fig_training_n_sims.svg: $(DATA)/results.json
 
 # results.json is a committed bundle product consumed by the figures as a plain file
@@ -252,7 +252,7 @@ mc-confirmatory: need-sim
 mc-corridor: need-sim
 	$(UVPY) articles/paper/scripts/collect_corridor.py --n-sims 300000
 
-# figures/appendix/<scheme>/{7 SVGs, stats.json} -- 1000 sims x 10 schemes with trajectories (~10 min).
+# figures/appendix/<scheme>/{7 SVGs, stats.json} -- 1000 sims x 3 schemes with trajectories, per-scenario noise (~2 min).
 mc-appendix: need-sim
 	$(UVPY) articles/paper/scripts/collect_appendix.py --n-sims 1000
 
@@ -308,9 +308,10 @@ mc-heat-load-slope: need-sim
 	$(UVPY) -u experiments/ou_marginal/heat_load_slope.py
 
 # stress_depth.json (mc-stress-depth above) and the champion's runs/ou_marginal/hl_mamba_p962/
-# {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; their accessors come
-# with #181. Not yet producers: centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect)
-# get their mc-* target, accessor and check rule with the issue that writes the file.
+# {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; fig_robustness and
+# fig_ablation read them since #180, their results.typ accessors come with #181. Not yet producers:
+# centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect) get their mc-* target,
+# accessor and check rule with the issue that writes the file.
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json

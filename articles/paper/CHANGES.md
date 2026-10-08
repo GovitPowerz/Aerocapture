@@ -241,3 +241,25 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   factor of thirty between deadline margins hold. The Compute paragraph's "roughly three and a
   half times FTC" (3.36 on this run) now reads the file. `fig_classical_vs_nn` moves with the four
   timings. The committed `paper.pdf` is not recompiled here.
+- 2026-10-08 (#180, first batch): six figures regenerate from the per-scenario bundle, the
+  development-regime figures keep their bytes. `fig_arch_tail` plots the #173 headline-allocation
+  cells per seed (CVaR95 and CVaR99.9 on the 10^6 per-scenario pool, replicate-SE whiskers, the
+  retuned joint-FTC and FNPAG as reference lines, seed 1 of Mamba-962 starred); `fig_classical_vs_nn`
+  reads the same pool (three-seed means for the two network points) with axis limits derived from the
+  data; `fig_survival` draws the survival curves of the five finalists from a `survival_sample` the
+  extract now carries for those cells only (`extract_confirmatory_marginal.SURVIVAL_CELLS`);
+  `fig_loss_vs_tail` plots the nine headline-allocation runs (filled) and the four bundled fine-tunes
+  (hollow), the Spearman over the nine quoted as descriptive; `fig_ablation` reads the v4 champion's
+  `runs/ou_marginal/hl_mamba_p962/ablation_results.json` (bundled with its `fresh_pool_requote.json`,
+  #176); `fig_robustness` reads `stress_depth.json` (n = 10 000, bootstrap CI whiskers) against each
+  scheme's 10^6 nominal. `figlib` gains `marginal()` and `stress_depth()`, both asserting per_draw,
+  and drops `robustness()` (no caller left).
+  `fig_classical_vs_nn` reads the rustc 1.99.0 benchmark above. Appendix D keeps the three
+  schemes v4 keeps (the deployed Mamba champion, the retuned joint-FTC and FNPAG), each card
+  re-flown by `collect_appendix.py` on the final-evaluation pool under per-scenario noise (stated in
+  its `stats.json`, asserted by `appendix.typ`, which takes the card title from the same file); the
+  seven other cards are gone with their `figures/appendix/` directories, and the appendix intro
+  names the three. Left for the rest of #180: `fig_objective_centering` (#177) and
+  `quantization_sweep` (#178). The text is otherwise untouched (#181): until then the six captions
+  describe the arxiv-v3 figures, and the Appendix D intro's "reproduce @tbl-perf" waits for the
+  per-scenario table.

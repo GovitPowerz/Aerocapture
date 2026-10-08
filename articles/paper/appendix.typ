@@ -1,5 +1,6 @@
-// Appendix A: per-scheme mission reports. Two pages per scheme.
-// Data: figures/appendix/<slug>/{*.svg, stats.json} (built by scripts/collect_appendix.py).
+// Appendix D: per-scheme mission reports. Two pages per scheme.
+// Data: figures/appendix/<slug>/{*.svg, stats.json} (built by scripts/collect_appendix.py: the
+// final-evaluation pool, n = 1000, per-scenario noise, asserted on each card from its stats.json).
 // Report-style panels reuse the training pipeline's charts.py output verbatim.
 
 #let apx = "figures/appendix/"
@@ -11,8 +12,10 @@
   [#label], ..vals.pos().map(v => align(right)[#v])
 )
 
-#let scheme_report(slug, title) = {
+#let scheme_report(slug) = {
   let s = json(apx + slug + "/stats.json")
+  let title = s.title
+  assert(s.noise_seeding == "per_draw", message: slug + ": the appendix cards are per-scenario noise (ADR-0006)")
   let cap = s.captured
   let con = s.constraints
 
@@ -60,13 +63,6 @@
   )
 }
 
-#scheme_report("nn_mamba", "NN -- Mamba (962 params)")
-#scheme_report("nn_lstm", "NN -- LSTM (1082 params)")
-#scheme_report("nn_gru", "NN -- GRU (1014 params)")
-#scheme_report("nn_dense", "NN -- Dense (515 params)")
-#scheme_report("ftc", "FTC (joint reference)")
-#scheme_report("fnpag", "FNPAG")
-#scheme_report("predguid", "PredGuid (joint reference)")
-#scheme_report("energyctl", "Energy controller (joint reference)")
-#scheme_report("eqglide", "Equilibrium glide")
-#scheme_report("piecewise", "Piecewise constant")
+#scheme_report("nn_mamba")
+#scheme_report("ftc")
+#scheme_report("fnpag")

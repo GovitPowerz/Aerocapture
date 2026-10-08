@@ -1,56 +1,41 @@
-"""fig_classical_vs_nn -- the deployability scatter (compute vs sizing tail).
+"""fig_classical_vs_nn -- the deployability scatter (compute versus the sizing tail).
 
-x = per-sim compute cost (ms/sim, LOG), y = far-tail CVaR99.9 (m/s). Lower-left is
-better: cheap AND tight-tailed. The recurrent NN (Mamba-962) sits lower-left of
-BOTH classical references (joint-FTC ~165, FNPAG ~199) -- it sizes a smaller
-ergol margin (lower tail DV) at a fraction of FNPAG's per-sim cost, while staying
-within ~3x of FTC's compute. Dense-515 is the cheapest NN but carries a fatter tail.
-Half-column figure: point labels carry the name + tail value only (compute is the
-x-axis), so the annotations stay legible at ~2.7in display width.
+x = per-simulation compute cost (ms/sim on one idle core, log scale; data/compute_benchmark.json,
+measured on the shared-path champions, whose architectures the v4 cells share, so the cost is
+the cell's), y = far-tail CVaR99.9 of the correction DV on the 10^6 per-scenario confirmatory
+pool (10 x 100 000 scenarios per cell, per_draw, asserted at load). Mamba-962 and Dense-515
+are three-seed means of the headline-allocation runs (#173, scratch at GA 512 x 2); joint-FTC
+and FNPAG are the retuned classical cells (#172); joint-FTC rides FTC's compute. Lower-left is
+better: cheap and tight-tailed. Axis limits derive from the data (an arxiv-v2 proof caught
+FNPAG clipped by a stale ylim). Half-column figure: point labels carry the name and the tail
+value only. Data: articles/paper/data/confirmatory_marginal.json, compute_benchmark.json.
 """
 
 import figlib as fl
 import matplotlib.pyplot as plt
 
-# (display label, color key, label offset (dx, dy) in points)
+# (display label, color key, compute label, confirmatory labels (averaged), label offset (dx, dy) in points;
+# Dense-515 labels to the left of its point, above the "better" guide)
 POINTS = [
-    ("Mamba-962", "mamba", (7, 4)),
-    ("Dense-515", "dense", (-7, 4)),  # left of the point: the 210-top ylim compresses the dense/mamba gap
-    ("joint-FTC", "jointftc", (7, 6)),
-    ("FNPAG", "fnpag", (-7, -14)),
+    ("Mamba-962", "mamba", "NN-mamba", ["ou_marginal/hl_mamba_p962", "ou_marginal/hl_mamba_p962_s2", "ou_marginal/hl_mamba_p962_s3"], (7, 4)),
+    ("Dense-515", "dense", "NN-dense", ["ou_marginal/hl_dense_p515", "ou_marginal/hl_dense_p515_s2", "ou_marginal/hl_dense_p515_s3"], (-7, 4)),
+    ("joint-FTC", "jointftc", "FTC", ["ou_marginal/classical/ftc_joint"], (7, 6)),
+    ("FNPAG", "fnpag", "FNPAG", ["ou_marginal/classical/fnpag"], (-7, -14)),
 ]
 
 
 def main():
     fl.style()
-    import json
-
-    conf = {c["label"]: c["pooled"] for c in json.loads((fl.DATA / "confirmatory_eval.json").read_text())["cells"]}
+    conf = fl.marginal()
     ms = {s["label"]: s["ms_per_sim"] for s in fl.compute()}
 
-    # far-tail CVaR99.9 per point, on the frozen confirmatory pool. Mamba and
-    # dense on the SAME 3-seed-mean basis as the tail-reversal section (not a
-    # lucky single seed); classical references from their confirmatory cells.
-    mamba_mean = sum(conf[k]["cvar999"] for k in ("mamba_p962_long", "paper/tail_repeats/mamba962_s2", "paper/tail_repeats/mamba962_s3")) / 3.0
-    dense515_mean = sum(conf[k]["cvar999"] for k in ("dense_p515_ga_paper_best", "paper/tail_repeats/dense515_s2", "paper/tail_repeats/dense515_s3")) / 3.0
-    y = {
-        "Mamba-962": mamba_mean,  # 125.5 (3-seed mean)
-        "Dense-515": dense515_mean,  # 140.5 (3-seed mean)
-        "joint-FTC": conf["joint_reference/ftc"]["cvar999"],  # 165.1
-        "FNPAG": conf["fnpag"]["cvar999"],  # 198.7
-    }
-    # compute label -> the actual per-sim ms; joint-FTC rides FTC's compute cost.
-    x = {
-        "Mamba-962": ms["NN-mamba"],
-        "Dense-515": ms["NN-dense"],
-        "joint-FTC": ms["FTC"],
-        "FNPAG": ms["FNPAG"],
-    }
-
     fig, ax = plt.subplots(figsize=fl.SIZE_HALF)
-
-    for label, ckey, (dx, dy) in POINTS:
-        xv, yv = x[label], y[label]
+    xs, ys = [], []
+    for label, ckey, bench, cells, (dx, dy) in POINTS:
+        xv = ms[bench]
+        yv = sum(conf[c]["pooled"]["cvar999"] for c in cells) / len(cells)
+        xs.append(xv)
+        ys.append(yv)
         ax.scatter([xv], [yv], color=fl.C[ckey], s=90, zorder=4, edgecolor="white", linewidth=1.0)
         ax.annotate(
             f"{label}\n{yv:.0f} m/s",
@@ -71,8 +56,10 @@ def main():
     ax.set_xlabel("compute cost (ms / sim, log scale)")
     ax.set_ylabel("far-tail CVaR$_{99.9}$ (m/s)")
     ax.set_title("Deployability: tail vs compute")
-    ax.set_xlim(0.8, 160)
-    ax.set_ylim(112, 210)  # top must clear FNPAG's 198.7 (it was clipped at 178 after the R4/R5 requote)
+    # Limits from the data: a factor of two of margin either side in x, the label stack above and below in y.
+    ax.set_xlim(min(xs) / 2.0, max(xs) * 2.0)
+    span = max(ys) - min(ys)
+    ax.set_ylim(min(ys) - 0.45 * span, max(ys) + 0.35 * span)
     fig.tight_layout()
     fl.save(fig, "fig_classical_vs_nn")
 

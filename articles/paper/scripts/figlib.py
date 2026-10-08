@@ -143,9 +143,21 @@ def far_tail() -> dict:
     return {c["label"]: c for c in cells}
 
 
-def robustness() -> list:
-    return json.loads((DATA / "robustness_stress.json").read_text())["schemes"]
-
-
 def compute() -> list:
     return json.loads((DATA / "compute_benchmark.json").read_text())["schemes"]
+
+
+def marginal() -> dict:
+    """label -> cell of the 10^6 per-scenario confirmatory (pooled cvar95 / cvar999 / max / viol_pct,
+    n / n_captured, replicate_stats.cvar999.se; survival_sample on the finalist cells). Asserted per_draw."""
+    d = json.loads((DATA / "confirmatory_marginal.json").read_text())
+    assert d["noise_seeding"] == "per_draw", d["noise_seeding"]
+    return {c["label"]: c for c in d["cells"]}
+
+
+def stress_depth() -> dict:
+    """The n = 10 000 off-nominal stress at depth (9M pool, per-scenario noise): the file, cells keyed by label."""
+    d = json.loads((DATA / "stress_depth.json").read_text())
+    assert d["noise_seeding"] == "per_draw", d["noise_seeding"]
+    d["cells"] = {c["label"]: c for c in d["cells"]}
+    return d

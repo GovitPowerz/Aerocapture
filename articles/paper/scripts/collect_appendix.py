@@ -1,9 +1,12 @@
-"""Collect the per-scheme appendix mission-report data (Appendix A).
+"""Collect the per-scheme appendix mission-report data (Appendix D).
 
-For each benchmarked guidance scheme, re-run 1000-sim MC on the reserved
-FINAL_EVAL (2M) pool with trajectories (pinned to the run-local deployed model
-+ co-trained scaffolding, so the numbers reproduce Table 3 / results.json), then
-render the report-style corridor + constraint SVGs and a stats.json into
+For each scheme v4 keeps (the deployed Mamba champion, the retuned joint-FTC and
+FNPAG: #180), re-run 1000-sim MC on the reserved FINAL_EVAL (2M) pool under
+per-scenario density noise (`monte_carlo.noise_seeding = "per_draw"`, ADR-0006,
+stated in each stats.json) with trajectories, pinned to the bundle's deployed
+model + co-trained scaffolding so the numbers reproduce the per_draw rows of
+results.json (the regime asserted, the numbers printed OK / DRIFT), then render
+the report-style corridor + constraint SVGs and a stats.json into
 articles/paper/figures/appendix/<slug>/. Collector-vs-figure split: this reads
 training_output/; the committed SVGs + stats.json are the durable artifacts.
 
@@ -29,37 +32,26 @@ CORRIDOR_NPZ = REPO / "articles/paper/data/corridor.npz"  # shared reachable cor
 N_TRAJ_SPAGHETTI = 300
 POINT_STRIDE = 3
 
-# (slug, title, run_dir under training_output/, training TOML, results.json key)
+# (slug, card title (stats.json `title`, read by appendix.typ), run_dir under training_output/,
+# training TOML, results.json key)
 SCHEMES = [
-    ("nn_mamba", "NN -- Mamba (962 params)", "mamba_p962_long", "configs/training/sweep/mamba_p962.toml", "headline/mamba_p962"),
-    ("nn_lstm", "NN -- LSTM (1082 params)", "lstm_p1082_long", "configs/training/sweep/lstm_p1082.toml", "headline/lstm_p1082"),
-    ("nn_gru", "NN -- GRU (1014 params)", "gru_p1014_long", "configs/training/sweep/gru_p1014.toml", "headline/gru_p1014"),
-    ("nn_dense", "NN -- Dense (515 params)", "dense_p515_ga_paper_best", "configs/training/msr_aller_nn_atan2_best_paper.toml", "headline/dense_p515"),
-    ("ftc", "FTC (joint reference)", "paper/joint_reference/ftc", "configs/training/msr_aller_ftc_joint_ref_train.toml", "joint_reference/ftc"),
-    ("fnpag", "FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag"),
     (
-        "predguid",
-        "PredGuid (joint reference)",
-        "paper/joint_reference/pred_guid",
-        "configs/training/msr_aller_pred_guid_joint_ref_train.toml",
-        "joint_reference/pred_guid",
+        "nn_mamba",
+        "NN -- Mamba (962 params, deployed)",
+        "ou_marginal/hl_mamba_p962",
+        "configs/training/ou_marginal/hl_mamba_p962.toml",
+        "ou_marginal/hl_mamba_p962",
     ),
     (
-        "energyctl",
-        "Energy controller (joint reference)",
-        "paper/joint_reference/energy_controller",
-        "configs/training/msr_aller_energy_controller_joint_ref_train.toml",
-        "joint_reference/energy_controller",
+        "ftc",
+        "FTC (joint reference, retuned)",
+        "ou_marginal/classical/ftc_joint",
+        "configs/training/ou_marginal/classical/ftc_joint.toml",
+        "ou_marginal/classical/ftc_joint",
     ),
-    ("eqglide", "Equilibrium glide", "equilibrium_glide", "configs/training/msr_aller_eqglide_train.toml", "classical_baselines/equilibrium_glide"),
-    (
-        "piecewise",
-        "Piecewise constant",
-        "piecewise_constant",
-        "configs/training/msr_aller_piecewise_constant_train.toml",
-        "classical_baselines/piecewise_constant",
-    ),
+    ("fnpag", "FNPAG (retuned)", "ou_marginal/classical/fnpag", "configs/training/ou_marginal/classical/fnpag.toml", "ou_marginal/classical/fnpag"),
 ]
+NOISE_REGIME = {"monte_carlo.noise_seeding": "per_draw"}  # the main-body regime (ADR-0006), stated explicitly
 
 
 def chart_corridor_pdyn_reachable(trajs, traj_class, output, undispersed):
@@ -124,7 +116,6 @@ def _fly(run_dir, toml, results_key, n_sims):
     Classical schemes have neither and get no data.neural_network override.
     """
     from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
@@ -135,11 +126,11 @@ def _fly(run_dir, toml, results_key, n_sims):
         REPO / toml,
         pool=(FINAL_EVAL_SEED_OFFSET, n_sims),
         model=model,
-        extra_overrides=LEGACY_NOISE_REGIME,
+        extra_overrides=NOISE_REGIME,
         include_trajectories=True,
         sim_timeout_secs=5.0,
     )
-    nom = fly_nominal(scheme_dir, REPO / toml, model=model, extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=5.0)
+    nom = fly_nominal(scheme_dir, REPO / toml, model=model, extra_overrides=NOISE_REGIME, sim_timeout_secs=5.0)
     return batch, nom
 
 
@@ -152,8 +143,9 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     recs = batch.final_records
     trajs = batch.trajectories
 
-    # drift self-check vs results.json (the far_tail mislabel trap)
+    # drift self-check vs results.json (the far_tail mislabel trap); the row must be the same regime
     ref = json.loads(RESULTS.read_text())["runs"][results_key]
+    assert ref["noise_seeding"] == NOISE_REGIME["monte_carlo.noise_seeding"], (results_key, ref["noise_seeding"])
     cap = charts.is_captured(recs)
     got_cap = 100.0 * float(cap.mean())
     got_mean = float(np.abs(recs[cap, charts._FR_DV_TOTAL]).mean())
@@ -200,13 +192,16 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     summary["dv_p99"] = float(np.percentile(dvc, 99))
     summary["dv_cvar95"] = float(np.sort(dvc)[-max(1, round(len(dvc) * 0.05)) :].mean())
     summary["title"] = title
+    summary["noise_seeding"] = NOISE_REGIME["monte_carlo.noise_seeding"]
+    summary["pool"] = "FINAL_EVAL 2M"
+    summary["results_key"] = results_key
     (out / "stats.json").write_text(json.dumps(summary, indent=1, default=float))
     print(f"  wrote {out.relative_to(REPO)} (7 svg + stats.json)")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--schemes", nargs="*", default=None, help="slugs to collect (default all)")
+    parser.add_argument("--schemes", nargs="*", default=None, choices=[s[0] for s in SCHEMES], help="slugs to collect (default all)")
     parser.add_argument("--n-sims", type=int, default=1000)
     args = parser.parse_args()
     wanted = set(args.schemes) if args.schemes else None

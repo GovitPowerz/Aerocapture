@@ -80,7 +80,8 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   mismatch, and `--repair` would deploy a decode the optimizer never flew.
 - Appendix cards: `articles/paper/figures/appendix/<scheme>/` (7 report-style
   SVGs + `stats.json` per scheme, built by `articles/paper/scripts/collect_appendix.py`
-  from training_output). Committed -- `appendix.typ` reads each `stats.json` at
+  from training_output: since #180 the three schemes v4 keeps, re-flown under per-scenario
+  noise, the regime stated in each `stats.json` and asserted by `appendix.typ`). Committed -- `appendix.typ` reads each `stats.json` at
   compile time, so the paper must build from a clean checkout (`.gitignore`
   exempts them from the global `*.json` rule).
 - Noise regime: every committed cell under `runs/` was trained and evaluated

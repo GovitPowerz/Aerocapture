@@ -1,0 +1,676 @@
+{
+  "baseline_cost": 4.715921910506232,
+  "n_sims": 1000,
+  "noise_seeding": "per_draw",
+  "cost_transform": "log",
+  "results": [
+    {
+      "index": 0,
+      "name": "eccentricity_excess",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.974456450255477,
+      "delta": 0.25853453974924534,
+      "abs_delta": 0.25853453974924534,
+      "rank": 15
+    },
+    {
+      "index": 1,
+      "name": "inclination_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 18
+    },
+    {
+      "index": 2,
+      "name": "radial_velocity",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.005358146745035,
+      "delta": 1.289436236238803,
+      "abs_delta": 1.289436236238803,
+      "rank": 5
+    },
+    {
+      "index": 3,
+      "name": "orbital_energy",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 8.909055470867461,
+      "delta": 4.193133560361229,
+      "abs_delta": 4.193133560361229,
+      "rank": 1
+    },
+    {
+      "index": 4,
+      "name": "velocity",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 19
+    },
+    {
+      "index": 5,
+      "name": "accel_magnitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.803278895889174,
+      "delta": 1.0873569853829421,
+      "abs_delta": 1.0873569853829421,
+      "rank": 7
+    },
+    {
+      "index": 6,
+      "name": "heat_flux_fraction",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.504176197169027,
+      "delta": 0.7882542866627951,
+      "abs_delta": 0.7882542866627951,
+      "rank": 8
+    },
+    {
+      "index": 7,
+      "name": "heat_load_fraction",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.377976644908516,
+      "delta": 0.6620547344022842,
+      "abs_delta": 0.6620547344022842,
+      "rank": 9
+    },
+    {
+      "index": 8,
+      "name": "altitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 20
+    },
+    {
+      "index": 9,
+      "name": "fpa",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 21
+    },
+    {
+      "index": 10,
+      "name": "latitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 22
+    },
+    {
+      "index": 11,
+      "name": "drag_accel",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.331542401667764,
+      "delta": 0.6156204911615317,
+      "abs_delta": 0.6156204911615317,
+      "rank": 10
+    },
+    {
+      "index": 12,
+      "name": "lift_accel",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.225218560143603,
+      "delta": 0.5092966496373714,
+      "abs_delta": 0.5092966496373714,
+      "rank": 12
+    },
+    {
+      "index": 13,
+      "name": "sma_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 23
+    },
+    {
+      "index": 14,
+      "name": "apoapsis_alt",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 24
+    },
+    {
+      "index": 15,
+      "name": "bounce_flag",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 25
+    },
+    {
+      "index": 16,
+      "name": "cos_bank_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 26
+    },
+    {
+      "index": 17,
+      "name": "pdyn_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 27
+    },
+    {
+      "index": 18,
+      "name": "hdot_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.084012418391104,
+      "delta": 1.3680905078848724,
+      "abs_delta": 1.3680905078848724,
+      "rank": 4
+    },
+    {
+      "index": 19,
+      "name": "pdyn_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.94296739088922,
+      "delta": 1.227045480382988,
+      "abs_delta": 1.227045480382988,
+      "rank": 6
+    },
+    {
+      "index": 20,
+      "name": "exit_bank_teacher",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 28
+    },
+    {
+      "index": 21,
+      "name": "inclination_err_rate",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 29
+    },
+    {
+      "index": 22,
+      "name": "prev_bank_signed",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 30
+    },
+    {
+      "index": 23,
+      "name": "time_since_sign_flip",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 31
+    },
+    {
+      "index": 24,
+      "name": "inclination_err_integral",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 32
+    },
+    {
+      "index": 25,
+      "name": "exit_bank_teacher_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 33
+    },
+    {
+      "index": 26,
+      "name": "exit_bank_teacher_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 34
+    },
+    {
+      "index": 27,
+      "name": "prev_bank_signed_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.9552013947118265,
+      "delta": 0.23927948420559453,
+      "abs_delta": 0.23927948420559453,
+      "rank": 16
+    },
+    {
+      "index": 28,
+      "name": "prev_bank_signed_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.211383628905794,
+      "delta": 0.49546171839956177,
+      "abs_delta": 0.49546171839956177,
+      "rank": 13
+    },
+    {
+      "index": 29,
+      "name": "prev_realized_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.744591848631508,
+      "delta": 0.028669938125275962,
+      "abs_delta": 0.028669938125275962,
+      "rank": 17
+    },
+    {
+      "index": 30,
+      "name": "prev_realized_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.170573980941283,
+      "delta": 0.45465207043505096,
+      "abs_delta": 0.45465207043505096,
+      "rank": 14
+    },
+    {
+      "index": 31,
+      "name": "periapsis_alt",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 35
+    },
+    {
+      "index": 32,
+      "name": "predicted_dv1",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.514576302034382,
+      "delta": 1.7986543915281503,
+      "abs_delta": 1.7986543915281503,
+      "rank": 2
+    },
+    {
+      "index": 33,
+      "name": "predicted_dv2",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.506273636551132,
+      "delta": 1.7903517260449,
+      "abs_delta": 1.7903517260449,
+      "rank": 3
+    },
+    {
+      "index": 34,
+      "name": "predicted_dv3",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.24300228337543,
+      "delta": 0.5270803728691984,
+      "abs_delta": 0.5270803728691984,
+      "rank": 11
+    }
+  ],
+  "ranked": [
+    {
+      "index": 3,
+      "name": "orbital_energy",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 8.909055470867461,
+      "delta": 4.193133560361229,
+      "abs_delta": 4.193133560361229,
+      "rank": 1
+    },
+    {
+      "index": 32,
+      "name": "predicted_dv1",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.514576302034382,
+      "delta": 1.7986543915281503,
+      "abs_delta": 1.7986543915281503,
+      "rank": 2
+    },
+    {
+      "index": 33,
+      "name": "predicted_dv2",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.506273636551132,
+      "delta": 1.7903517260449,
+      "abs_delta": 1.7903517260449,
+      "rank": 3
+    },
+    {
+      "index": 18,
+      "name": "hdot_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.084012418391104,
+      "delta": 1.3680905078848724,
+      "abs_delta": 1.3680905078848724,
+      "rank": 4
+    },
+    {
+      "index": 2,
+      "name": "radial_velocity",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 6.005358146745035,
+      "delta": 1.289436236238803,
+      "abs_delta": 1.289436236238803,
+      "rank": 5
+    },
+    {
+      "index": 19,
+      "name": "pdyn_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.94296739088922,
+      "delta": 1.227045480382988,
+      "abs_delta": 1.227045480382988,
+      "rank": 6
+    },
+    {
+      "index": 5,
+      "name": "accel_magnitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.803278895889174,
+      "delta": 1.0873569853829421,
+      "abs_delta": 1.0873569853829421,
+      "rank": 7
+    },
+    {
+      "index": 6,
+      "name": "heat_flux_fraction",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.504176197169027,
+      "delta": 0.7882542866627951,
+      "abs_delta": 0.7882542866627951,
+      "rank": 8
+    },
+    {
+      "index": 7,
+      "name": "heat_load_fraction",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.377976644908516,
+      "delta": 0.6620547344022842,
+      "abs_delta": 0.6620547344022842,
+      "rank": 9
+    },
+    {
+      "index": 11,
+      "name": "drag_accel",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.331542401667764,
+      "delta": 0.6156204911615317,
+      "abs_delta": 0.6156204911615317,
+      "rank": 10
+    },
+    {
+      "index": 34,
+      "name": "predicted_dv3",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.24300228337543,
+      "delta": 0.5270803728691984,
+      "abs_delta": 0.5270803728691984,
+      "rank": 11
+    },
+    {
+      "index": 12,
+      "name": "lift_accel",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.225218560143603,
+      "delta": 0.5092966496373714,
+      "abs_delta": 0.5092966496373714,
+      "rank": 12
+    },
+    {
+      "index": 28,
+      "name": "prev_bank_signed_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.211383628905794,
+      "delta": 0.49546171839956177,
+      "abs_delta": 0.49546171839956177,
+      "rank": 13
+    },
+    {
+      "index": 30,
+      "name": "prev_realized_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 5.170573980941283,
+      "delta": 0.45465207043505096,
+      "abs_delta": 0.45465207043505096,
+      "rank": 14
+    },
+    {
+      "index": 0,
+      "name": "eccentricity_excess",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.974456450255477,
+      "delta": 0.25853453974924534,
+      "abs_delta": 0.25853453974924534,
+      "rank": 15
+    },
+    {
+      "index": 27,
+      "name": "prev_bank_signed_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.9552013947118265,
+      "delta": 0.23927948420559453,
+      "abs_delta": 0.23927948420559453,
+      "rank": 16
+    },
+    {
+      "index": 29,
+      "name": "prev_realized_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.744591848631508,
+      "delta": 0.028669938125275962,
+      "abs_delta": 0.028669938125275962,
+      "rank": 17
+    },
+    {
+      "index": 1,
+      "name": "inclination_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 18
+    },
+    {
+      "index": 4,
+      "name": "velocity",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 19
+    },
+    {
+      "index": 8,
+      "name": "altitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 20
+    },
+    {
+      "index": 9,
+      "name": "fpa",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 21
+    },
+    {
+      "index": 10,
+      "name": "latitude",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 22
+    },
+    {
+      "index": 13,
+      "name": "sma_error",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 23
+    },
+    {
+      "index": 14,
+      "name": "apoapsis_alt",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 24
+    },
+    {
+      "index": 15,
+      "name": "bounce_flag",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 25
+    },
+    {
+      "index": 16,
+      "name": "cos_bank_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 26
+    },
+    {
+      "index": 17,
+      "name": "pdyn_nominal",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 27
+    },
+    {
+      "index": 20,
+      "name": "exit_bank_teacher",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 28
+    },
+    {
+      "index": 21,
+      "name": "inclination_err_rate",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 29
+    },
+    {
+      "index": 22,
+      "name": "prev_bank_signed",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 30
+    },
+    {
+      "index": 23,
+      "name": "time_since_sign_flip",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 31
+    },
+    {
+      "index": 24,
+      "name": "inclination_err_integral",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 32
+    },
+    {
+      "index": 25,
+      "name": "exit_bank_teacher_sin",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 33
+    },
+    {
+      "index": 26,
+      "name": "exit_bank_teacher_cos",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 34
+    },
+    {
+      "index": 31,
+      "name": "periapsis_alt",
+      "baseline_cost": 4.715921910506232,
+      "ablated_cost": 4.715921910506232,
+      "delta": 0.0,
+      "abs_delta": 0.0,
+      "masked_out": true,
+      "rank": 35
+    }
+  ]
+}
