@@ -1,0 +1,26 @@
+# QAT-4bit FROM-SCRATCH arm of the v4 quantization appendix (#178): fresh GA 512 x 2 x 20000
+# under per_draw (budget-matched to the deployed champion ou_marginal/hl_mamba_p962) with 4-bit
+# fake-quant fitness from gen 0. Answers TRAINABILITY: does training under the 4-bit constraint
+# reach the fp champion?
+# Launch (first run --from-scratch, every rerun resumes to gen 20000):
+#   ./experiments/paper/17_quantization.sh v4 qat_scratch
+# qat_granularity / qat_tensor_policy are PINNED from the v4 PTQ verdict (see
+# v4_qat4_finetune.toml); the runner's pre-flight refuses a mismatch.
+base = ["../ou_marginal/hl_mamba_p962.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[data]
+neural_network = "training_output/quant_v4/qat4_scratch/best_model.json"
+results_suffix = ".quant_v4_qat4_scratch"
+
+[network]
+qat_bits = 4
+qat_granularity = "per_tensor"
+qat_tensor_policy = "proj_only"
+
+[optimizer]
+n_pop = 512
+training_n_sims = 2
+n_gen = 20000

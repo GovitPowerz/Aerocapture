@@ -1,8 +1,8 @@
 # Rebuild the paper's figures, results.json and PDF from the committed bundle.
 #
 #   make -C articles/paper                 figures (default): the 18 fig_*.svg from data/ + the bundle
-#   make -C articles/paper paper           fetch-logs (if absent) -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> figures -> provenance -> pdf
-#   make -C articles/paper check           SHA256SUMS + results.json schema + the three per-scenario extracts + figures/results.json unchanged in git
+#   make -C articles/paper paper           fetch-logs (if absent) -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> quant-v4 -> figures -> provenance -> pdf
+#   make -C articles/paper check           SHA256SUMS + results.json schema + the four per-scenario extracts + figures/results.json unchanged in git
 #   make -C articles/paper -B figures      force every figure (CI does this, then `check`)
 #   make -C articles/paper -n paper        print what would run
 #
@@ -28,11 +28,11 @@ FIGS := figures
 PDF ?= articles/paper/paper.pdf
 
 .DEFAULT_GOAL := figures
-.PHONY: figures results confirmatory-marginal quote-marginal heat-load-slope fetch-logs provenance pdf paper check check-sums check-logs check-schema \
-        check-provenance check-marginal check-quote check-slope sums help \
+.PHONY: figures results confirmatory-marginal quote-marginal heat-load-slope quant-v4 fetch-logs provenance pdf paper check check-sums check-logs check-schema \
+        check-provenance check-marginal check-quote check-slope check-quant-v4 sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
         mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes \
-        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope mc-stress-depth mc-centered-depth-v4 mc-objective-centering-v4
+        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope mc-stress-depth mc-centered-depth-v4 mc-objective-centering-v4 mc-quant-v4
 
 # ---------------------------------------------------------------------------
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
@@ -112,6 +112,16 @@ quote-marginal:
 heat-load-slope:
 	$(UVPY) articles/paper/scripts/extract_heat_load_slope.py
 
+# ---------------------------------------------------------------------------
+# quant_v4/confirmatory_marginal.json <- the v4 quantization finalists at 10^6 (issue #178)
+# ---------------------------------------------------------------------------
+# The rows of experiments/ou_marginal/quant_cells_v4.txt (the deployed champion first, then the PTQ
+# verdict, the QAT fine-tune, the QAT scratch arm) from experiments/ou_marginal/confirmatory_marginal.json,
+# plus each finalist's paired replicate delta against the champion. Pending (a message, nothing
+# written) until the campaign has scored every finalist (`mc-quant-v4` below). Pure stdlib.
+quant-v4:
+	$(UVPY) articles/paper/scripts/extract_quant_v4.py
+
 # The run.jsonl.gz of data/SHA256SUMS.runlogs are a Release asset (URL: data/provenance.json's
 # run_logs_asset, named by write_provenance.py), gitignored. Network.
 fetch-logs:
@@ -138,6 +148,7 @@ paper: fetch-logs
 	$(MAKE) confirmatory-marginal
 	$(MAKE) quote-marginal
 	$(MAKE) heat-load-slope
+	$(MAKE) quant-v4
 	$(MAKE) figures
 	$(MAKE) provenance
 	$(MAKE) pdf
@@ -168,7 +179,7 @@ $(FROZEN):
 # $(FROZEN) as prerequisites: a missing frozen input fails here with its FROZEN message
 # (the block above is defined first: make expands prerequisite lists when it reads the rule).
 # `git diff HEAD` so a regenerated-and-staged file still counts as changed.
-check: check-sums check-schema check-marginal check-quote check-slope check-provenance $(FROZEN)
+check: check-sums check-schema check-marginal check-quote check-slope check-quant-v4 check-provenance $(FROZEN)
 	cd $(ROOT) && git diff HEAD --exit-code --stat -- articles/paper/figures articles/paper/data/results.json articles/paper/data/provenance.json
 	cd $(ROOT) && test -z "$$(git status --porcelain -- articles/paper/figures)" || { git status --porcelain -- articles/paper/figures; echo "error: untracked/modified figures"; exit 1; }
 
@@ -187,6 +198,10 @@ check-quote:
 # data/heat_load_slope.json must be what its experiments/ source yields.
 check-slope:
 	$(UVPY) articles/paper/scripts/extract_heat_load_slope.py --check
+
+# data/quant_v4/confirmatory_marginal.json must be what its experiments/ source yields (pending before the campaign).
+check-quant-v4:
+	$(UVPY) articles/paper/scripts/extract_quant_v4.py --check
 
 # data/SHA256SUMS = what `sums` writes: every tracked file under data/ except itself and
 # provenance.json. Recomputed and diffed (not `shasum --check`, which only verifies the
@@ -300,6 +315,11 @@ mc-requote: need-sim
 mc-quant: need-sim
 	cd $(ROOT) && ./experiments/paper/17_quantization.sh collect
 
+# quant_v4/{quantization_results,finalists_results}.json + figures/quantization_sweep_v4.svg (issue #178; per_draw):
+# copied from training_output/quant_v4/ by the v4 runner, which then runs the quant-v4 extract above.
+mc-quant-v4: need-sim
+	cd $(ROOT) && ./experiments/paper/17_quantization.sh v4 collect
+
 # ---------------------------------------------------------------------------
 # v4 per-scenario scorers (issue #179): every one flies under per_draw density noise (ADR-0006,
 # one realization per scenario) and writes under experiments/ou_marginal/, from where the
@@ -324,8 +344,7 @@ mc-heat-load-slope: need-sim
 # {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; fig_robustness and
 # fig_ablation read them since #180, their results.typ accessors come with #181, as do those of the two
 # #177 files (mc-centered-depth-v4, mc-objective-centering-v4 above: committed with the issue's outcome,
-# then `make sums`). Not yet a producer: quant_v4/ (#178, 17_quantization.sh collect) gets its mc-* target,
-# accessor and check rule with the issue that writes the file.
+# then `make sums`); quant_v4/'s accessor comes with #181 too (mc-quant-v4 above, check-quant-v4 in `check`).
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json

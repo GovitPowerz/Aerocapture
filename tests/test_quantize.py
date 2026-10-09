@@ -495,3 +495,51 @@ def test_scaffolding_overrides_none_params_dir_is_empty() -> None:
     from aerocapture.training.quantize import _scaffolding_overrides
 
     assert _scaffolding_overrides(None, require=True) == {}
+
+
+def test_regime_overrides_pin_the_requested_noise_seeding() -> None:
+    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
+    from aerocapture.training.quantize import _regime_overrides
+
+    assert _regime_overrides("legacy") == LEGACY_NOISE_REGIME
+    assert _regime_overrides("per_draw") == {"monte_carlo.noise_seeding": "per_draw"}
+    with pytest.raises(ValueError, match="noise_seeding"):
+        _regime_overrides("frozen")
+
+
+def test_run_finalists_records_and_forwards_the_regime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The v4 campaign scores under per_draw; the result file must say so and every flight must carry it."""
+    from aerocapture.training import quantize
+
+    seen: list[str] = []
+
+    def fake_score(toml_path: str, model_path: Path, seeds: list[int], cost_kwargs: dict, extra: dict, timeout: float | None, noise_seeding: str) -> dict:
+        seen.append(noise_seeding)
+        return {"capture_rate": 1.0, "dv_p50": 1.0, "dv_p95": 1.0, "dv_p99": 1.0, "dv_cvar95": 1.0, "viol_pct": 0.0, "rms_cost": 1.0}
+
+    monkeypatch.setattr(quantize, "_score_variant", fake_score)
+    monkeypatch.setattr(quantize, "_resolve_pool", lambda toml, offset, n: ([1, 2, 3], {"base_mc_seed": 42, "offset": offset, "n": n}))
+    monkeypatch.setattr("aerocapture.training.ablation._load_cost_kwargs", lambda toml, cost_transform: {})
+    params_dir = tmp_path / "cell"
+    params_dir.mkdir()
+    (params_dir / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.5}))
+    model = tmp_path / "m.json"
+    model.write_text("{}")
+    entries = [{"label": "fp", "model": str(model), "params_dir": str(params_dir), "quantize": None}]
+
+    legacy = quantize.run_finalists("unused.toml", entries, n_sims=3)
+    per_draw = quantize.run_finalists("unused.toml", entries, n_sims=3, noise_seeding="per_draw")
+    assert legacy["noise_seeding"] == "legacy" and per_draw["noise_seeding"] == "per_draw"
+    assert seen == ["legacy", "per_draw"]
+
+
+def test_scale_factor_one_is_bit_identical_and_larger_steps_stay_on_their_grid() -> None:
+    rng = np.random.default_rng(3)
+    w = rng.normal(size=(6, 9))
+    for gran in ("per_channel", "per_tensor"):
+        assert np.array_equal(_quantize_matrix(w, 4, gran, 1.0), _quantize_matrix(w, 4, gran))
+        q = _quantize_matrix(w, 4, gran, 1.05)
+        amax = np.max(np.abs(w), axis=1, keepdims=True) if gran == "per_channel" else np.max(np.abs(w))
+        step = amax / 7 * 1.05
+        assert np.allclose(q / step, np.round(q / step)) and np.all(np.abs(q / step) <= 7 + 1e-9)
+        assert not np.array_equal(q, _quantize_matrix(w, 4, gran))

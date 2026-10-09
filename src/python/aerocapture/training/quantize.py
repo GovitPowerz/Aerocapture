@@ -36,21 +36,22 @@ def _layer_types(model_json: dict) -> list[str]:
     raise ValueError("model JSON has no recognizable 'architecture'")
 
 
-def _quantize_matrix(w: npt.NDArray[np.float64], n_bits: int, granularity: str) -> npt.NDArray[np.float64]:
-    """Symmetric fake-quant of one weight matrix [n_out, n_in]. Rows are output channels."""
+def _quantize_matrix(w: npt.NDArray[np.float64], n_bits: int, granularity: str, scale_factor: float = 1.0) -> npt.NDArray[np.float64]:
+    """Symmetric fake-quant of one weight matrix [n_out, n_in]. Rows are output channels.
+    `scale_factor` > 1 enlarges the absmax step (the scale-jitter probe); 1.0 is the plain grid."""
     qmax = 2 ** (n_bits - 1) - 1  # symmetric: drop the extra -2^(b-1) level so 0 maps to 0
     # per_channel: one scale per output row; per_tensor: one scale for the whole layer
     amax = np.max(np.abs(w), axis=1, keepdims=True) if granularity == "per_channel" else np.max(np.abs(w))
-    scale = np.where(amax == 0.0, 1.0, amax / qmax)  # 0-group -> scale 1.0 (leaves zeros, no div0)
+    scale = np.where(amax == 0.0, 1.0, amax / qmax * scale_factor)  # 0-group -> scale 1.0 (leaves zeros, no div0)
     q = np.clip(np.round(w / scale), -qmax, qmax)
     result: npt.NDArray[np.float64] = q * scale
     return result
 
 
-def _quantize_vector(v: npt.NDArray[np.float64], n_bits: int) -> npt.NDArray[np.float64]:
+def _quantize_vector(v: npt.NDArray[np.float64], n_bits: int, scale_factor: float = 1.0) -> npt.NDArray[np.float64]:
     """Symmetric fake-quant of a 1-D tensor: always a single per-tensor scale
     (per-channel on a vector would be per-element, i.e. lossless and meaningless)."""
-    return _quantize_matrix(v.reshape(1, -1), n_bits, "per_tensor").reshape(-1)
+    return _quantize_matrix(v.reshape(1, -1), n_bits, "per_tensor", scale_factor).reshape(-1)
 
 
 def _quantizable_tensors(model_json: dict, tensor_policy: str) -> list[tuple[str, int, str, bool]]:
@@ -136,12 +137,15 @@ def quantize_model_weights(
     granularity: str,
     tensor_policy: str = "all",
     only_tensor: str | None = None,
+    scale_factor: float = 1.0,
 ) -> dict:
     """Deep copy of model_json with the policy's tensors fake-quantized.
 
     `only_tensor` (a key from `_quantizable_tensors`, e.g. "layer_1.a_log")
-    quantizes exactly that tensor group -- the leave-one-out probe. Biases,
-    input_mask, normalization, output_param, architecture are never touched.
+    quantizes exactly that tensor group -- the leave-one-out probe. `scale_factor`
+    multiplies every absmax step (experiments/quant_jitter/: which weights round up
+    or down, at an unchanged error size). Biases, input_mask, normalization,
+    output_param, architecture are never touched.
     """
     _validate_quant_args(n_bits, granularity, tensor_policy)
     targets = _quantizable_tensors(model_json, "all" if only_tensor is not None else tensor_policy)
@@ -153,7 +157,7 @@ def quantize_model_weights(
     out = copy.deepcopy(model_json)
     for _key, i, field, is_1d in targets:
         arr = np.asarray(out["weights"][f"layer_{i}"][field], dtype=np.float64)
-        q = _quantize_vector(arr, n_bits) if is_1d else _quantize_matrix(arr, n_bits, granularity)
+        q = _quantize_vector(arr, n_bits, scale_factor) if is_1d else _quantize_matrix(arr, n_bits, granularity, scale_factor)
         out["weights"][f"layer_{i}"][field] = q.tolist()
     return out
 
@@ -230,6 +234,17 @@ def quantize_flat_weights_batch(
     return out
 
 
+_NOISE_SEEDINGS = ("legacy", "per_draw")
+
+
+def _regime_overrides(noise_seeding: str) -> dict[str, str]:
+    """The density-noise regime every flight of a sweep is pinned to (ADR-0006): `legacy`, the shared
+    path the arxiv-v3 champion was trained under; `per_draw`, one realization per scenario (v4)."""
+    if noise_seeding not in _NOISE_SEEDINGS:
+        raise ValueError(f"noise_seeding must be one of {_NOISE_SEEDINGS}, got {noise_seeding!r}")
+    return {"monte_carlo.noise_seeding": noise_seeding}
+
+
 def _score_variant(
     toml_path: str,
     model_path: str | Path,
@@ -237,17 +252,22 @@ def _score_variant(
     cost_kwargs: dict[str, Any],
     extra_overrides: dict[str, Any],
     sim_timeout_secs: float | None,
+    noise_seeding: str = "legacy",
 ) -> dict[str, Any]:
     """One MC batch on an explicit seed list for a pinned model; tail-led metrics."""
     from aerocapture.training import charts
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.experiments.probe_common import cvar95
     from aerocapture.training.report import compute_eval_summary
 
-    # The quantized head's source cell was trained under the shared noise path; score it there (ADR-0006).
+    # Scored under the regime the quantized head's source cell was trained under (ADR-0006).
     res = evaluate_cell(
-        None, Path(toml_path), seeds, model=Path(model_path), extra_overrides={**LEGACY_NOISE_REGIME, **extra_overrides}, sim_timeout_secs=sim_timeout_secs
+        None,
+        Path(toml_path),
+        seeds,
+        model=Path(model_path),
+        extra_overrides={**_regime_overrides(noise_seeding), **extra_overrides},
+        sim_timeout_secs=sim_timeout_secs,
     )
     summary = compute_eval_summary(res.final_records, n_sims=len(seeds), cost_kwargs=cost_kwargs)
     dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
@@ -318,6 +338,7 @@ def run_quant_sweep(
     loo_bits: int | None = 4,
     sim_timeout_secs: float | None = None,
     cost_transform: str | None = "linear",
+    noise_seeding: str = "legacy",
 ) -> dict[str, Any]:
     """PTQ sensitivity sweep on a reserved pool with the co-trained scaffolding applied.
 
@@ -338,7 +359,7 @@ def run_quant_sweep(
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
     model_json = json.loads(Path(model_path).read_text())
 
-    baseline = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs)
+    baseline = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
 
     def deltas(m: dict[str, Any]) -> dict[str, Any]:
         m["delta_capture_rate"] = m["capture_rate"] - baseline["capture_rate"]
@@ -356,7 +377,7 @@ def run_quant_sweep(
             for policy in policies:
                 for b in bits:
                     tmp.write_text(json.dumps(quantize_model_weights(model_json, b, gran, policy)))
-                    m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs)
+                    m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
                     m.update({"granularity": gran, "tensor_policy": policy, "bits": b})
                     variants.append(deltas(m))
                     print(f"  scored bits={b} gran={gran} policy={policy}: capture={m['capture_rate']:.3f}")
@@ -366,7 +387,7 @@ def run_quant_sweep(
             assert verdict is not None
             for key, *_ in _quantizable_tensors(model_json, "all"):
                 tmp.write_text(json.dumps(quantize_model_weights(model_json, loo_bits, verdict["granularity"], "all", only_tensor=key)))
-                m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs)
+                m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
                 m.update({"tensor": key, "bits": loo_bits, "granularity": verdict["granularity"]})
                 loo.append(deltas(m))
                 print(f"  scored LOO {key}: capture={m['capture_rate']:.3f}")
@@ -385,6 +406,7 @@ def run_quant_sweep(
         "memory": memory,
         "pool": pool,
         "n_sims": n_sims,
+        "noise_seeding": noise_seeding,
         "model_path": str(model_path),
         "params_dir": str(params_dir) if params_dir is not None else None,
         "scaffolding_applied": sorted(scaff),
@@ -398,6 +420,7 @@ def run_finalists(
     pool_offset: int | None = None,
     sim_timeout_secs: float | None = None,
     cost_transform: str | None = "linear",
+    noise_seeding: str = "legacy",
 ) -> dict[str, Any]:
     """Deep re-score (default n=10000) of finalist models on the same reserved pool.
 
@@ -424,7 +447,7 @@ def run_finalists(
                 )
                 model_path = tmp
             scaff = _scaffolding_overrides(e.get("params_dir"), require=True)
-            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs)
+            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
             rows.append(
                 {
                     "label": e["label"],
@@ -436,7 +459,7 @@ def run_finalists(
                 }
             )
             print(f"  finalist {e['label']}: capture={m['capture_rate']:.3f}")
-    return {"finalists": rows, "pool": pool, "n_sims": n_sims}
+    return {"finalists": rows, "pool": pool, "n_sims": n_sims, "noise_seeding": noise_seeding}
 
 
 def _print_table(results: dict[str, Any]) -> None:
@@ -476,6 +499,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sim-timeout", type=float, default=None)
     parser.add_argument("--finalists", default=None, help="JSON file with finalist entries; switches to the deep re-score mode")
     parser.add_argument(
+        "--noise-seeding",
+        default="legacy",
+        choices=list(_NOISE_SEEDINGS),
+        help="density-noise regime every flight is pinned to (ADR-0006): legacy = the arxiv-v3 champion's shared path (default); per_draw = v4",
+    )
+    parser.add_argument(
         "--cost-transform",
         default="linear",
         choices=["linear", "sqrt", "log", "squared", "cubed"],
@@ -488,7 +517,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.finalists is not None:
         entries = json.loads(Path(args.finalists).read_text())
         results = run_finalists(
-            args.toml, entries, n_sims=args.n_sims, pool_offset=args.pool_offset, sim_timeout_secs=args.sim_timeout, cost_transform=args.cost_transform
+            args.toml,
+            entries,
+            n_sims=args.n_sims,
+            pool_offset=args.pool_offset,
+            sim_timeout_secs=args.sim_timeout,
+            cost_transform=args.cost_transform,
+            noise_seeding=args.noise_seeding,
         )
         (out_dir / "finalists_results.json").write_text(json.dumps(results, indent=2))
         for r in results["finalists"]:
@@ -509,6 +544,7 @@ def main(argv: list[str] | None = None) -> None:
         loo_bits=None if args.no_loo else args.loo_bits,
         sim_timeout_secs=args.sim_timeout,
         cost_transform=args.cost_transform,
+        noise_seeding=args.noise_seeding,
     )
     (out_dir / "quantization_results.json").write_text(json.dumps(results, indent=2))
 

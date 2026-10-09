@@ -63,8 +63,8 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   `runs/legacy/<dir>/`. Tables/figures reproduce from the bundle WITHOUT
   re-training: `make -C articles/paper paper` (fetch-logs -> check-logs -> results.json ->
   confirmatory_marginal.json -> quote_marginal.json -> heat_load_slope.json ->
-  figures -> provenance -> pdf; `make -C articles/paper check` verifies the
-  checksums, the three per-scenario extracts and the figures; the opt-in `mc-*` targets re-fly
+  quant_v4/confirmatory_marginal.json -> figures -> provenance -> pdf; `make -C articles/paper check` verifies the
+  checksums, the four per-scenario extracts (the quant_v4 one pending until #178 lands) and the figures; the opt-in `mc-*` targets re-fly
   cells). After a re-collect, `make
   -C articles/paper sums` refreshes `data/SHA256SUMS`.
   Discipline: any retro `final_select` re-selection must be
@@ -86,6 +86,12 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   noise, the regime stated in each `stats.json` and asserted by `appendix.typ`). Committed -- `appendix.typ` reads each `stats.json` at
   compile time, so the paper must build from a clean checkout (`.gitignore`
   exempts them from the global `*.json` rule).
+- Quantization (Appendix C): `17_quantization.sh [v4] {ptq|bench|qat_finetune|qat_scratch|finalists|collect}`.
+  Without `v4` it is the arxiv-v3 campaign on the shared-path champion (`training_output/quant/`,
+  `data/quant/`); `v4` (#178) runs it on the deployed per-scenario champion under `per_draw`
+  (`training_output/quant_v4/`, `data/quant_v4/`), scoring the finalists of
+  `experiments/ou_marginal/quant_cells_v4.txt` on the 10^6 per-scenario pool. Details in
+  `src/python/aerocapture/training/README.md` (`quantize.py`).
 - Noise regime: every committed cell under `runs/` was trained and evaluated
   under the shared noise path (`noise_seeding = "legacy"`), the simulator
   default until ADR-0006 (2026-09-16). The eval scripts (`articles/paper/scripts/*`,

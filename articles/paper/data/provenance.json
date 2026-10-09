@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "f390499253069c11a55dba0156b5ebde065e2fb9bd4b13f2829ca3d29e5caf3a",
+  "paper_inputs_sha256": "edb55d0ab5f00718608b95eed8b4773594e9dd50e831f9442ae4cf14f071181d",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -13,7 +13,7 @@
   ],
   "release_tag": "arxiv-v4",
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v4/paper_run_logs.tar",
-  "noise_regime": "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, #174); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); centered_depth.json carries both regimes, each cell labelled (issue #156)",
+  "noise_regime": "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, #174), quant_v4/ (issue #178); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); centered_depth.json carries both regimes, each cell labelled (issue #156)",
   "simulator_crate_version": "1.0.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",
@@ -70,6 +70,8 @@
     "configs/training/paper/window_ctrl_p970.toml": "5336133a5c72c1734dfe6e038b2d72085e7403f9789dfa940aec499dc5c029fe",
     "configs/training/quant/mamba962_qat4_finetune.toml": "50e711041d8d3090fde6a934af492b3c8b91fac5f288b2d8c7a9ddd4c47fcd8f",
     "configs/training/quant/mamba962_qat4_scratch.toml": "e937a7ae5660fd3c5ad0fbcf05f4f79746e74a1dda765064dd398085c75f0f36",
+    "configs/training/quant/v4_qat4_finetune.toml": "88886b368e2078e766575550c9ed76ccbb95df1711e307a1d074644b64623df1",
+    "configs/training/quant/v4_qat4_scratch.toml": "3a93c226119dd6bedaeef67e15c88575f8ba49ae7d2924f9fdfdc1e49731a08f",
     "configs/training/sweep/dense_p102.toml": "34e9c537f89f3d8aebc38a62f9995a6fa3929ca657e47b2144fd03d325efb91c",
     "configs/training/sweep/dense_p1957.toml": "1a9596392abe31f08370502b0687ccf30375ea7e9c3a6c16b76d7e0771e99273",
     "configs/training/sweep/dense_p201.toml": "f777d340980c9ca68ede7b3d6aa45d1d66898febca715ccdece2388687d979bd",
