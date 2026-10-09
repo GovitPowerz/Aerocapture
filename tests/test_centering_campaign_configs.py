@@ -270,6 +270,9 @@ def test_lever_scorer_v4_flies_per_draw_and_states_it(tmp_path: Path, sim: ToySi
     oce.main(["--v4", "--n-sims", "40"])
     out = json.loads((tmp_path / "objective_centering_v4.json").read_text())
     assert out["noise_seeding"] == "per_draw" and out["n_sims_eval"] == 40
+    for c in out["cells"]:  # every lever TOML sets all three limits; only the toy heat flux exceeds its own
+        v = c["violation_pct"]
+        assert set(v) == {"heat_flux", "g_load", "heat_load"} and 0 < v["heat_flux"] < 100 and v["g_load"] == v["heat_load"] == 0, c["label"]
     assert [c["label"] for c in out["cells"]] == [c.removeprefix("dense_") for c in DENSE]
     assert out["convergence"] == {c.removeprefix("dense_"): [] for c in DENSE}  # no run_*.jsonl in the toy dirs
     assert sim.calls == [{"monte_carlo.noise_seeding": "per_draw", **oce.STRESS_OVERRIDES}] * 5
@@ -311,7 +314,7 @@ def test_lever_scorer_default_mode_flies_the_shared_path(tmp_path: Path, sim: To
     monkeypatch.setattr(oce, "OUT", tmp_path / "objective_centering.json")
     oce.main(["--n-sims", "40"])
     out = json.loads((tmp_path / "objective_centering.json").read_text())
-    assert "noise_seeding" not in out  # the committed arxiv-v3 file's shape
+    assert "noise_seeding" not in out and all("violation_pct" not in c for c in out["cells"])  # the committed arxiv-v3 file's shape
     assert sim.calls == [{**LEGACY_NOISE_REGIME, **oce.STRESS_OVERRIDES}]
 
 

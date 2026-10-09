@@ -282,7 +282,8 @@ mc-centered-depth-v4: need-sim
 	$(UVPY) articles/paper/scripts/centered_depth_eval.py --v4 --n-sims 10000
 
 # objective_centering_v4.json -- the five dense lever cells retrained under per-scenario noise at n = 1000 on the
-# 9M stress pool, per_draw (issue #177, the figure's optional cells; 14_objective_centering.sh v4-dense).
+# 9M stress pool, per_draw, with per-constraint violation rates (issue #177, the figure's optional cells;
+# 14_objective_centering.sh v4-dense).
 mc-objective-centering-v4: need-sim
 	$(UVPY) articles/paper/scripts/objective_centering_eval.py --v4 --n-sims 1000
 

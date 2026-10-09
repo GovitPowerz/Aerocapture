@@ -29,7 +29,8 @@ set -euo pipefail
 #
 # ===== v4-dense: the lever cells, under outcome A =====
 # campaign.sh jobs_centering_dense.txt: the five dense_515 lever cells under per_draw at the shared
-# study's iso-compute budget (B = 8.19 M sims: n = 2 -> 16000 gens, n = 16 -> 2000 gens, ~30 min each),
+# study's iso-compute budget (B = 8.19 M sims: n = 2 -> 16000 gens at 1.5-2 h, n = 16 -> 2000 gens at
+# ~35 min; the 1000-sim validation runs on about 3 gens in 4, so wall clock follows gens, not B: ~6.5 h),
 # then objective_centering_eval.py --v4 -> articles/paper/data/objective_centering_v4.json (n = 1000,
 # per_draw; the arxiv-v3 objective_centering.json stays).
 #

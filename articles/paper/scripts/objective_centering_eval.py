@@ -7,7 +7,9 @@ validation.capture_rate (NOT rms_cost, which is in each cell's transform space).
 
 `--v4` (issue #177) scores the five dense lever cells retrained under per-scenario noise
 (experiments/ou_marginal/jobs_centering_dense.txt) under that regime, into
-objective_centering_v4.json; the arxiv-v3 objective_centering.json stays.
+objective_centering_v4.json; the arxiv-v3 objective_centering.json stays. Each v4 cell also carries
+its `violation_pct` per constraint (heat_flux, g_load, heat_load) over every draw, against its TOML's
+[flight.constraints] limits, as in centered_depth_eval.py --v4.
 
 Usage:
     uv run python articles/paper/scripts/objective_centering_eval.py [--v4] [--n-sims 1000]
@@ -90,10 +92,13 @@ def extract_convergence(records: list[dict], n_pop: int, n_sims: int) -> list[li
 
 def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int, regime: dict[str, str]) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.evaluate import constraint_violation_rates
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
+    cost_kwargs = read_cost_kwargs(Path(toml))
     res = evaluate_cell(
         scheme_dir,
         Path(toml),
@@ -103,6 +108,8 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     stats = {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
+    # Every draw against the ADR-0005 gate's own limits (the TOML's [flight.constraints]); None when none is set.
+    stats["violation_rates"] = constraint_violation_rates(res.final_records, cost_kwargs)
     records = _read_run_log(sorted(glob.glob(str(scheme_dir / "run_*.jsonl"))))  # run_000_<UTC stamp>: name order is launch order
     stats["convergence"] = extract_convergence(records, _derive_n_pop(records, N_POP), n_sims_train)
     return stats
@@ -123,10 +130,15 @@ def main(argv: list[str] | None = None) -> None:
             continue
         s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims, regime)
         convergence[label] = s.pop("convergence")
+        rates = s.pop("violation_rates")
+        if args.v4:  # the arxiv-v3 file's shape stays as committed
+            if rates is None:
+                sys.exit(f"{toml} configures no [flight.constraints] limit: the violation rates cannot be scored")
+            s["violation_pct"] = {k: round(100 * v, 2) for k, v in rates.items()}
         cells_out.append(s)
         print(
             f"  {label:16s} stress: capture {s['capture_pct']:5.1f}% | mean {s['dv_mean']:7.1f}"
-            f" | CVaR95 {s.get('dv_cvar95'):7.1f} | conv pts {len(convergence[label])}"
+            f" | CVaR95 {s.get('dv_cvar95'):7.1f} | conv pts {len(convergence[label])}" + (f" | violations % {s['violation_pct']}" if args.v4 else "")
         )
     if cells_out:
         record = {
