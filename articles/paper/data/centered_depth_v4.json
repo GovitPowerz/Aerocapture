@@ -1,0 +1,366 @@
+{
+  "stress_overrides": {
+    "monte_carlo.atmosphere.level": "high",
+    "monte_carlo.density_perturbation.level": "high",
+    "monte_carlo.navigation.level": "high",
+    "monte_carlo.nav_filter.level": "high"
+  },
+  "regimes": {
+    "per_draw": {
+      "monte_carlo.noise_seeding": "per_draw"
+    }
+  },
+  "n_sims": 10000,
+  "n_boot": 2000,
+  "pool": "STRESS_EVAL 9M",
+  "cells": {
+    "per_draw": [
+      {
+        "label": "mamba_centered_s1",
+        "n": 10000,
+        "capture_pct": 96.26,
+        "dv_mean": 144.93,
+        "dv_p50": 132.56,
+        "dv_p95": 185.78,
+        "dv_p99": 298.1,
+        "dv_p999": 1328.11,
+        "dv_cvar95": 333.6,
+        "dv_cvar99": 821.15,
+        "dv_max_descriptive": 1377.89,
+        "dv_mean_ci": [
+          143.36,
+          146.62
+        ],
+        "dv_p95_ci": [
+          183.7,
+          188.96
+        ],
+        "dv_cvar95_ci": [
+          305.32,
+          364.08
+        ],
+        "dv_p99_ci": [
+          267.28,
+          363.2
+        ],
+        "dv_cvar99_ci": [
+          696.82,
+          952.18
+        ],
+        "capture_pct_ci": [
+          95.9,
+          96.62
+        ],
+        "violation_pct": {
+          "heat_flux": 18.13,
+          "g_load": 2.35,
+          "heat_load": 2.12
+        }
+      },
+      {
+        "label": "mamba_centered_s2",
+        "n": 10000,
+        "capture_pct": 96.34,
+        "dv_mean": 150.15,
+        "dv_p50": 137.24,
+        "dv_p95": 198.33,
+        "dv_p99": 353.54,
+        "dv_p999": 1327.1,
+        "dv_cvar95": 351.96,
+        "dv_cvar99": 812.67,
+        "dv_max_descriptive": 1379.5,
+        "dv_mean_ci": [
+          148.54,
+          151.87
+        ],
+        "dv_p95_ci": [
+          195.09,
+          201.87
+        ],
+        "dv_cvar95_ci": [
+          322.86,
+          382.02
+        ],
+        "dv_p99_ci": [
+          314.06,
+          404.39
+        ],
+        "dv_cvar99_ci": [
+          689.9,
+          938.76
+        ],
+        "capture_pct_ci": [
+          95.99,
+          96.7
+        ],
+        "violation_pct": {
+          "heat_flux": 12.24,
+          "g_load": 1.58,
+          "heat_load": 1.41
+        }
+      },
+      {
+        "label": "mamba_centered_s3",
+        "n": 10000,
+        "capture_pct": 96.27,
+        "dv_mean": 154.67,
+        "dv_p50": 139.95,
+        "dv_p95": 214.77,
+        "dv_p99": 346.06,
+        "dv_p999": 1322.03,
+        "dv_cvar95": 374.54,
+        "dv_cvar99": 866.1,
+        "dv_max_descriptive": 1373.54,
+        "dv_mean_ci": [
+          153.02,
+          156.46
+        ],
+        "dv_p95_ci": [
+          210.97,
+          219.57
+        ],
+        "dv_cvar95_ci": [
+          346.15,
+          405.84
+        ],
+        "dv_p99_ci": [
+          316.41,
+          425.85
+        ],
+        "dv_cvar99_ci": [
+          745.79,
+          995.96
+        ],
+        "capture_pct_ci": [
+          95.91,
+          96.63
+        ],
+        "violation_pct": {
+          "heat_flux": 8.45,
+          "g_load": 1.07,
+          "heat_load": 1.47
+        }
+      },
+      {
+        "label": "jointFTC-medium",
+        "n": 10000,
+        "capture_pct": 95.88,
+        "dv_mean": 183.7,
+        "dv_p50": 159.49,
+        "dv_p95": 304.8,
+        "dv_p99": 516.82,
+        "dv_p999": 1342.65,
+        "dv_cvar95": 468.36,
+        "dv_cvar99": 903.98,
+        "dv_max_descriptive": 1390.19,
+        "dv_mean_ci": [
+          181.85,
+          185.68
+        ],
+        "dv_p95_ci": [
+          298.37,
+          310.82
+        ],
+        "dv_cvar95_ci": [
+          442.38,
+          496.95
+        ],
+        "dv_p99_ci": [
+          460.18,
+          590.7
+        ],
+        "dv_cvar99_ci": [
+          803.55,
+          1002.01
+        ],
+        "capture_pct_ci": [
+          95.5,
+          96.26
+        ],
+        "violation_pct": {
+          "heat_flux": 11.1,
+          "g_load": 1.82,
+          "heat_load": 0.53
+        }
+      },
+      {
+        "label": "jointFTC-high",
+        "n": 10000,
+        "capture_pct": 92.81,
+        "dv_mean": 361.51,
+        "dv_p50": 340.69,
+        "dv_p95": 521.91,
+        "dv_p99": 886.33,
+        "dv_p999": 1387.84,
+        "dv_cvar95": 712.54,
+        "dv_cvar99": 1161.61,
+        "dv_max_descriptive": 1457.41,
+        "dv_mean_ci": [
+          359.07,
+          363.88
+        ],
+        "dv_p95_ci": [
+          514.23,
+          527.42
+        ],
+        "dv_cvar95_ci": [
+          684.14,
+          741.49
+        ],
+        "dv_p99_ci": [
+          796.02,
+          986.73
+        ],
+        "dv_cvar99_ci": [
+          1090.31,
+          1217.65
+        ],
+        "capture_pct_ci": [
+          92.33,
+          93.3
+        ],
+        "violation_pct": {
+          "heat_flux": 10.57,
+          "g_load": 1.49,
+          "heat_load": 0.0
+        }
+      }
+    ]
+  },
+  "paired": {
+    "per_draw": [
+      {
+        "a": "mamba_centered_s1",
+        "b": "jointFTC-medium",
+        "n_pairs": 9575,
+        "delta_mean": -39.998,
+        "delta_mean_ci": [
+          -41.317,
+          -38.63
+        ],
+        "win_rate_a": 0.813,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 0.38,
+        "delta_capture_pts_ci": [
+          0.22,
+          0.54
+        ],
+        "delta_cvar95": -134.76,
+        "delta_cvar95_ci": [
+          -156.58,
+          -112.09
+        ]
+      },
+      {
+        "a": "mamba_centered_s1",
+        "b": "jointFTC-high",
+        "n_pairs": 9269,
+        "delta_mean": -216.977,
+        "delta_mean_ci": [
+          -218.892,
+          -215.097
+        ],
+        "win_rate_a": 0.992,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 3.45,
+        "delta_capture_pts_ci": [
+          3.09,
+          3.81
+        ],
+        "delta_cvar95": -378.95,
+        "delta_cvar95_ci": [
+          -399.82,
+          -357.79
+        ]
+      },
+      {
+        "a": "mamba_centered_s2",
+        "b": "jointFTC-medium",
+        "n_pairs": 9583,
+        "delta_mean": -34.826,
+        "delta_mean_ci": [
+          -36.185,
+          -33.546
+        ],
+        "win_rate_a": 0.767,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 0.46,
+        "delta_capture_pts_ci": [
+          0.32,
+          0.61
+        ],
+        "delta_cvar95": -116.4,
+        "delta_cvar95_ci": [
+          -137.98,
+          -93.34
+        ]
+      },
+      {
+        "a": "mamba_centered_s2",
+        "b": "jointFTC-high",
+        "n_pairs": 9276,
+        "delta_mean": -211.541,
+        "delta_mean_ci": [
+          -213.6,
+          -209.536
+        ],
+        "win_rate_a": 0.989,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 3.53,
+        "delta_capture_pts_ci": [
+          3.18,
+          3.88
+        ],
+        "delta_cvar95": -360.58,
+        "delta_cvar95_ci": [
+          -381.97,
+          -338.92
+        ]
+      },
+      {
+        "a": "mamba_centered_s3",
+        "b": "jointFTC-medium",
+        "n_pairs": 9577,
+        "delta_mean": -30.314,
+        "delta_mean_ci": [
+          -31.784,
+          -28.823
+        ],
+        "win_rate_a": 0.706,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 0.39,
+        "delta_capture_pts_ci": [
+          0.24,
+          0.54
+        ],
+        "delta_cvar95": -93.81,
+        "delta_cvar95_ci": [
+          -116.23,
+          -68.97
+        ]
+      },
+      {
+        "a": "mamba_centered_s3",
+        "b": "jointFTC-high",
+        "n_pairs": 9271,
+        "delta_mean": -206.995,
+        "delta_mean_ci": [
+          -209.07,
+          -205.026
+        ],
+        "win_rate_a": 0.986,
+        "wilcoxon_p": 0.0,
+        "delta_capture_pts": 3.46,
+        "delta_capture_pts_ci": [
+          3.11,
+          3.82
+        ],
+        "delta_cvar95": -338.0,
+        "delta_cvar95_ci": [
+          -359.54,
+          -315.65
+        ]
+      }
+    ]
+  }
+}
