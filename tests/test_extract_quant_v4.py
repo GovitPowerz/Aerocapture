@@ -123,3 +123,11 @@ def test_build_refuses_a_replicate_count_without_a_t_entry(mod: ModuleType) -> N
     _write_src(mod, [_cell("champ", "a.toml", [1.0, 2.0]), _cell("quant_v4/ft", "b.toml", [1.0, 2.0]), _cell("quant_v4/sc", "c.toml", [1.0, 2.0])])
     with pytest.raises(SystemExit, match="df = 1"):
         mod.build()
+
+
+def test_build_refuses_replicates_paired_out_of_order(mod: ModuleType) -> None:
+    ft = _cell("quant_v4/ft", "b.toml", [1.0, 2.0, 3.0])
+    ft["replicates"].reverse()
+    _write_src(mod, [_cell("champ", "a.toml", [1.0, 2.0, 3.0]), ft, _cell("quant_v4/sc", "c.toml", [1.0, 2.0, 3.0])])
+    with pytest.raises(SystemExit, match="same order"):
+        mod.build()

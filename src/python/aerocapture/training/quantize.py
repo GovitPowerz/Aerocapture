@@ -345,7 +345,6 @@ def run_quant_sweep(
     """
     if loo_bits is not None and loo_bits not in bits:
         raise ValueError(f"loo_bits={loo_bits} must be one of the swept bits {tuple(bits)} (the verdict cell is picked from that grid)")
-    _regime_overrides(noise_seeding)
 
     from aerocapture.training.ablation import _load_cost_kwargs
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
@@ -428,7 +427,6 @@ def run_finalists(
     from aerocapture.training.ablation import _load_cost_kwargs
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
-    _regime_overrides(noise_seeding)
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)

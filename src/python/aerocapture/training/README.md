@@ -545,8 +545,9 @@ use `--sim-timeout` against NaN hangs).
   through `confirmatory_marginal.py`; `collect` then copies into `articles/paper/data/quant_v4/` and
   runs `extract_quant_v4.py` (the four rows + paired replicate deltas against the champion). Every
   default is an environment variable (`CHAMPION_DIR`, `SWEEP_TOML`, `QUANT_DIR`, ...). Both QAT
-  arms resume from the latest checkpoint and the verdict pre-flight refuses a config or a PTQ file
-  from the other regime. Criterion micro-bench `src/rust/benches/quant_forward.rs` (`cargo bench
+  arms resume from the latest checkpoint; the verdict pre-flight (QAT arms and `finalists`) refuses a
+  config off the verdict cell (bits included) or a PTQ file from the other regime, and v4 `finalists`
+  refuses dir overrides the manifest does not follow. Criterion micro-bench `src/rust/benches/quant_forward.rs` (`cargo bench
   --bench quant_forward`), architecture-only, so v4 keeps `data/quant/bench_forward.json`. The
   arxiv-v3 materialized PTQ-verdict model is `training_output/quant/ptq4_verdict/`; sanity-gate any
   re-materialization against the committed grid cell (capture 1.000 / CVaR95 147.9 on the fresh pool).

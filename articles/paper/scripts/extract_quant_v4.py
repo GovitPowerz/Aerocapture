@@ -25,7 +25,8 @@ from confirmatory_marginal import read_manifest  # noqa: E402
 SRC = REPO / "experiments/ou_marginal/confirmatory_marginal.json"
 OUT = REPO / "articles/paper/data/quant_v4/confirmatory_marginal.json"
 MANIFEST = REPO / "experiments/ou_marginal/quant_cells_v4.txt"
-POOLED = ("n", "n_captured", "cvar95", "cvar999", "p999", "max", "viol_pct", "heat_load_viol_n")
+# The exact violation counts ride along: the 2-decimal viol_pct reads fewer than 50 per 10^6 as 0.00.
+POOLED = ("n", "n_captured", "cvar95", "cvar999", "p999", "max", "viol_pct", "viol_n", "heat_flux_viol_n", "g_load_viol_n", "heat_load_viol_n")
 PAIRED = ("cvar95", "cvar999", "p999", "max")
 # t(0.975, df) for the replicate counts in use; 10 replicates is the pre-registered pool.
 T95 = {2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 9: 2.262}
@@ -69,8 +70,8 @@ def build(src: dict | None = None) -> dict:
     paired = {}
     for label in finalists:
         reps = by_label[label]["replicates"]
-        if len(reps) != len(ref_reps):
-            sys.exit(f"{label} has {len(reps)} replicates, {reference} {len(ref_reps)}: the pools differ, nothing to pair")
+        if [r["replicate"] for r in reps] != [r["replicate"] for r in ref_reps]:
+            sys.exit(f"{label}'s replicates are not {reference}'s pools in the same order: nothing to pair")
         paired[label] = {f"delta_{k}": _agg([a[k] - b[k] for a, b in zip(reps, ref_reps, strict=True)]) for k in PAIRED}
     return {
         "source": str(SRC.relative_to(REPO)),
@@ -85,6 +86,8 @@ def build(src: dict | None = None) -> dict:
                 "label": label,
                 "toml": by_label[label]["toml"],
                 "eval_commit": by_label[label].get("eval_commit"),
+                # The ptq4_verdict row flies the champion's TOML: the model hash is what tells the two apart.
+                "model_sha256": by_label[label].get("model_sha256"),
                 "pooled": {k: by_label[label]["pooled"].get(k) for k in POOLED},
                 "replicate_stats": {k: {"se": by_label[label]["replicate_stats"][k]["se"]} for k in ("cvar95", "cvar999")},
             }

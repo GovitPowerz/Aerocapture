@@ -18,6 +18,18 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 RUNNER = REPO / "experiments/paper/17_quantization.sh"
 CHAMP_GEN = 50
+# The runner's overridable defaults: an exported one in the caller's shell would change what a test exercises.
+KNOBS = (
+    "CHAMPION_DIR",
+    "SWEEP_TOML",
+    "QUANT_DIR",
+    "QAT_CONFIG_PREFIX",
+    "QAT_CELL_PREFIX",
+    "NOISE_SEEDING",
+    "PAPER_DATA",
+    "CONFIRMATORY_MANIFEST",
+    "SCRATCH_TARGET_GEN",
+)
 
 
 @pytest.fixture
@@ -43,7 +55,13 @@ def campaign(tmp_path: Path) -> dict[str, Path]:
 
 
 def _run(c: dict[str, Path], *args: str) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": f"{c['shim']}:{os.environ['PATH']}", "TRAIN_LOG": str(c["log"]), "CHAMPION_DIR": str(c["champ"]), "QUANT_DIR": str(c["quant"])}
+    env = {
+        **{k: v for k, v in os.environ.items() if k not in KNOBS},
+        "PATH": f"{c['shim']}:{os.environ['PATH']}",
+        "TRAIN_LOG": str(c["log"]),
+        "CHAMPION_DIR": str(c["champ"]),
+        "QUANT_DIR": str(c["quant"]),
+    }
     return subprocess.run([str(RUNNER), "v4", *args], capture_output=True, text=True, env=env, cwd=REPO)
 
 
@@ -111,3 +129,9 @@ def test_verdict_gate_refuses_a_config_off_the_verdict_cell(campaign: dict[str, 
 
 def test_runner_syntax() -> None:
     assert subprocess.run(["bash", "-n", str(RUNNER)], capture_output=True, text=True).returncode == 0
+
+
+def test_finalists_refuses_dir_overrides_the_manifest_does_not_follow(campaign: dict[str, Path]) -> None:
+    res = _run(campaign, "finalists")
+    assert res.returncode != 0 and "drop the dir overrides" in res.stdout + res.stderr
+    assert not (campaign["quant"] / "finalists_entries.json").exists()

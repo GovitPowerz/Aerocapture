@@ -48,7 +48,7 @@ SCRATCH_TOML="${QAT_CONFIG_PREFIX}qat4_scratch.toml"
 FINETUNE_DIR="$QUANT_DIR/${QAT_CELL_PREFIX}qat4_finetune"
 SCRATCH_DIR="$QUANT_DIR/${QAT_CELL_PREFIX}qat4_scratch"
 PTQ_RESULTS="$QUANT_DIR/ptq_sweep/quantization_results.json"
-export CHAMPION_DIR SWEEP_TOML QUANT_DIR FINETUNE_TOML SCRATCH_TOML FINETUNE_DIR SCRATCH_DIR PTQ_RESULTS NOISE_SEEDING PAPER_DATA
+export CHAMPION_DIR SWEEP_TOML QUANT_DIR FINETUNE_TOML SCRATCH_TOML FINETUNE_DIR SCRATCH_DIR PTQ_RESULTS NOISE_SEEDING PAPER_DATA CONFIRMATORY_MANIFEST
 
 # latest_gen <dir>: the highest checkpoint_g* generation (0 when there is none), shared with the campaigns.
 source experiments/ou_marginal/campaign_lib.sh
@@ -70,11 +70,11 @@ if sweep.get("noise_seeding", "legacy") != os.environ["NOISE_SEEDING"]:
 verdict = sweep["verdict"]
 for cfg in (os.environ["FINETUNE_TOML"], os.environ["SCRATCH_TOML"]):
     net = load_toml_with_bases(Path(cfg))["network"]
-    got = (net["qat_granularity"], net["qat_tensor_policy"])
-    want = (verdict["granularity"], verdict["tensor_policy"])
+    got = (net["qat_bits"], net["qat_granularity"], net["qat_tensor_policy"])
+    want = (verdict["bits"], verdict["granularity"], verdict["tensor_policy"])
     if got != want:
         sys.exit(f"{cfg}: qat cell {got} != PTQ verdict {want} -- edit the config before launching")
-print(f"verdict pre-flight OK: {verdict['granularity']}/{verdict['tensor_policy']}")
+print(f"verdict pre-flight OK: {verdict['bits']}b {verdict['granularity']}/{verdict['tensor_policy']}")
 PY
 }
 
@@ -137,12 +137,22 @@ qat_scratch)
 finalists)
     # QAT arms pass quantize=null (their deployed best_model.json is already on-grid);
     # the PTQ finalist quantizes the champion at the verdict cell on the fly.
+    verdict_gate
     uv run python - <<'PY'
-import json, os
+import json, os, sys
 from pathlib import Path
 
 verdict = json.loads(Path(os.environ["PTQ_RESULTS"]).read_text())["verdict"]
 champ, ft, sc = (os.environ[k] for k in ("CHAMPION_DIR", "FINETUNE_DIR", "SCRATCH_DIR"))
+if manifest := os.environ["CONFIRMATORY_MANIFEST"]:
+    # The 10^6 scorer reads the manifest's dirs, not this run's: refuse a dir override the manifest does not follow.
+    sys.path.insert(0, "experiments/ou_marginal")
+    from confirmatory_marginal import read_manifest
+
+    want = [champ, os.path.join(os.environ["QUANT_DIR"], "ptq4_verdict"), ft, sc]
+    got = [d or f"training_output/{label}" for label, _, d in read_manifest(Path(manifest))]
+    if [Path(p).resolve() for p in got] != [Path(p).resolve() for p in want]:
+        sys.exit(f"{manifest} scores {got}, this run's dirs are {want}: edit the manifest or drop the dir overrides")
 entries = [
     {"label": "champion_fp", "model": f"{champ}/best_model.json", "params_dir": champ, "quantize": None},
     {"label": "ptq4_verdict", "model": f"{champ}/best_model.json", "params_dir": champ,
