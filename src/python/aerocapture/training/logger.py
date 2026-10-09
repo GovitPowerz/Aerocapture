@@ -75,7 +75,11 @@ class TrainingLogger:
         best_params = decode_fn(best_individual) if decode_fn is not None and best_individual is not None else None
         gen_best_params = decode_fn(gen_best_individual) if decode_fn is not None and gen_best_individual is not None else None
 
-        constraint_violation_rate = float(np.mean(costs > np.median(costs) * 2)) if len(costs) > 0 else 0.0
+        # Share of the population costing more than twice the median. Not a constraint-violation rate:
+        # the gated candidate's validation-pool heat-flux / g-load / heat-load rates are
+        # `validation["violation_rates"]`. Run logs written before 2026-10-10 carry this value as
+        # `constraint_violation_rate`.
+        cost_outlier_rate = float(np.mean(costs > np.median(costs) * 2)) if len(costs) > 0 else 0.0
 
         record = {
             "generation": generation,
@@ -87,7 +91,7 @@ class TrainingLogger:
             "median_cost": stats["median"],
             "std_cost": stats["std"],
             "capture_rate": cap_rate,
-            "constraint_violation_rate": constraint_violation_rate,
+            "cost_outlier_rate": cost_outlier_rate,
             "population_diversity": diversity,
             "best_params": best_params,
             "gen_best_params": gen_best_params,

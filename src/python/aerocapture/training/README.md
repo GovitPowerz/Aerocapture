@@ -597,7 +597,9 @@ use `--sim-timeout` against NaN hangs).
   `compute_cost`); `capture_rate(costs, capture_threshold, cost_transform)` maps the linear-scale
   threshold (3000 = CRASH_FLOOR) into the transformed space.
 - `logger.py` — `TrainingLogger` (takes `cost_transform` at construction): one JSONL line per
-  generation (`all_costs`, `constraint_violation_rate`, `best_params`, `gen_best_params`, and the
+  generation (`all_costs`, `cost_outlier_rate` = share of the population costing more than twice
+  the median, named `constraint_violation_rate` in logs before 2026-10-10 and never a constraint
+  rate, `best_params`, `gen_best_params`, and the
   optional `validation` / `validation_summary` dicts when the gate fires); in-memory buffer for
   the display.
 - `display.py` — `LiveDisplay` (Rich, `Live` at 2 Hz; `NoopDisplay` when `--no-tui` or

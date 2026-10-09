@@ -51,12 +51,22 @@ class TestTrainingLogger:
             "std_cost",
             "capture_rate",
             "population_diversity",
+            "cost_outlier_rate",
             "best_params",
             "improvement",
             "scheme",
             "config_hash",
         }
         assert required_fields.issubset(record.keys())
+
+    def test_cost_outlier_rate_is_twice_median_share(self, logger: TrainingLogger) -> None:
+        # median 2.5: only 10.0 exceeds 5.0; 5.0 itself is not an outlier
+        logger.log_generation(1, _make_population(n_pop=4), np.array([1.0, 2.0, 3.0, 10.0]), np.full(7, 0.5), _decode_fn)
+        logger.log_generation(2, _make_population(n_pop=4), np.array([1.0, 2.0, 3.0, 5.0]), np.full(7, 0.5), _decode_fn)
+        assert logger.buffer[0]["cost_outlier_rate"] == 0.25
+        assert logger.buffer[1]["cost_outlier_rate"] == 0.0
+        assert "constraint_violation_rate" not in logger.buffer[0]
+        logger.close()
 
     def test_multiple_generations_appended(self, logger: TrainingLogger, tmp_path: Path) -> None:
         for gen in range(1, 4):
