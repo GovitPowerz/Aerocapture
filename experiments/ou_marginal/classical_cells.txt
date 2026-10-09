@@ -3,7 +3,9 @@
 # optimized TOMLs (label|toml, no model_dir). The fixed-reference parents are the labels quote_results.json
 # already holds, so they are not re-flown; the joint parents get their first per-scenario number here.
 # The two classical_ungated rows (#188: the same retune without the feasibility ceiling) are scored once
-# `classical_campaign.sh classical_ungated` has written their optimized TOMLs.
+# `classical_campaign.sh classical_ungated` has written their optimized TOMLs. classical/ftc_joint_high (#177)
+# has no row: its optimized TOML flies the high dispersion regime, scored by centered_depth_eval.py --v4 on
+# the 9M stress pool, not on this medium-regime pool.
 ftc|training_output/ftc/optimized_ftc.toml
 energy_controller|training_output/energy_controller/optimized_energy_controller.toml
 pred_guid|training_output/pred_guid/optimized_pred_guid.toml

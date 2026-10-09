@@ -1,0 +1,21 @@
+# Objective centering under per-scenario noise (#177): Section 7.3's centered recipe
+# (paper/objective_centering/mamba_centered_high: linear transform, middle curation bucket, the
+# high regime, the deployed Mamba_962 architecture) trained from scratch under per-draw noise
+# seeding at the #156 seeds' allocation (GA 256 x 16, adaptive seeds; 4000 gens from the jobs
+# file). The allocation is stated here because a config that base-inherits this one does not
+# inherit CLI flags. Driven by experiments/paper/14_objective_centering.sh v4 (campaign.sh on
+# experiments/ou_marginal/jobs_centering.txt); scored by centered_depth_eval.py --v4.
+base = ["../../paper/objective_centering/mamba_centered_high.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+n_pop = 256
+training_n_sims = 16
+
+[data]
+neural_network = "training_output/ou_marginal/centered/mamba_centered_s1/best_model.json"
+
+[checkpoints]
+keep_last = 3

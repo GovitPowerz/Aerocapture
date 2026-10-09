@@ -75,7 +75,10 @@ def test_every_job_is_runnable(jobs: Path) -> None:
         suffix = re.search(r"_s(\d)$", name)
         assert seed == (int(suffix.group(1)) if suffix else 1), name
         assert (src != "") == name.startswith(("ft_", "hs_")), name  # fine-tunes: ft_* (#173), hs_* (#192)
-        assert target == (22000 if src else 20000), name
+        if src:  # 2000 gens past the copied g20000 checkpoint
+            assert target == 22000, name
+        elif not name.startswith("centered/"):  # the #177 cells' targets are their study's (tests/test_centering_campaign_configs.py)
+            assert target == 20000, name
 
 
 @pytest.mark.parametrize("cell", FAMILIES)

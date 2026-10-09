@@ -1,0 +1,9 @@
+# Objective centering under per-scenario noise (#177), in value order. name|target_gen|seed|checkpoint_source_dir
+# ("" = scratch). centered/mamba_centered_sN = Section 7.3's centered recipe (linear transform, middle
+# bucket, high regime, Mamba_962) from scratch under per_draw at the #156 seeds' allocation and budget
+# (GA 256 x 16, 4000 gens, ~4 h each), three trainer seeds. The high-regime joint-FTC baseline is a
+# classical cell (classical/ftc_joint_high, classical_campaign.sh, ~3.5 h); the medium one is #172's ftc_joint.
+# Run: experiments/paper/14_objective_centering.sh v4 (both runners, then centered_depth_eval.py --v4).
+centered/mamba_centered_s1|4000|1|
+centered/mamba_centered_s2|4000|2|
+centered/mamba_centered_s3|4000|3|

@@ -9,8 +9,16 @@ under the legacy regime); the per_draw regime (ADR-0006) gives every scenario it
 density-noise path and is the one the paper leads with. One file, both regimes, each
 labelled (never mixed in one table).
 
+`--v4` (issue #177) scores the same study retrained under per-scenario noise: the three centered
+seeds of experiments/ou_marginal/jobs_centering.txt against the #172 medium joint-FTC retune and
+the high-regime joint-FTC retuned the same way (classical/ftc_joint_high), per_draw ONLY, into
+centered_depth_v4.json; the arxiv-v3 centered_depth.json stays. Each v4 cell also carries its
+`violation_pct` per constraint (heat_flux, g_load, heat_load) over every draw of the pool, against
+its TOML's [flight.constraints] limits (the ADR-0005 gate's), so a tail win is read next to the
+constraint exceedance it may be bought with.
+
 Usage:
-    uv run python articles/paper/scripts/centered_depth_eval.py [--n-sims 10000]
+    uv run python articles/paper/scripts/centered_depth_eval.py [--v4] [--n-sims 10000]
 """
 
 import argparse
@@ -48,14 +56,29 @@ STRESS_OVERRIDES = {
     "monte_carlo.nav_filter.level": "high",
 }
 OUT = REPO / "articles/paper/data/centered_depth.json"
+# The v4 study (#177): every cell trained under per-scenario noise, scored under it alone.
+V4_SEEDS = [
+    (f"mamba_centered_s{s}", f"ou_marginal/centered/mamba_centered_s{s}", f"configs/training/ou_marginal/centered/mamba_centered_s{s}.toml") for s in (1, 2, 3)
+]
+V4_BASELINES = [
+    ("jointFTC-medium", "ou_marginal/classical/ftc_joint", "configs/training/ou_marginal/classical/ftc_joint.toml"),
+    ("jointFTC-high", "ou_marginal/classical/ftc_joint_high", "configs/training/ou_marginal/classical/ftc_joint_high.toml"),
+]
+V4_REGIMES = {"per_draw": REGIMES["per_draw"]}
+V4_OUT = REPO / "articles/paper/data/centered_depth_v4.json"
 
 
-def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray]:
-    """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime."""
+def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
+    """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime, plus its
+    per-constraint violation rates over every draw against the ADR-0005 gate's own limits (the TOML's
+    [flight.constraints]; build_cost_kwargs defaults any missing one, so all three are always scored)."""
     from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.evaluate import constraint_violation_rates
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
+    cost_kwargs = read_cost_kwargs(Path(toml))
     res = evaluate_cell(
         REPO / "training_output" / run_dir,
         Path(toml),
@@ -64,7 +87,7 @@ def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], 
         sim_timeout_secs=5.0,
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    return res.seeds, col["ifinal"], col["eccentricity"], col["dv_total_m_s"]
+    return res.seeds, col["ifinal"], col["eccentricity"], col["dv_total_m_s"], constraint_violation_rates(res.final_records, cost_kwargs)
 
 
 def _paired(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> dict:
@@ -92,23 +115,25 @@ def _paired(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n-sims", type=int, default=10000)
+    parser.add_argument("--v4", action="store_true", help="the #177 per-scenario cells, per_draw only, into centered_depth_v4.json")
     args = parser.parse_args(argv)
-    for _, run_dir, _ in SEEDS + BASELINES:
+    seed_cells, baseline_cells, regimes, out = (V4_SEEDS, V4_BASELINES, V4_REGIMES, V4_OUT) if args.v4 else (SEEDS, BASELINES, REGIMES, OUT)
+    for _, run_dir, _ in seed_cells + baseline_cells:
         if not (REPO / "training_output" / run_dir / "best_params.json").exists():
             sys.exit(f"{run_dir} is not deployed: every cell is required (no thinner file)")
     # The seeds share one training TOML whose [data] neural_network deploy path is seed 1's run
     # directory: the seed 2 / 3 repeats once overwrote seed 1's model there (issue #156).
-    models = [REPO / "training_output" / run_dir / "best_model.json" for _, run_dir, _ in SEEDS]
+    models = [REPO / "training_output" / run_dir / "best_model.json" for _, run_dir, _ in seed_cells]
     if len({hashlib.sha256(m.read_bytes()).hexdigest() for m in models}) != len(models):
         sys.exit("two centered seeds share one best_model.json: a repeat overwrote another seed's model through the shared deploy path")
 
     cells: dict[str, list[dict]] = {}
     paired: dict[str, list[dict]] = {}
-    for regime in REGIMES:
+    for regime in regimes:
         flown: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         pool: list[int] | None = None
-        for label, run_dir, toml in SEEDS + BASELINES:
-            seeds, ifinal, ecc, dv = _fly(run_dir, toml, regime, args.n_sims)
+        for label, run_dir, toml in seed_cells + baseline_cells:
+            seeds, ifinal, ecc, dv, rates = _fly(run_dir, toml, regime, args.n_sims)
             if pool is not None and seeds != pool:
                 sys.exit(f"{label} flew a different seed pool: the comparisons are paired")
             pool = seeds
@@ -116,13 +141,16 @@ def main(argv: list[str] | None = None) -> None:
             flown[label] = (cap, dv)
             s = {"label": label, **run_stats(ifinal, ecc, dv, n_boot=N_BOOT)}
             s["capture_pct_ci"] = [_r2(100 * v) for v in bootstrap_ci(cap.astype(np.float64), np.mean, N_BOOT)]
+            if args.v4:  # the arxiv-v3 file's shape stays as committed
+                s["violation_pct"] = {k: _r2(100 * v) for k, v in rates.items()}
             cells.setdefault(regime, []).append(s)
             print(
                 f"  {regime:8s} {label:18s} capture {s['capture_pct']:5.1f}% [{s['capture_pct_ci'][0]:5.1f}, {s['capture_pct_ci'][1]:5.1f}]"
                 f" | mean {s['dv_mean']:6.1f} | CVaR95 {s['dv_cvar95']:6.1f} [{s['dv_cvar95_ci'][0]:6.1f}, {s['dv_cvar95_ci'][1]:6.1f}]"
+                + (f" | violations % {s['violation_pct']}" if args.v4 else "")
             )
-        for a, _, _ in SEEDS:
-            for b, _, _ in BASELINES:
+        for a, _, _ in seed_cells:
+            for b, _, _ in baseline_cells:
                 p = {"a": a, "b": b, **_paired(flown[a], flown[b])}
                 paired.setdefault(regime, []).append(p)
                 print(
@@ -130,11 +158,11 @@ def main(argv: list[str] | None = None) -> None:
                     f" | CVaR95 {p['delta_cvar95']:+.1f} {p['delta_cvar95_ci']}"
                 )
 
-    OUT.write_text(
+    out.write_text(
         json.dumps(
             {
                 "stress_overrides": STRESS_OVERRIDES,
-                "regimes": REGIMES,
+                "regimes": regimes,
                 "n_sims": args.n_sims,
                 "n_boot": N_BOOT,
                 "pool": "STRESS_EVAL 9M",
@@ -145,7 +173,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         + "\n"
     )
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

@@ -8,10 +8,12 @@
 # never written.
 #
 # The optional argument names the campaign: `classical` (default, the nine
-# cells) or `classical_ungated` (#188: piecewise_constant and equilibrium_glide
-# rerun with [optimizer] max_violation_rate = 1.0, the June parents' ungated
-# selection). Configs come from configs/training/ou_marginal/<campaign>/,
-# outputs go to training_output/ou_marginal/<campaign>/<cell>/.
+# cells, then ftc_joint_high: Section 7.3's high-regime joint-FTC retuned the
+# same way as the second baseline of #177, ~3.5 h like ftc_joint) or
+# `classical_ungated` (#188: piecewise_constant and equilibrium_glide rerun with
+# [optimizer] max_violation_rate = 1.0, the June parents' ungated selection).
+# Configs come from configs/training/ou_marginal/<campaign>/, outputs go to
+# training_output/ou_marginal/<campaign>/<cell>/.
 #
 # Same stoppable/resumable contract as retrain_campaign.sh: run it; stop it any
 # time (Ctrl+C, laptop shutdown: train.py checkpoints every 10 gens with atomic
@@ -31,7 +33,8 @@
 #
 # Run from the Terminal panel:
 #   caffeinate -i experiments/ou_marginal/classical_campaign.sh [classical|classical_ungated]
-# Cost: about 18 h on the M4 Pro (2026-09-29 run), FNPAG about 11.5 h of it;
+# Cost: about 18 h on the M4 Pro for the nine #172 cells (2026-09-29 run), FNPAG about
+# 11.5 h of it, plus about 3.5 h for ftc_joint_high (#177);
 # classical_ungated about 45 min (its two cells took about 20 min each gated).
 # Sanity table afterwards (both campaigns):
 #   uv run python experiments/ou_marginal/quote_marginal.py --manifest experiments/ou_marginal/classical_cells.txt
@@ -42,7 +45,7 @@ cd "$(dirname "$0")/../.."
 CAMPAIGN=${1:-classical}
 # piecewise_constant first: report.py overlays its sibling's corridor_boundaries.npz on every later cell.
 case "$CAMPAIGN" in
-  classical) CELLS="piecewise_constant ftc energy_controller pred_guid ftc_joint energy_controller_joint pred_guid_joint equilibrium_glide fnpag" ;;
+  classical) CELLS="piecewise_constant ftc energy_controller pred_guid ftc_joint energy_controller_joint pred_guid_joint equilibrium_glide fnpag ftc_joint_high" ;;
   classical_ungated) CELLS="piecewise_constant equilibrium_glide" ;;
   *) echo "usage: $0 [classical|classical_ungated]"; exit 2 ;;
 esac

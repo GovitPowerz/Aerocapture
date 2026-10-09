@@ -1,0 +1,12 @@
+# The objective-centering lever cells under per-scenario noise (#177, optional: the figure's dense bars,
+# run once the three centered seeds read outcome A). name|target_gen|seed|checkpoint_source_dir ("" = scratch).
+# dense_515 under the high regime, one lever flipped at a time from the stacked control (cubed x max x n = 2)
+# to centered (linear x middle x n = 16), iso-compute at B = n_pop x n_sims x n_gen = 8.19 M sims
+# (14_objective_centering.sh's budget): n = 2 -> 16000 gens (1.5-2 h each), n = 16 -> 2000 gens (about 35 min each):
+# the 1000-sim validation runs on about 3 gens in 4, so wall clock follows gens, not B (about 6.5 h total).
+# Run: experiments/paper/14_objective_centering.sh v4-dense (campaign.sh here, then objective_centering_eval.py --v4).
+centered/dense_stacked|16000|1|
+centered/dense_plus_sims|2000|1|
+centered/dense_plus_bucket|16000|1|
+centered/dense_plus_transform|16000|1|
+centered/dense_centered|2000|1|

@@ -1,0 +1,15 @@
+# Section 7.3's high-regime joint-FTC baseline (paper/robustness_retrain/ftc_joint_high) re-tuned
+# under per-scenario noise (#177) by the #172 allocation (2000 x 300 x 10, adaptive seeds): the
+# second baseline of centered_depth_eval.py --v4, next to the #172 medium retune ftc_joint.
+# Driven by experiments/ou_marginal/classical_campaign.sh into
+# training_output/ou_marginal/classical/ftc_joint_high/; the runner reads n_gen here as its target.
+base = ["../../paper/robustness_retrain/ftc_joint_high.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[optimizer]
+algorithm = "ga"
+n_gen = 2000
+n_pop = 300
+training_n_sims = 10

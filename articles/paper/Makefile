@@ -32,7 +32,7 @@ PDF ?= articles/paper/paper.pdf
         check-provenance check-marginal check-quote check-slope sums help \
         need-sim mc-data mc-far-tail mc-confirmatory mc-corridor mc-appendix mc-robustness mc-robustness-retrain \
         mc-objective-centering mc-centered-depth mc-compute-benchmark mc-requote mc-quant probes \
-        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope mc-stress-depth
+        mc-confirmatory-v4 mc-quote-marginal mc-heat-load-slope mc-stress-depth mc-centered-depth-v4 mc-objective-centering-v4
 
 # ---------------------------------------------------------------------------
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
@@ -274,6 +274,19 @@ mc-centered-depth: need-sim
 mc-stress-depth: need-sim
 	$(UVPY) articles/paper/scripts/stress_depth_eval.py --n-sims 10000
 
+# centered_depth_v4.json -- the three centered-Mamba seeds retrained under per-scenario noise + the two joint-FTC
+# baselines retuned the same way (classical/ftc_joint, classical/ftc_joint_high) at n = 10000 on the 9M stress
+# pool, per-scenario noise only, bootstrap CIs, paired deltas and per-constraint violation rates (issue #177; ~minutes once
+# experiments/paper/14_objective_centering.sh v4 has trained the cells, which it ends with this scorer).
+mc-centered-depth-v4: need-sim
+	$(UVPY) articles/paper/scripts/centered_depth_eval.py --v4 --n-sims 10000
+
+# objective_centering_v4.json -- the five dense lever cells retrained under per-scenario noise at n = 1000 on the
+# 9M stress pool, per_draw, with per-constraint violation rates (issue #177, the figure's optional cells;
+# 14_objective_centering.sh v4-dense).
+mc-objective-centering-v4: need-sim
+	$(UVPY) articles/paper/scripts/objective_centering_eval.py --v4 --n-sims 1000
+
 # compute_benchmark.json -- 200 single-threaded sims per scheme; wall-clock, never diffable.
 mc-compute-benchmark: need-sim
 	$(UVPY) articles/paper/scripts/compute_benchmark.py --n-sims 200
@@ -309,8 +322,9 @@ mc-heat-load-slope: need-sim
 
 # stress_depth.json (mc-stress-depth above) and the champion's runs/ou_marginal/hl_mamba_p962/
 # {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; fig_robustness and
-# fig_ablation read them since #180, their results.typ accessors come with #181. Not yet producers:
-# centered_depth_v4.json (#177) and quant_v4/ (#178, 17_quantization.sh collect) get their mc-* target,
+# fig_ablation read them since #180, their results.typ accessors come with #181, as do those of the two
+# #177 files (mc-centered-depth-v4, mc-objective-centering-v4 above: committed with the issue's outcome,
+# then `make sums`). Not yet a producer: quant_v4/ (#178, 17_quantization.sh collect) gets its mc-* target,
 # accessor and check rule with the issue that writes the file.
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.

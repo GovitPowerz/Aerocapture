@@ -1,0 +1,5 @@
+# Seed repeat s3 (trainer RNG --seed 3; eval pools unchanged) of mamba_centered_s1.
+base = ["mamba_centered_s1.toml"]
+
+[data]
+neural_network = "training_output/ou_marginal/centered/mamba_centered_s3/best_model.json"

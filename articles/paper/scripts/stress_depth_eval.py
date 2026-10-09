@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> None:
     pool: list[int] | None = None
     cells: list[dict] = []
     for label, run_dir, toml in CELLS:
-        seeds, ifinal, ecc, dv = _fly(run_dir, toml, REGIME, args.n_sims)
+        seeds, ifinal, ecc, dv, _ = _fly(run_dir, toml, REGIME, args.n_sims)
         if pool is not None and seeds != pool:
             sys.exit(f"{label} flew a different seed pool: the comparisons are paired")
         pool = seeds
