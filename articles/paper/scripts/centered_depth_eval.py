@@ -12,7 +12,10 @@ labelled (never mixed in one table).
 `--v4` (issue #177) scores the same study retrained under per-scenario noise: the three centered
 seeds of experiments/ou_marginal/jobs_centering.txt against the #172 medium joint-FTC retune and
 the high-regime joint-FTC retuned the same way (classical/ftc_joint_high), per_draw ONLY, into
-centered_depth_v4.json; the arxiv-v3 centered_depth.json stays.
+centered_depth_v4.json; the arxiv-v3 centered_depth.json stays. Each v4 cell also carries its
+`violation_pct` per constraint (heat_flux, g_load, heat_load) over every draw of the pool, against
+its TOML's [flight.constraints] limits (the ADR-0005 gate's), so a tail win is read next to the
+constraint exceedance it may be bought with.
 
 Usage:
     uv run python articles/paper/scripts/centered_depth_eval.py [--v4] [--n-sims 10000]
@@ -65,12 +68,17 @@ V4_REGIMES = {"per_draw": REGIMES["per_draw"]}
 V4_OUT = REPO / "articles/paper/data/centered_depth_v4.json"
 
 
-def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray]:
-    """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime."""
+def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray, dict[str, float] | None]:
+    """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime, plus its
+    per-constraint violation rates over every draw against the ADR-0005 gate's own limits (the TOML's
+    [flight.constraints])."""
     from aerocapture.training.cell_eval import evaluate_cell
+    from aerocapture.training.evaluate import constraint_violation_rates
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
+    cost_kwargs = read_cost_kwargs(Path(toml))
     res = evaluate_cell(
         REPO / "training_output" / run_dir,
         Path(toml),
@@ -79,7 +87,7 @@ def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], 
         sim_timeout_secs=5.0,
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    return res.seeds, col["ifinal"], col["eccentricity"], col["dv_total_m_s"]
+    return res.seeds, col["ifinal"], col["eccentricity"], col["dv_total_m_s"], constraint_violation_rates(res.final_records, cost_kwargs)
 
 
 def _paired(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> dict:
@@ -125,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
         flown: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         pool: list[int] | None = None
         for label, run_dir, toml in seed_cells + baseline_cells:
-            seeds, ifinal, ecc, dv = _fly(run_dir, toml, regime, args.n_sims)
+            seeds, ifinal, ecc, dv, rates = _fly(run_dir, toml, regime, args.n_sims)
             if pool is not None and seeds != pool:
                 sys.exit(f"{label} flew a different seed pool: the comparisons are paired")
             pool = seeds
@@ -133,10 +141,15 @@ def main(argv: list[str] | None = None) -> None:
             flown[label] = (cap, dv)
             s = {"label": label, **run_stats(ifinal, ecc, dv, n_boot=N_BOOT)}
             s["capture_pct_ci"] = [_r2(100 * v) for v in bootstrap_ci(cap.astype(np.float64), np.mean, N_BOOT)]
+            if args.v4:  # the arxiv-v3 file's shape stays as committed
+                if rates is None:
+                    sys.exit(f"{toml} configures no [flight.constraints] limit: the violation rates cannot be scored")
+                s["violation_pct"] = {k: _r2(100 * v) for k, v in rates.items()}
             cells.setdefault(regime, []).append(s)
             print(
                 f"  {regime:8s} {label:18s} capture {s['capture_pct']:5.1f}% [{s['capture_pct_ci'][0]:5.1f}, {s['capture_pct_ci'][1]:5.1f}]"
                 f" | mean {s['dv_mean']:6.1f} | CVaR95 {s['dv_cvar95']:6.1f} [{s['dv_cvar95_ci'][0]:6.1f}, {s['dv_cvar95_ci'][1]:6.1f}]"
+                + (f" | violations % {s['violation_pct']}" if args.v4 else "")
             )
         for a, _, _ in seed_cells:
             for b, _, _ in baseline_cells:

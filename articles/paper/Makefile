@@ -276,7 +276,7 @@ mc-stress-depth: need-sim
 
 # centered_depth_v4.json -- the three centered-Mamba seeds retrained under per-scenario noise + the two joint-FTC
 # baselines retuned the same way (classical/ftc_joint, classical/ftc_joint_high) at n = 10000 on the 9M stress
-# pool, per-scenario noise only, bootstrap CIs and paired deltas (issue #177; ~minutes once
+# pool, per-scenario noise only, bootstrap CIs, paired deltas and per-constraint violation rates (issue #177; ~minutes once
 # experiments/paper/14_objective_centering.sh v4 has trained the cells, which it ends with this scorer).
 mc-centered-depth-v4: need-sim
 	$(UVPY) articles/paper/scripts/centered_depth_eval.py --v4 --n-sims 10000

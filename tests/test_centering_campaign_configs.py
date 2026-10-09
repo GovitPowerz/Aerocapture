@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from aerocapture.training import cell_eval
+from aerocapture.training import cell_eval, charts
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, CellResult
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 from aerocapture.training.toml_utils import load_toml_with_bases
@@ -172,6 +172,7 @@ class ToySim:
         fr[:, FR_IFINAL] = np.where(rng.random(n) < 0.9, 3.0, 1.0)
         fr[:, FR_ECC] = 0.5
         fr[:, FR_DV_TOTAL] = rng.gamma(4.0, 30.0, n)
+        fr[:, charts._FR_MAX_HEAT_FLUX] = np.where(rng.random(n) < 0.25, 250.0, 150.0)  # kW/m2 against the 200 limit
         return CellResult(final_records=fr, dispersions=np.zeros((n, 26)), trajectories=None, seeds=seed_list, toml_path=Path("toy.toml"), overrides={})
 
 
@@ -229,6 +230,9 @@ def test_depth_scorer_v4_pairs_every_seed_with_both_baselines_under_per_draw(
     assert out["regimes"] == {"per_draw": {"monte_carlo.noise_seeding": "per_draw"}} and out["n_sims"] == 40
     assert list(out["cells"]) == ["per_draw"] and list(out["paired"]) == ["per_draw"]
     assert [c["label"] for c in out["cells"]["per_draw"]] == [*SEEDS, *BASELINES]
+    for c in out["cells"]["per_draw"]:  # every cell's TOML sets all three limits; only the toy heat flux exceeds its own
+        v = c["violation_pct"]
+        assert set(v) == {"heat_flux", "g_load", "heat_load"} and 0 < v["heat_flux"] < 100 and v["g_load"] == v["heat_load"] == 0, c["label"]
     assert [(p["a"], p["b"]) for p in out["paired"]["per_draw"]] == [(s, b) for s in SEEDS for b in BASELINES]
     for p in out["paired"]["per_draw"]:
         assert {"delta_capture_pts", "delta_capture_pts_ci", "delta_cvar95", "delta_cvar95_ci"} <= set(p)
