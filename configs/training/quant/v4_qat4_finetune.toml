@@ -8,7 +8,7 @@
 #   ./experiments/paper/17_quantization.sh v4 qat_finetune
 # qat_granularity / qat_tensor_policy are PINNED from the v4 PTQ verdict
 # (training_output/quant_v4/ptq_sweep/quantization_results.json); the runner's pre-flight refuses
-# a mismatch. Seeded with the arxiv-v3 verdict (4b per_channel proj_only) until the v4 grid runs.
+# a mismatch. v4 verdict: 4b per_tensor proj_only (arxiv-v3's was per_channel proj_only).
 # The champion dir is never written to: [data] neural_network is run-local (#170).
 base = ["../ou_marginal/hl_mamba_p962.toml"]
 
@@ -21,7 +21,7 @@ results_suffix = ".quant_v4_qat4_finetune"
 
 [network]
 qat_bits = 4
-qat_granularity = "per_channel"
+qat_granularity = "per_tensor"
 qat_tensor_policy = "proj_only"
 
 [optimizer]

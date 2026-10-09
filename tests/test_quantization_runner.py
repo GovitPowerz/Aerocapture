@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -46,10 +47,17 @@ def campaign(tmp_path: Path) -> dict[str, Path]:
     champ.mkdir()
     (champ / f"checkpoint_g{CHAMP_GEN:05d}.json").write_text("{}")
     (champ / f"checkpoint_g{CHAMP_GEN:05d}.npz").write_bytes(b"npz")
+    # The verdict the committed v4 configs are pinned to, so the gate passes whatever the PTQ grid picked.
+    net = tomllib.loads((REPO / "configs/training/quant/v4_qat4_finetune.toml").read_text())["network"]
     quant = tmp_path / "quant_v4"
     (quant / "ptq_sweep").mkdir(parents=True)
     (quant / "ptq_sweep" / "quantization_results.json").write_text(
-        json.dumps({"noise_seeding": "per_draw", "verdict": {"bits": 4, "granularity": "per_channel", "tensor_policy": "proj_only"}})
+        json.dumps(
+            {
+                "noise_seeding": "per_draw",
+                "verdict": {"bits": net["qat_bits"], "granularity": net["qat_granularity"], "tensor_policy": net["qat_tensor_policy"]},
+            }
+        )
     )
     return {"shim": shim, "champ": champ, "quant": quant, "log": tmp_path / "train.log"}
 
