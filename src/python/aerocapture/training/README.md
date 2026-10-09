@@ -526,9 +526,10 @@ use `--sim-timeout` against NaN hangs).
   aerocapture.training.nn_input_report <training_dir> --toml <config.toml> [--n-sims N]
   [--dv-threshold F] [--output-dir DIR]`.
 - `quantize.py` — weight-only symmetric fake-quantization (paper Appendix C):
-  `quantize_model_weights(model_json, n_bits, granularity, tensor_policy, only_tensor=None)`
+  `quantize_model_weights(model_json, n_bits, granularity, tensor_policy, only_tensor=None, scale_factor=1.0)`
   (values stored back as f64, runtime untouched; `proj_only` keeps `a_log` / `d_skip` / biases fp;
-  `only_tensor` = the leave-one-out probe), `quantize_flat_weights_batch` (the QAT-in-the-loop
+  `only_tensor` = the leave-one-out probe; `scale_factor` enlarges every absmax step, the
+  scale-jitter probe), `quantize_flat_weights_batch` (the QAT-in-the-loop
   path shared with `evaluate.write_nn_json`), `memory_footprint`, and the sweep CLI (PTQ grid bits
   x granularity x policy + LOO + verdict rule max-capture-then-min-CVaR95 + finalists at n=10k)
   writing `quantization_results.json` / `finalists_results.json`, each recording the
@@ -551,6 +552,12 @@ use `--sim-timeout` against NaN hangs).
   --bench quant_forward`), architecture-only, so v4 keeps `data/quant/bench_forward.json`. The
   arxiv-v3 materialized PTQ-verdict model is `training_output/quant/ptq4_verdict/`; sanity-gate any
   re-materialization against the committed grid cell (capture 1.000 / CVaR95 147.9 on the fresh pool).
+  A single PTQ cell is one rounding realization: `experiments/quant_jitter/quant_jitter.py` re-scores
+  it with every step enlarged by 0-10% on the same pool (results `quant_jitter.json`). On the v4
+  champion at 4b `proj_only`, CVaR95 spans 130-349 per_tensor and 162-285 per_channel, and
+  per_channel is at full capture from a 2% larger step on (0.916 at the absmax step that
+  decided the verdict), at equal weight error: the granularity ranking flips with the rounding
+  pattern, so do not quote it as a granularity effect.
 - `param_sweep.py` — architecture parameter-budget sweep -> Pareto curve (cost vs trainable
   weights): `--generate` writes `configs/training/sweep/*.toml` + `manifest.json` (each
   base-inherits `msr_aller_nn_atan2_train.toml`; one capacity knob per family, exact counts via
