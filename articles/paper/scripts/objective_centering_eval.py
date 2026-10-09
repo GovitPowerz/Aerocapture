@@ -108,7 +108,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
     )
     col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
     stats = {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
-    # Every draw against the ADR-0005 gate's own limits (the TOML's [flight.constraints]); None when none is set.
+    # Every draw against the ADR-0005 gate's own limits (the TOML's [flight.constraints]; build_cost_kwargs defaults any missing one).
     stats["violation_rates"] = constraint_violation_rates(res.final_records, cost_kwargs)
     records = _read_run_log(sorted(glob.glob(str(scheme_dir / "run_*.jsonl"))))  # run_000_<UTC stamp>: name order is launch order
     stats["convergence"] = extract_convergence(records, _derive_n_pop(records, N_POP), n_sims_train)
@@ -121,19 +121,19 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--v4", action="store_true", help="the #177 per-scenario lever cells, per_draw, into objective_centering_v4.json")
     args = parser.parse_args(argv)
     cells, regime, out = (V4_CELLS, {"monte_carlo.noise_seeding": "per_draw"}, V4_OUT) if args.v4 else (CELLS, LEGACY_NOISE_REGIME, OUT)
+    # Checked before the first flight: a missing v4 cell must not surface after minutes of sims.
+    missing = [run_dir for _, run_dir, _, _ in cells if not (REPO / "training_output" / run_dir / "final_eval.parquet").exists()]
+    if args.v4 and missing:
+        sys.exit(f"{missing[0]} is not deployed: every v4 lever cell is required (no thinner file)")
     cells_out, convergence = [], {}
     for label, run_dir, toml, n_sims_train in cells:
-        if not (REPO / "training_output" / run_dir / "final_eval.parquet").exists():
-            if args.v4:
-                sys.exit(f"{run_dir} is not deployed: every v4 lever cell is required (no thinner file)")
+        if run_dir in missing:
             print(f"  skip {label} ({run_dir} not deployed yet)")
             continue
         s = _eval_one(label, run_dir, toml, n_sims_train, args.n_sims, regime)
         convergence[label] = s.pop("convergence")
         rates = s.pop("violation_rates")
         if args.v4:  # the arxiv-v3 file's shape stays as committed
-            if rates is None:
-                sys.exit(f"{toml} configures no [flight.constraints] limit: the violation rates cannot be scored")
             s["violation_pct"] = {k: round(100 * v, 2) for k, v in rates.items()}
         cells_out.append(s)
         print(

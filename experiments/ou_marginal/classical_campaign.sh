@@ -33,7 +33,8 @@
 #
 # Run from the Terminal panel:
 #   caffeinate -i experiments/ou_marginal/classical_campaign.sh [classical|classical_ungated]
-# Cost: about 18 h on the M4 Pro (2026-09-29 run), FNPAG about 11.5 h of it;
+# Cost: about 18 h on the M4 Pro for the nine #172 cells (2026-09-29 run), FNPAG about
+# 11.5 h of it, plus about 3.5 h for ftc_joint_high (#177);
 # classical_ungated about 45 min (its two cells took about 20 min each gated).
 # Sanity table afterwards (both campaigns):
 #   uv run python experiments/ou_marginal/quote_marginal.py --manifest experiments/ou_marginal/classical_cells.txt

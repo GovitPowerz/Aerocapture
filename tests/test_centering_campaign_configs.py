@@ -286,7 +286,7 @@ def test_lever_scorer_v4_requires_every_cell_deployed(tmp_path: Path, sim: ToySi
     monkeypatch.setattr(oce, "V4_OUT", tmp_path / "objective_centering_v4.json")
     with pytest.raises(SystemExit, match="not deployed"):
         oce.main(["--v4", "--n-sims", "40"])
-    assert not (tmp_path / "objective_centering_v4.json").exists()
+    assert sim.calls == [] and not (tmp_path / "objective_centering_v4.json").exists()  # refused before the first flight
 
 
 def test_lever_scorer_convergence_spans_every_launch_of_a_resumed_run(tmp_path: Path, oce: ModuleType) -> None:

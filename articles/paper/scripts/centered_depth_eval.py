@@ -68,10 +68,10 @@ V4_REGIMES = {"per_draw": REGIMES["per_draw"]}
 V4_OUT = REPO / "articles/paper/data/centered_depth_v4.json"
 
 
-def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray, dict[str, float] | None]:
+def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
     """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime, plus its
     per-constraint violation rates over every draw against the ADR-0005 gate's own limits (the TOML's
-    [flight.constraints])."""
+    [flight.constraints]; build_cost_kwargs defaults any missing one, so all three are always scored)."""
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.evaluate import constraint_violation_rates
     from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
@@ -142,8 +142,6 @@ def main(argv: list[str] | None = None) -> None:
             s = {"label": label, **run_stats(ifinal, ecc, dv, n_boot=N_BOOT)}
             s["capture_pct_ci"] = [_r2(100 * v) for v in bootstrap_ci(cap.astype(np.float64), np.mean, N_BOOT)]
             if args.v4:  # the arxiv-v3 file's shape stays as committed
-                if rates is None:
-                    sys.exit(f"{toml} configures no [flight.constraints] limit: the violation rates cannot be scored")
                 s["violation_pct"] = {k: _r2(100 * v) for k, v in rates.items()}
             cells.setdefault(regime, []).append(s)
             print(
