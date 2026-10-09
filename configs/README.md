@@ -125,8 +125,8 @@ runs both marginalize over noise realizations (identical draw -> identical strea
 env_idx*10_000` behavior, which FREEZES the noise realization across every n_sims=1 config (all
 per-seed pools condition on ONE noise path); it exists only to reproduce numbers quoted under that
 path: every `configs/test/*.toml` and every evaluation script that re-flies a shared-path cell
-(`articles/paper/scripts/*`, `experiments/fnpag_ab/`, `param_sweep --eval`, `quantize`, the probe
-drivers) pins it through `deploy_overrides.LEGACY_NOISE_REGIME`, `confirmatory_eval.py` records
+(`articles/paper/scripts/*`, `experiments/fnpag_ab/`, `param_sweep --eval`, `quantize` by default,
+the probe drivers) pins it through `deploy_overrides.LEGACY_NOISE_REGIME`, `confirmatory_eval.py` records
 it in its JSON, and `report.py` prints the regime it resolved. Unknown values hard-error. The
 goldens and the paper's main-body numbers are legacy-regime; `experiments/ou_marginal/` holds the
 frozen-vs-marginal quantification and the per-draw retrain campaigns, NN cells, the classical
@@ -292,7 +292,7 @@ each save (default `null` keeps every checkpoint). The pruner
 | `neural_network_gru_pso` / `_magonly` | `msr_aller_gru_pso_train.toml` / `msr_aller_gru_pso_magonly_train.toml` |
 | `neural_network_lstm_pso` / `window_pso` / `transformer_pso` / `mamba_pso` | `msr_aller_{lstm,window,transformer,mamba}_pso_train.toml` |
 | `neural_network_gru_ppo` / `lstm_ppo` / `rl` / `atan2_rl` | `msr_aller_gru_ppo_train.toml` / `msr_aller_lstm_ppo_train.toml` / `msr_aller_rl_train.toml` / `msr_aller_nn_atan2_ppo_train.toml` |
-| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/`, `training/ou_marginal/` (`hl_*`: the #173 headline-allocation cells; `ctrl_*`: the #176 mechanism controls on the v4 champion; `classical/`: the nine classical cells retuned under `per_draw` plus #177's high-regime joint-FTC `ftc_joint_high`; `classical_ungated/`: two of them rerun with `max_violation_rate = 1.0`; `centered/`: the #177 centered-Mamba seeds and dense lever cells of `paper/objective_centering/` under `per_draw`), `training/mamba3_962/` |
+| paper cells | `training/paper/` (optimizer studies, `rl/`), `training/sweep/`, `training/quant/` (`mamba962_*`: the arxiv-v3 QAT arms on the shared-path champion; `v4_*`: the #178 arms, base-inheriting `ou_marginal/hl_mamba_p962.toml` with `per_draw` pinned and run-local `[data]` paths under `training_output/quant_v4/`), `training/ou_marginal/` (`hl_*`: the #173 headline-allocation cells; `ctrl_*`: the #176 mechanism controls on the v4 champion; `classical/`: the nine classical cells retuned under `per_draw` plus #177's high-regime joint-FTC `ftc_joint_high`; `classical_ungated/`: two of them rerun with `max_violation_rate = 1.0`; `centered/`: the #177 centered-Mamba seeds and dense lever cells of `paper/objective_centering/` under `per_draw`), `training/mamba3_962/` |
 
 `msr_aller_nn_atan2_train.toml` is the paper's atan2 environment (17-input calibrated mask +
 `[network] normalization`, `scaffolding = "live"`) that the sweep, probe and ou_marginal configs

@@ -1,0 +1,30 @@
+# QAT-4bit FINE-TUNE arm of the v4 quantization appendix (#178): resume the deployed
+# per-scenario champion (ou_marginal/hl_mamba_p962, GA 512 x 2 x 20k under per_draw) with
+# 4-bit fake-quant fitness for +3000 generations at the champion's own allocation. Answers
+# RECOVERABILITY under the regime the paper ships: how much of the PTQ-4bit loss does adapting
+# the weights to the grid win back?
+# Launch (copies the champion checkpoint pair, then resumes; rerun resumes from the latest
+# checkpoint_g* and never passes --from-scratch):
+#   ./experiments/paper/17_quantization.sh v4 qat_finetune
+# qat_granularity / qat_tensor_policy are PINNED from the v4 PTQ verdict
+# (training_output/quant_v4/ptq_sweep/quantization_results.json); the runner's pre-flight refuses
+# a mismatch. Seeded with the arxiv-v3 verdict (4b per_channel proj_only) until the v4 grid runs.
+# The champion dir is never written to: [data] neural_network is run-local (#170).
+base = ["../ou_marginal/hl_mamba_p962.toml"]
+
+[monte_carlo]
+noise_seeding = "per_draw"
+
+[data]
+neural_network = "training_output/quant_v4/qat4_finetune/best_model.json"
+results_suffix = ".quant_v4_qat4_finetune"
+
+[network]
+qat_bits = 4
+qat_granularity = "per_channel"
+qat_tensor_policy = "proj_only"
+
+[optimizer]
+n_pop = 512
+training_n_sims = 2
+n_gen = 3000  # resume-add semantics: +3000 on the copied champion checkpoint; the runner computes the exact remainder

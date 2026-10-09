@@ -73,7 +73,7 @@ def build() -> dict:
         "noise_regime": (
             "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and "
             "ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, "
-            "#174); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every "
+            "#174), quant_v4/ (issue #178); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every "
             "other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, "
             "quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per "
             "scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); "

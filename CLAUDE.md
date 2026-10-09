@@ -64,7 +64,7 @@ pytest tests/test_foo.py::test_bar -v
 ./lint_code.sh                     # Run ruff (imports, format, lint; also over articles/paper/scripts) + mypy
 ./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 make -C articles/paper             # Paper figures from the committed bundle (no Rust, no run logs); `paper` = fetch-logs -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> figures -> provenance -> pdf
-make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + the three per-scenario extracts (confirmatory_marginal.json, quote_marginal.json, heat_load_slope.json) current + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
+make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + the four per-scenario extracts (confirmatory_marginal.json, quote_marginal.json, heat_load_slope.json, quant_v4/confirmatory_marginal.json: pending until #178's campaign lands) current + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
 ./upgrade_dependencies.sh          # uv sync --upgrade
 ./train_all.sh                     # Train all 19 registered schemes with optimized GA/PSO/PPO settings
 ./train_all.sh eqglide             # Train a single scheme (aliases: pc, eq, ec, pg, nn, gru, gru_ppo, rl, scaledpi, delta, etc.)

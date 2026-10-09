@@ -1,0 +1,9 @@
+# #178: the v4 quantization finalists on the 10^6 per-scenario confirmatory, label|toml|model_dir. The first
+# row is the reference every other row is paired against (the deployed champion, scored by #174 and skipped
+# here); the three finalists are materialized by experiments/paper/17_quantization.sh v4 finalists, which runs:
+#   uv run python -u experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/quant_cells_v4.txt
+# articles/paper/scripts/extract_quant_v4.py copies these rows and the paired replicate deltas into the bundle.
+ou_marginal/hl_mamba_p962|configs/training/ou_marginal/hl_mamba_p962.toml|training_output/ou_marginal/hl_mamba_p962
+quant_v4/ptq4_verdict|configs/training/ou_marginal/hl_mamba_p962.toml|training_output/quant_v4/ptq4_verdict
+quant_v4/qat4_finetune|configs/training/quant/v4_qat4_finetune.toml|training_output/quant_v4/qat4_finetune
+quant_v4/qat4_scratch|configs/training/quant/v4_qat4_scratch.toml|training_output/quant_v4/qat4_scratch

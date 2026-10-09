@@ -531,12 +531,25 @@ use `--sim-timeout` against NaN hangs).
   `only_tensor` = the leave-one-out probe), `quantize_flat_weights_batch` (the QAT-in-the-loop
   path shared with `evaluate.write_nn_json`), `memory_footprint`, and the sweep CLI (PTQ grid bits
   x granularity x policy + LOO + verdict rule max-capture-then-min-CVaR95 + finalists at n=10k)
-  writing `quantization_results.json` / `finalists_results.json`. Runner
-  `experiments/paper/17_quantization.sh {ptq|bench|qat_finetune|qat_scratch|finalists|collect}`;
-  QAT configs `configs/training/quant/`; criterion micro-bench `src/rust/benches/quant_forward.rs`
-  (`cargo bench --bench quant_forward`). The materialized PTQ-verdict model is
-  `training_output/quant/ptq4_verdict/`; sanity-gate any re-materialization against the committed
-  grid cell (capture 1.000 / CVaR95 147.9 on the fresh pool).
+  writing `quantization_results.json` / `finalists_results.json`, each recording the
+  `--noise-seeding` every flight was pinned to (`legacy`, the default, reproduces the arxiv-v3
+  `data/quant/`; `per_draw` is the v4 campaign). Runner
+  `experiments/paper/17_quantization.sh [v4] {ptq|bench|qat_finetune|qat_scratch|finalists|collect}`:
+  without `v4` every default is the arxiv-v3 campaign (champion `mamba_p962_long`, `legacy`,
+  `training_output/quant/`, `configs/training/quant/mamba962_*`); `v4` (#178) flips them to the
+  deployed per-scenario champion `ou_marginal/hl_mamba_p962`, `per_draw`, `training_output/quant_v4/`,
+  `configs/training/quant/v4_*` (base-inheriting the champion's TOML, so its 512 x 2 allocation),
+  and its `finalists` phase also materializes the PTQ verdict as the cell
+  `training_output/quant_v4/ptq4_verdict/` (refusing one that no longer matches the verdict) and
+  scores the manifest `experiments/ou_marginal/quant_cells_v4.txt` on the 10^6 per-scenario pool
+  through `confirmatory_marginal.py`; `collect` then copies into `articles/paper/data/quant_v4/` and
+  runs `extract_quant_v4.py` (the four rows + paired replicate deltas against the champion). Every
+  default is an environment variable (`CHAMPION_DIR`, `SWEEP_TOML`, `QUANT_DIR`, ...). Both QAT
+  arms resume from the latest checkpoint and the verdict pre-flight refuses a config or a PTQ file
+  from the other regime. Criterion micro-bench `src/rust/benches/quant_forward.rs` (`cargo bench
+  --bench quant_forward`), architecture-only, so v4 keeps `data/quant/bench_forward.json`. The
+  arxiv-v3 materialized PTQ-verdict model is `training_output/quant/ptq4_verdict/`; sanity-gate any
+  re-materialization against the committed grid cell (capture 1.000 / CVaR95 147.9 on the fresh pool).
 - `param_sweep.py` — architecture parameter-budget sweep -> Pareto curve (cost vs trainable
   weights): `--generate` writes `configs/training/sweep/*.toml` + `manifest.json` (each
   base-inherits `msr_aller_nn_atan2_train.toml`; one capacity knob per family, exact counts via
