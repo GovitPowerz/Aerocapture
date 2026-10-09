@@ -531,3 +531,15 @@ def test_run_finalists_records_and_forwards_the_regime(tmp_path: Path, monkeypat
     per_draw = quantize.run_finalists("unused.toml", entries, n_sims=3, noise_seeding="per_draw")
     assert legacy["noise_seeding"] == "legacy" and per_draw["noise_seeding"] == "per_draw"
     assert seen == ["legacy", "per_draw"]
+
+
+def test_scale_factor_one_is_bit_identical_and_larger_steps_stay_on_their_grid() -> None:
+    rng = np.random.default_rng(3)
+    w = rng.normal(size=(6, 9))
+    for gran in ("per_channel", "per_tensor"):
+        assert np.array_equal(_quantize_matrix(w, 4, gran, 1.0), _quantize_matrix(w, 4, gran))
+        q = _quantize_matrix(w, 4, gran, 1.05)
+        amax = np.max(np.abs(w), axis=1, keepdims=True) if gran == "per_channel" else np.max(np.abs(w))
+        step = amax / 7 * 1.05
+        assert np.allclose(q / step, np.round(q / step)) and np.all(np.abs(q / step) <= 7 + 1e-9)
+        assert not np.array_equal(q, _quantize_matrix(w, 4, gran))

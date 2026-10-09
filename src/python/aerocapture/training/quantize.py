@@ -36,21 +36,22 @@ def _layer_types(model_json: dict) -> list[str]:
     raise ValueError("model JSON has no recognizable 'architecture'")
 
 
-def _quantize_matrix(w: npt.NDArray[np.float64], n_bits: int, granularity: str) -> npt.NDArray[np.float64]:
-    """Symmetric fake-quant of one weight matrix [n_out, n_in]. Rows are output channels."""
+def _quantize_matrix(w: npt.NDArray[np.float64], n_bits: int, granularity: str, scale_factor: float = 1.0) -> npt.NDArray[np.float64]:
+    """Symmetric fake-quant of one weight matrix [n_out, n_in]. Rows are output channels.
+    `scale_factor` > 1 enlarges the absmax step (the scale-jitter probe); 1.0 is the plain grid."""
     qmax = 2 ** (n_bits - 1) - 1  # symmetric: drop the extra -2^(b-1) level so 0 maps to 0
     # per_channel: one scale per output row; per_tensor: one scale for the whole layer
     amax = np.max(np.abs(w), axis=1, keepdims=True) if granularity == "per_channel" else np.max(np.abs(w))
-    scale = np.where(amax == 0.0, 1.0, amax / qmax)  # 0-group -> scale 1.0 (leaves zeros, no div0)
+    scale = np.where(amax == 0.0, 1.0, amax / qmax * scale_factor)  # 0-group -> scale 1.0 (leaves zeros, no div0)
     q = np.clip(np.round(w / scale), -qmax, qmax)
     result: npt.NDArray[np.float64] = q * scale
     return result
 
 
-def _quantize_vector(v: npt.NDArray[np.float64], n_bits: int) -> npt.NDArray[np.float64]:
+def _quantize_vector(v: npt.NDArray[np.float64], n_bits: int, scale_factor: float = 1.0) -> npt.NDArray[np.float64]:
     """Symmetric fake-quant of a 1-D tensor: always a single per-tensor scale
     (per-channel on a vector would be per-element, i.e. lossless and meaningless)."""
-    return _quantize_matrix(v.reshape(1, -1), n_bits, "per_tensor").reshape(-1)
+    return _quantize_matrix(v.reshape(1, -1), n_bits, "per_tensor", scale_factor).reshape(-1)
 
 
 def _quantizable_tensors(model_json: dict, tensor_policy: str) -> list[tuple[str, int, str, bool]]:
@@ -136,12 +137,15 @@ def quantize_model_weights(
     granularity: str,
     tensor_policy: str = "all",
     only_tensor: str | None = None,
+    scale_factor: float = 1.0,
 ) -> dict:
     """Deep copy of model_json with the policy's tensors fake-quantized.
 
     `only_tensor` (a key from `_quantizable_tensors`, e.g. "layer_1.a_log")
-    quantizes exactly that tensor group -- the leave-one-out probe. Biases,
-    input_mask, normalization, output_param, architecture are never touched.
+    quantizes exactly that tensor group -- the leave-one-out probe. `scale_factor`
+    multiplies every absmax step (experiments/quant_jitter/: which weights round up
+    or down, at an unchanged error size). Biases, input_mask, normalization,
+    output_param, architecture are never touched.
     """
     _validate_quant_args(n_bits, granularity, tensor_policy)
     targets = _quantizable_tensors(model_json, "all" if only_tensor is not None else tensor_policy)
@@ -153,7 +157,7 @@ def quantize_model_weights(
     out = copy.deepcopy(model_json)
     for _key, i, field, is_1d in targets:
         arr = np.asarray(out["weights"][f"layer_{i}"][field], dtype=np.float64)
-        q = _quantize_vector(arr, n_bits) if is_1d else _quantize_matrix(arr, n_bits, granularity)
+        q = _quantize_vector(arr, n_bits, scale_factor) if is_1d else _quantize_matrix(arr, n_bits, granularity, scale_factor)
         out["weights"][f"layer_{i}"][field] = q.tolist()
     return out
 

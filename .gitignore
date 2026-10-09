@@ -60,6 +60,8 @@ output/*
 !experiments/throughput/throughput.json
 # World-model experiment results (experiments/world_model/README.md quotes them):
 !experiments/world_model/world_model.json
+# PTQ scale-jitter sweep results (experiments/quant_jitter/quant_jitter.py writes them):
+!experiments/quant_jitter/quant_jitter.json
 # Appendix per-scheme stats (read by appendix.typ at compile time — without
 # these the paper does not build from a clean checkout).
 !articles/paper/figures/appendix/**/*.json
