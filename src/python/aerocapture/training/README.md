@@ -597,9 +597,13 @@ use `--sim-timeout` against NaN hangs).
   `compute_cost`); `capture_rate(costs, capture_threshold, cost_transform)` maps the linear-scale
   threshold (3000 = CRASH_FLOOR) into the transformed space.
 - `logger.py` — `TrainingLogger` (takes `cost_transform` at construction): one JSONL line per
-  generation (`all_costs`, `constraint_violation_rate`, `best_params`, `gen_best_params`, and the
+  generation (`all_costs`, `cost_outlier_rate`, `best_params`, `gen_best_params`, and the
   optional `validation` / `validation_summary` dicts when the gate fires); in-memory buffer for
-  the display.
+  the display. `cost_outlier_rate` is the share of the population costing more than twice the
+  finite median, both in the transformed cost space the optimizer sees (`cost_transform`), inf
+  included; log fragments written before the 2026-10-10 rename carry it as
+  `constraint_violation_rate`, which it never was (the constraint rates are
+  `validation["violation_rates"]`).
 - `display.py` — `LiveDisplay` (Rich, `Live` at 2 Hz; `NoopDisplay` when `--no-tui` or
   non-interactive, `is_live` tells the loops to print heartbeats instead).
   `update(logger, current_run, island_records=None)` switches to the 3-column islands layout
