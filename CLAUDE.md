@@ -225,7 +225,7 @@ both and labels each cell, so Section 7.3's per-scenario depth table (`tbl-cente
   `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
   binary and the PyO3 extension, installs Typst 0.15.1 (so the report compile gate in `tests/test_report_render.py` runs instead of skipping) and runs every file under `tests/`, fast and
   slow (an import step before pytest proves the extension is present), and a pure-Python `paper` job (`make -C articles/paper -B figures` + `check` + `pdf` to /tmp, pinned Typst 0.15.1) that
-  proves the 18 figures are byte-identical to git; `paper-results` (workflow_dispatch only) fetches the run logs (the Release asset named in `data/provenance.json`; the arxiv-v4 asset exists once #183 uploads it), runs `make paper` end to end and requires `results.json` unchanged.
+  proves the 19 figures are byte-identical to git; `paper-results` (workflow_dispatch only) fetches the run logs (the Release asset named in `data/provenance.json`; the arxiv-v4 asset exists once #183 uploads it), runs `make paper` end to end and requires `results.json` unchanged.
   Runs on every push to `main`, every PR to `main`, and manual dispatch.
 - **Docs**: module behaviour is documented in the per-package README next to the code (the pointer block above); this file carries lessons and conventions only. Design docs are dated files
   under `docs/design/` (indexed in its README); decisions are ADRs under `docs/adr/`; the roadmap is `TODO.md`. `DEVELOPMENT.md` is the human-facing agent policy; it quotes the

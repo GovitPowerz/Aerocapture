@@ -1,6 +1,6 @@
 # Rebuild the paper's figures, results.json and PDF from the committed bundle.
 #
-#   make -C articles/paper                 figures (default): the 18 fig_*.svg from data/ + the bundle
+#   make -C articles/paper                 figures (default): the 19 fig_*.svg from data/ + the bundle
 #   make -C articles/paper paper           fetch-logs (if absent) -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> quant-v4 -> figures -> provenance -> pdf
 #   make -C articles/paper check           SHA256SUMS + results.json schema + the four per-scenario extracts + figures/results.json unchanged in git
 #   make -C articles/paper -B figures      force every figure (CI does this, then `check`)
@@ -38,8 +38,8 @@ PDF ?= articles/paper/paper.pdf
 # Figures: figures/fig_<name>.svg <- scripts/fig_<name>.py + figlib + fonts + data
 # ---------------------------------------------------------------------------
 FIG_NAMES := ablation arch_tail classical_vs_nn corridor cost_transform curation islands joint_reference \
-             loss_vs_tail objective_centering optimizer output_param pareto plateau robustness seed_strategy \
-             survival training_n_sims
+             loss_vs_tail objective_centering optimizer output_param pareto plateau quantization robustness \
+             seed_strategy survival training_n_sims
 FIGURES := $(FIG_NAMES:%=$(FIGS)/fig_%.svg)
 FONTS := fonts/STIXTwoText.ttf fonts/STIXTwoText-Italic.ttf
 FIGLIB := $(SCRIPTS)/figlib.py $(FONTS)
@@ -64,11 +64,12 @@ $(FIGS)/fig_curation.svg: $(DATA)/results.json $(DATA)/far_tail_eval.json
 $(FIGS)/fig_islands.svg:
 $(FIGS)/fig_joint_reference.svg: $(DATA)/results.json
 $(FIGS)/fig_loss_vs_tail.svg: $(DATA)/results.json $(DATA)/confirmatory_marginal.json
-$(FIGS)/fig_objective_centering.svg: $(DATA)/objective_centering.json $(DATA)/centered_depth.json
+$(FIGS)/fig_objective_centering.svg: $(DATA)/objective_centering_v4.json $(DATA)/centered_depth_v4.json
 $(FIGS)/fig_optimizer.svg: $(DATA)/results.json
 $(FIGS)/fig_output_param.svg: $(DATA)/results.json
 $(FIGS)/fig_pareto.svg: $(SWEEP_MANIFESTS) $(SWEEP_PARQUETS)
 $(FIGS)/fig_plateau.svg: $(DATA)/plateau.json
+$(FIGS)/fig_quantization.svg: $(DATA)/quant_v4/quantization_results.json
 $(FIGS)/fig_robustness.svg: $(DATA)/stress_depth.json $(DATA)/confirmatory_marginal.json
 $(FIGS)/fig_seed_strategy.svg: $(DATA)/results.json $(DATA)/sigma_extras.json
 $(FIGS)/fig_survival.svg: $(DATA)/confirmatory_marginal.json
@@ -315,8 +316,8 @@ mc-requote: need-sim
 mc-quant: need-sim
 	cd $(ROOT) && ./experiments/paper/17_quantization.sh collect
 
-# quant_v4/{quantization_results,finalists_results}.json + figures/quantization_sweep_v4.svg (issue #178; per_draw):
-# copied from training_output/quant_v4/ by the v4 runner, which then runs the quant-v4 extract above.
+# quant_v4/{quantization_results,finalists_results}.json (issue #178; per_draw): copied from training_output/quant_v4/
+# by the v4 runner, which then runs the quant-v4 extract above; fig_quantization draws the PTQ grid from the first.
 mc-quant-v4: need-sim
 	cd $(ROOT) && ./experiments/paper/17_quantization.sh v4 collect
 
@@ -343,8 +344,8 @@ mc-heat-load-slope: need-sim
 # stress_depth.json (mc-stress-depth above) and the champion's runs/ou_marginal/hl_mamba_p962/
 # {ablation_results,fresh_pool_requote}.json (collect_runs.py copies them) are #176's; fig_robustness and
 # fig_ablation read them since #180, their results.typ accessors come with #181, as do those of the two
-# #177 files (mc-centered-depth-v4, mc-objective-centering-v4 above: committed with the issue's outcome,
-# then `make sums`); quant_v4/'s accessor comes with #181 too (mc-quant-v4 above, check-quant-v4 in `check`).
+# #177 files (mc-centered-depth-v4, mc-objective-centering-v4 above; fig_objective_centering reads both) and
+# of quant_v4/ (mc-quant-v4 above, check-quant-v4 in `check`; fig_quantization reads its PTQ grid).
 
 # probes/<x>_probe_results.json <- the probe drivers' training_output/<x>_probe/probe_results.json.
 probes: $(DATA)/probes/cfc_probe_results.json $(DATA)/probes/mamba3_probe_results.json $(DATA)/probes/xlstm_probe_results.json
