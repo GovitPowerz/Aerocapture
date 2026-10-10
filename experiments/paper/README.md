@@ -64,7 +64,7 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   re-training: `make -C articles/paper paper` (fetch-logs -> check-logs -> results.json ->
   confirmatory_marginal.json -> quote_marginal.json -> heat_load_slope.json ->
   quant_v4/confirmatory_marginal.json -> figures -> provenance -> pdf; `make -C articles/paper check` verifies the
-  checksums, the four per-scenario extracts (the quant_v4 one pending until #178 lands) and the figures; the opt-in `mc-*` targets re-fly
+  checksums, the four per-scenario extracts and the figures; the opt-in `mc-*` targets re-fly
   cells). After a re-collect, `make
   -C articles/paper sums` refreshes `data/SHA256SUMS`.
   Discipline: any retro `final_select` re-selection must be

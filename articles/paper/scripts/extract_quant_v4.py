@@ -108,7 +108,8 @@ def check() -> None:
     if not OUT.exists() or OUT.read_text() != _text(src):
         sys.exit(
             f"{OUT.relative_to(REPO)} is not what {SRC.relative_to(REPO)} yields: "
-            "run `make -C articles/paper quant-v4 sums provenance`, commit, then recompile the PDF"
+            "run `make -C articles/paper quant-v4`, `git add` it (`sums` lists tracked files only), "
+            "`make -C articles/paper sums provenance`, commit, then recompile the PDF"
         )
     print(f"{OUT.relative_to(REPO)}: current")
 

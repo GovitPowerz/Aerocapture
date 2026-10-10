@@ -1,0 +1,91 @@
+{
+  "finalists": [
+    {
+      "label": "champion_fp",
+      "model": "training_output/ou_marginal/hl_mamba_p962/best_model.json",
+      "quantize": null,
+      "params_dir": "training_output/ou_marginal/hl_mamba_p962",
+      "scaffolding_applied": [
+        "guidance.command_shaping.enabled",
+        "guidance.command_shaping.max_bank_acceleration",
+        "navigation.density_filter_gain",
+        "navigation.density_gain_max_delta"
+      ],
+      "capture_rate": 1.0,
+      "dv_p50": 110.20152812565608,
+      "dv_p95": 116.52536418215696,
+      "dv_p99": 120.51310940072123,
+      "dv_cvar95": 120.66916205122787,
+      "viol_pct": 0.13999999999999999,
+      "rms_cost": 110.86613465756861
+    },
+    {
+      "label": "ptq4_verdict",
+      "model": "training_output/ou_marginal/hl_mamba_p962/best_model.json",
+      "quantize": {
+        "bits": 4,
+        "granularity": "per_tensor",
+        "tensor_policy": "proj_only"
+      },
+      "params_dir": "training_output/ou_marginal/hl_mamba_p962",
+      "scaffolding_applied": [
+        "guidance.command_shaping.enabled",
+        "guidance.command_shaping.max_bank_acceleration",
+        "navigation.density_filter_gain",
+        "navigation.density_gain_max_delta"
+      ],
+      "capture_rate": 0.9996,
+      "dv_p50": 164.2681977180678,
+      "dv_p95": 204.95214771614093,
+      "dv_p99": 229.64515999722747,
+      "dv_cvar95": 220.78061434836803,
+      "viol_pct": 0.0,
+      "rms_cost": 227.86567501462918
+    },
+    {
+      "label": "qat4_finetune",
+      "model": "training_output/quant_v4/qat4_finetune/best_model.json",
+      "quantize": null,
+      "params_dir": "training_output/quant_v4/qat4_finetune",
+      "scaffolding_applied": [
+        "guidance.command_shaping.enabled",
+        "guidance.command_shaping.max_bank_acceleration",
+        "navigation.density_filter_gain",
+        "navigation.density_gain_max_delta"
+      ],
+      "capture_rate": 1.0,
+      "dv_p50": 111.02575268729117,
+      "dv_p95": 119.31355983035591,
+      "dv_p99": 126.83177083936624,
+      "dv_cvar95": 124.41334857057228,
+      "viol_pct": 0.11,
+      "rms_cost": 111.92562770111887
+    },
+    {
+      "label": "qat4_scratch",
+      "model": "training_output/quant_v4/qat4_scratch/best_model.json",
+      "quantize": null,
+      "params_dir": "training_output/quant_v4/qat4_scratch",
+      "scaffolding_applied": [
+        "guidance.command_shaping.enabled",
+        "guidance.command_shaping.max_bank_acceleration",
+        "navigation.density_filter_gain",
+        "navigation.density_gain_max_delta"
+      ],
+      "capture_rate": 1.0,
+      "dv_p50": 111.58713123825461,
+      "dv_p95": 119.24544735725738,
+      "dv_p99": 123.54893038351213,
+      "dv_cvar95": 122.44391966565324,
+      "viol_pct": 0.04,
+      "rms_cost": 112.26128701454004
+    }
+  ],
+  "pool": {
+    "base_mc_seed": 42,
+    "offset": 8000000,
+    "n": 10000
+  },
+  "n_sims": 10000,
+  "noise_seeding": "per_draw"
+}

@@ -1,0 +1,223 @@
+{
+ "source": "experiments/ou_marginal/confirmatory_marginal.json",
+ "manifest": "experiments/ou_marginal/quant_cells_v4.txt",
+ "noise_seeding": "per_draw",
+ "freeze_commit": "738d612fb7f739b857bc9de51a725f0d73093677",
+ "n_replicates": 10,
+ "n_per_replicate": 100000,
+ "reference": "ou_marginal/hl_mamba_p962",
+ "cells": [
+  {
+   "label": "ou_marginal/hl_mamba_p962",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
+   "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "model_sha256": "d92c6bbd69ce3c741594c0e2d96094d42b65482a7b8cd31e0c55df66bc517d4d",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 120.06,
+    "cvar999": 173.93,
+    "p999": 141.99,
+    "max": 300.42,
+    "viol_pct": 0.11,
+    "viol_n": 1148,
+    "heat_flux_viol_n": 0,
+    "g_load_viol_n": 0,
+    "heat_load_viol_n": 1148
+   },
+   "replicate_stats": {
+    "cvar95": {
+     "se": 0.06
+    },
+    "cvar999": {
+     "se": 2.18
+    }
+   }
+  },
+  {
+   "label": "quant_v4/ptq4_verdict",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
+   "eval_commit": "935744453adbe7b626546e68baaa4367e76da604",
+   "model_sha256": "95b732cf4ae88db56d6720865b0842cc31770abf99e9b0d3bd08ec372f0087ff",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999702,
+    "cvar95": 220.17,
+    "cvar999": 286.53,
+    "p999": 269.32,
+    "max": 371.32,
+    "viol_pct": 0.01,
+    "viol_n": 98,
+    "heat_flux_viol_n": 1,
+    "g_load_viol_n": 0,
+    "heat_load_viol_n": 97
+   },
+   "replicate_stats": {
+    "cvar95": {
+     "se": 0.12
+    },
+    "cvar999": {
+     "se": 0.68
+    }
+   }
+  },
+  {
+   "label": "quant_v4/qat4_finetune",
+   "toml": "configs/training/quant/v4_qat4_finetune.toml",
+   "eval_commit": "935744453adbe7b626546e68baaa4367e76da604",
+   "model_sha256": "6e0be94bcd523225ea89e5e0bf3cffe9e6a0e7b1346252c2143a78eaa5474c1d",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 123.81,
+    "cvar999": 153.74,
+    "p999": 140.92,
+    "max": 267.39,
+    "viol_pct": 0.1,
+    "viol_n": 1019,
+    "heat_flux_viol_n": 0,
+    "g_load_viol_n": 0,
+    "heat_load_viol_n": 1019
+   },
+   "replicate_stats": {
+    "cvar95": {
+     "se": 0.02
+    },
+    "cvar999": {
+     "se": 0.74
+    }
+   }
+  },
+  {
+   "label": "quant_v4/qat4_scratch",
+   "toml": "configs/training/quant/v4_qat4_scratch.toml",
+   "eval_commit": "935744453adbe7b626546e68baaa4367e76da604",
+   "model_sha256": "41b6019523dac2e737906cd9effebaa1ccdf7decff73c840080b8acb3b84b847",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 122.91,
+    "cvar999": 175.45,
+    "p999": 134.78,
+    "max": 348.91,
+    "viol_pct": 0.05,
+    "viol_n": 505,
+    "heat_flux_viol_n": 0,
+    "g_load_viol_n": 0,
+    "heat_load_viol_n": 505
+   },
+   "replicate_stats": {
+    "cvar95": {
+     "se": 0.06
+    },
+    "cvar999": {
+     "se": 2.65
+    }
+   }
+  }
+ ],
+ "paired": {
+  "quant_v4/ptq4_verdict": {
+   "delta_cvar95": {
+    "mean": 100.1,
+    "se": 0.09,
+    "ci95": [
+     99.89,
+     100.31
+    ]
+   },
+   "delta_cvar999": {
+    "mean": 112.73,
+    "se": 1.57,
+    "ci95": [
+     109.18,
+     116.29
+    ]
+   },
+   "delta_p999": {
+    "mean": 126.95,
+    "se": 0.9,
+    "ci95": [
+     124.91,
+     128.99
+    ]
+   },
+   "delta_max": {
+    "mean": 74.44,
+    "se": 7.94,
+    "ci95": [
+     56.47,
+     92.41
+    ]
+   }
+  },
+  "quant_v4/qat4_finetune": {
+   "delta_cvar95": {
+    "mean": 3.75,
+    "se": 0.07,
+    "ci95": [
+     3.6,
+     3.9
+    ]
+   },
+   "delta_cvar999": {
+    "mean": -19.98,
+    "se": 1.91,
+    "ci95": [
+     -24.29,
+     -15.66
+    ]
+   },
+   "delta_p999": {
+    "mean": -1.4,
+    "se": 1.15,
+    "ci95": [
+     -4.0,
+     1.19
+    ]
+   },
+   "delta_max": {
+    "mean": -38.32,
+    "se": 6.35,
+    "ci95": [
+     -52.68,
+     -23.96
+    ]
+   }
+  },
+  "quant_v4/qat4_scratch": {
+   "delta_cvar95": {
+    "mean": 2.84,
+    "se": 0.08,
+    "ci95": [
+     2.67,
+     3.01
+    ]
+   },
+   "delta_cvar999": {
+    "mean": 1.7,
+    "se": 3.05,
+    "ci95": [
+     -5.2,
+     8.61
+    ]
+   },
+   "delta_p999": {
+    "mean": -7.45,
+    "se": 1.28,
+    "ci95": [
+     -10.35,
+     -4.55
+    ]
+   },
+   "delta_max": {
+    "mean": 37.48,
+    "se": 8.47,
+    "ci95": [
+     18.31,
+     56.65
+    ]
+   }
+  }
+ }
+}

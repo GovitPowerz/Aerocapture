@@ -818,3 +818,45 @@ NN-dense 1.55 -> 1.53. The script times the arxiv-v3 cells (`mamba_p962_long`,
 champion `ou_marginal/hl_mamba_p962` flies 771.1 s on average against
 `mamba_p962_long`'s 734.1 s (final-eval pools), so its ms per simulation is not
 measured here.
+
+## v4 quantization finalists at 10^6 (#178)
+
+`17_quantization.sh v4`, on the champion `ou_marginal/hl_mamba_p962` under per_draw:
+`ptq` 2026-10-09 19:07 (verdict 4b per_tensor proj_only, the only 4-bit cell at full
+capture on the n = 1000 pool); `qat_finetune` 23:37 to 00:39 (the champion's
+g20000 checkpoint continued to g23000 under 4-bit fitness); `qat_scratch`
+2026-10-10 00:49 to 06:23 (512 x 2 x 20000, not interrupted); `finalists` scored
+the three new rows of `quant_cells_v4.txt` by 10:34 (eval commit 93574445, the
+#210 merge), non-captures re-flown without the wall clock. DV in m/s over
+captured scenarios:
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 (champion) | 100.0000% | 0 | 0.1148 (0.0000 / 0.0000 / 0.1148) | 120.1 | 173.9 +- 2.2 | 300 |
+| quant_v4/ptq4_verdict | 99.9702% | 298: 256 crash, 42 pending_crash | 0.0098 (0.0001 / 0.0000 / 0.0097) | 220.2 | 286.5 +- 0.7 | 371 |
+| quant_v4/qat4_finetune | 100.0000% | 0 | 0.1019 (0.0000 / 0.0000 / 0.1019) | 123.8 | 153.7 +- 0.7 | 267 |
+| quant_v4/qat4_scratch | 100.0000% | 0 | 0.0505 (0.0000 / 0.0000 / 0.0505) | 122.9 | 175.4 +- 2.6 | 349 |
+
+Paired replicate deltas against the champion (finalist minus champion, mean and
+t(9) 95% interval over the 10 pools; `articles/paper/data/quant_v4/confirmatory_marginal.json`):
+
+| finalist | CVaR95 | CVaR99.9 | p99.9 | max |
+|---|---|---|---|---|
+| ptq4_verdict | +100.1 [99.9, 100.3] | +112.7 [109.2, 116.3] | +127.0 [124.9, 129.0] | +74.4 [56.5, 92.4] |
+| qat4_finetune | +3.8 [3.6, 3.9] | -20.0 [-24.3, -15.7] | -1.4 [-4.0, 1.2] | -38.3 [-52.7, -24.0] |
+| qat4_scratch | +2.8 [2.7, 3.0] | +1.7 [-5.2, 8.6] | -7.5 [-10.4, -4.6] | +37.5 [18.3, 56.7] |
+
+Reading. Post-training 4-bit rounding is not deployable: +100 m/s CVaR95, +113
+CVaR99.9 and 298 crashes per 10^6 at the verdict cell, and that cell's cost is
+one rounding draw (`experiments/quant_jitter/quant_jitter.json`: CVaR95 130 to
+349 at n = 1000 under a 0 to 10% larger step). Both QAT arms reach the
+champion's tail. The fine-tune costs 3.8 m/s at CVaR95 and gains 20.0 at
+CVaR99.9; its deployed head is the validation gate's last promotion at g20119,
+so 119 generations of 4-bit fitness, and the gate kept it while the final
+population went heat-load infeasible (0 of 512 candidates passed). The scratch
+arm matches the champion's CVaR99.9 (+1.7, interval across zero) at +2.8 CVaR95;
+its head is the g15716 promotion. Heat-load violations per 10^6: champion 1148,
+fine-tune 1019, scratch 505. The intervals condition on this champion, the worst
+tail of the three fp seeds (CVaR99.9 142.3 / 159.3 / 173.9), and both QAT rows
+sit inside that range: a 4-bit proj_only head is tail-equivalent to the fp
+family at sizing depth, by fine-tune or from scratch, not better than it.

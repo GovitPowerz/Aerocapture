@@ -64,7 +64,7 @@ pytest tests/test_foo.py::test_bar -v
 ./lint_code.sh                     # Run ruff (imports, format, lint; also over articles/paper/scripts) + mypy
 ./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 make -C articles/paper             # Paper figures from the committed bundle (no Rust, no run logs); `paper` = fetch-logs -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> quant-v4 -> figures -> provenance -> pdf
-make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + the four per-scenario extracts (confirmatory_marginal.json, quote_marginal.json, heat_load_slope.json, quant_v4/confirmatory_marginal.json: pending until #178's campaign lands) current + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
+make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + the four per-scenario extracts (confirmatory_marginal.json, quote_marginal.json, heat_load_slope.json, quant_v4/confirmatory_marginal.json) current + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
 ./upgrade_dependencies.sh          # uv sync --upgrade
 ./train_all.sh                     # Train all 19 registered schemes with optimized GA/PSO/PPO settings
 ./train_all.sh eqglide             # Train a single scheme (aliases: pc, eq, ec, pg, nn, gru, gru_ppo, rl, scaledpi, delta, etc.)
@@ -208,7 +208,9 @@ both and labels each cell, so Section 7.3's per-scenario depth table (`tbl-cente
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO. Every aero/physics expression is pinned by goldens and bit-identity gates: never reassociate or `mul_add`.
-- **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training
+- **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. `.python-version` pins the interpreter uv builds
+  `.venv` with, locally and in CI, to 3.14: unpinned, CI resolved CPython 3.15.0 on its release and `uv sync` failed (torch had no cp315 wheels), so raise the pin only once every
+  wheel-only dependency ships for the new version. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training
   deps (pymoo, scipy) are core dependencies; **pymoo is pinned `>=0.6,<0.6.2`** (0.6.2 routes internals through the compiled moocore 0.3.1, which silently SIGABRTs the interpreter — exit 134, no
   traceback, faulthandler mute. Two known trips: `igd()` for points wider than 32 dims, fed n_var-wide design-space points by pymoo's default single-objective termination, so every >32-param training
   problem dies — repro `moocore.igd(rand(1, 64), ref=rand(1, 64))`; and `gd_common`'s stack buffer overflow at n_pop ≈ 512 — smoke tests at n_pop=8 pass while real runs die after gen 0. The June
