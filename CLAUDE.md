@@ -208,7 +208,9 @@ both and labels each cell, so Section 7.3's per-scenario depth table (`tbl-cente
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO. Every aero/physics expression is pinned by goldens and bit-identity gates: never reassociate or `mul_add`.
-- **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training
+- **Python**: Python >=3.14, Ruff (line-length 160, target py314), uv package manager, pytest, mypy strict mode. `.python-version` pins the interpreter uv builds
+  `.venv` with, locally and in CI, to 3.14: unpinned, CI resolved CPython 3.15.0 on its release and `uv sync` failed (torch had no cp315 wheels), so raise the pin only once every
+  wheel-only dependency ships for the new version. Dev tools in `[dependency-groups]` (not `[project.optional-dependencies]`). Training
   deps (pymoo, scipy) are core dependencies; **pymoo is pinned `>=0.6,<0.6.2`** (0.6.2 routes internals through the compiled moocore 0.3.1, which silently SIGABRTs the interpreter — exit 134, no
   traceback, faulthandler mute. Two known trips: `igd()` for points wider than 32 dims, fed n_var-wide design-space points by pymoo's default single-objective termination, so every >32-param training
   problem dies — repro `moocore.igd(rand(1, 64), ref=rand(1, 64))`; and `gd_common`'s stack buffer overflow at n_pop ≈ 512 — smoke tests at n_pop=8 pass while real runs die after gen 0. The June
