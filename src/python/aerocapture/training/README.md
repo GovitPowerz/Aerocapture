@@ -784,7 +784,7 @@ validation_n_sims` sims each).
   under `noise_seeding = "legacy"`; model and regime are printed and stamped on the figure. Demo
   seeds come from an arbitrary RNG stream (424242), disjoint from every reserved pool.
 - Paper driver `articles/paper/Makefile` (GNU make 3.81-compatible; always `make -C
-  articles/paper <target>`): `figures` (default) rebuilds the 18 `fig_*.svg` from `data/` + the
+  articles/paper <target>`): `figures` (default) rebuilds the 19 `fig_*.svg` from `data/` + the
   bundle with real dependency semantics (a missing input is a make error, never a thinner
   figure); `results` = `aggregate_results.py` (results.json is deliberately NOT a make rule so a
   fresh clone's mtimes never trigger it); `fetch-logs` (the run logs

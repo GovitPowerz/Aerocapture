@@ -208,14 +208,13 @@ collect)
     cp "$QUANT_DIR/ptq_sweep/quantization_results.json" "$PAPER_DATA/"
     cp "$QUANT_DIR/finalists/finalists_results.json" "$PAPER_DATA/"
     if [ "$CAMPAIGN" = v4 ]; then
-        # The forward-pass micro-benchmark is architecture-only: data/quant/bench_forward.json stays.
-        cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/quantization_sweep_v4.svg 2>/dev/null || true
+        # The forward-pass micro-benchmark is architecture-only: data/quant/bench_forward.json stays. The sweep
+        # chart is not copied: `make -C articles/paper figures` draws fig_quantization from the bundled JSON.
         uv run python articles/paper/scripts/extract_quant_v4.py
         # `make sums` lists tracked files only: a new bundle file left unstaged is silently not checksummed.
-        echo "then: git add $PAPER_DATA articles/paper/figures/quantization_sweep_v4.svg, make -C articles/paper sums provenance, commit"
+        echo "then: git add $PAPER_DATA, make -C articles/paper sums figures provenance, commit"
         exit 0
     fi
-    cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/ 2>/dev/null || true
     # criterion medians -> one compact JSON
     uv run python - <<'PY'
 import json, os

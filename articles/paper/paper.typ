@@ -1775,7 +1775,7 @@ few-m/s non-monotone granularity cells at $6$ and $3$ bits are within that noise
 not be over-read. Among the $4$-bit cells the selection rule -- highest capture rate, then lowest
 $"CVaR"_95$ -- picks per-channel scales, projections only.
 
-#fig("quantization_sweep.svg", [The post-training quantization grid on the re-quote pool
+#fig("fig_quantization.svg", [The post-training quantization grid on the re-quote pool
 ($n = 1000$ per cell): capture rate (left) and $"CVaR"_95$ (right) versus bit width, for the four
 granularity $times$ policy series.], <fig-quant-sweep>)
 

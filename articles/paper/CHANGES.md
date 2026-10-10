@@ -241,6 +241,22 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   factor of thirty between deadline margins hold. The Compute paragraph's "roughly three and a
   half times FTC" (3.36 on this run) now reads the file. `fig_classical_vs_nn` moves with the four
   timings. The committed `paper.pdf` is not recompiled here.
+- 2026-10-10 (#180, second batch): the last two figures move to the per-scenario bundle.
+  `fig_objective_centering` reads `objective_centering_v4.json` and `centered_depth_v4.json` (both
+  asserted per_draw; the arxiv-v3 pair stays for Section 7.3's prose and depth tables) as three
+  stacked panels over the same ten cells: capture, CVaR95, and the heat-flux / heat-load exceedance the #177 outcome reads next
+  to every tail number; the two retuned joint-FTC baselines (medium and high) are grey bars with
+  their intervals instead of one reference line, since neither is the feasible reference the v3
+  figure had. `fig_quantization` (new) draws the v4 champion's PTQ grid from
+  `quant_v4/quantization_results.json` (asserted per_draw; the verdict cell starred in black, off
+  every series colour, CVaR95 on a log
+  axis so the 4-bit comparison survives the 2-bit cells), under `make figures` like every other
+  figure; the runner-copied `quantization_sweep_v4.svg` (dated, outside the byte-identity gate) is
+  gone, as is the arxiv-v3 `quantization_sweep.svg` it superseded, and neither `collect` mode of
+  `17_quantization.sh` copies a chart any more; Appendix C embeds the new file under its unchanged
+  caption. The captions of both figures are #181's; CI's figure gate covers 19 figures. The
+  colophon's noise-regime line lists `stress_depth.json` and the two #177 files among the per_draw
+  inputs.
 - 2026-10-08 (#180, first batch): six figures regenerate from the per-scenario bundle, the
   development-regime figures keep their bytes. `fig_arch_tail` plots the #173 headline-allocation
   cells per seed (CVaR95 and CVaR99.9 on the 10^6 per-scenario pool, replicate-SE whiskers, the

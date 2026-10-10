@@ -1,5 +1,5 @@
 {
-  "paper_inputs_sha256": "d47090fc059a33a0f4103756f1fb4be66f993417bef79ad193e2c50893505fb0",
+  "paper_inputs_sha256": "c2e9c80cbea3d7c68df799442deab76d6c65b60bf69fb85c2c4b2e8942448c67",
   "paper_inputs": [
     "articles/paper/paper.typ",
     "articles/paper/appendix.typ",
@@ -13,7 +13,7 @@
   ],
   "release_tag": "arxiv-v4",
   "run_logs_asset": "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v4/paper_run_logs.tar",
-  "noise_regime": "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, #174), quant_v4/ (issue #178); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); centered_depth.json carries both regimes, each cell labelled (issue #156)",
+  "noise_regime": "per_draw (one density-noise realization per scenario, ADR-0006) for the main body: every rl/* and ou_marginal/* run of results.json (issues #101, #175), every cell of confirmatory_marginal.json (issues #137, #174), stress_depth.json (issue #176), objective_centering_v4.json and centered_depth_v4.json (issue #177), quant_v4/ (issue #178); per run in results.json (ADR-0003). The shared-path (legacy) files are the development regime: every other results.json run, confirmatory_eval.json, far_tail_eval.json, robustness_*.json, objective_centering.json, quant/. quote_marginal.json pins legacy for both of its regimes and re-seeds simulation.random_seed per scenario for the marginal one (issue #157), the regime heat_load_slope.json scores under (issue #192); centered_depth.json carries both regimes, each cell labelled (issue #156)",
   "simulator_crate_version": "1.0.0",
   "typst_version": "0.15.1",
   "matplotlib_version": "3.11.2",
