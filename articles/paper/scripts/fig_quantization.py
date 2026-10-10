@@ -44,17 +44,20 @@ def main():
         axR.plot(bits, [r["dv_cvar95"] for r in rows], marker=marker, ms=4.5, color=color, label=label)
     for ax, y in ((axL, 100.0 * base["capture_rate"]), (axR, base["dv_cvar95"])):
         ax.axhline(y, ls="--", lw=1.0, color="#666666", label="full precision")
+    star = dict(marker="*", s=160, color=fl.C["accent"], edgecolor="white", linewidth=0.8, zorder=5, label=f"verdict ({verdict['bits']} b)")
     for ax, y in ((axL, 100.0 * verdict["capture_rate"]), (axR, verdict["dv_cvar95"])):
-        ax.scatter([verdict["bits"]], [y], marker="*", s=160, color=fl.C["accent"], edgecolor="white", linewidth=0.8, zorder=5, label="verdict (4 b)")
+        ax.scatter([verdict["bits"]], [y], **star)
+    bits = sorted({v["bits"] for v in d["variants"]}, reverse=True)
+    for ax in (axL, axR):
         ax.invert_xaxis()
-        ax.set_xticks(sorted({v["bits"] for v in d["variants"]}, reverse=True))
+        ax.set_xticks(bits)
         ax.set_xlabel("weight bits")
 
     axL.set_ylim(0, 105)
     axL.set_ylabel("capture rate (%)")
     axL.set_title(f"Capture under PTQ (8M re-quote pool, n = {d['n_sims']}, per-scenario)")
     axL.legend(loc="lower left")
-    axR.set_yscale("log")  # the 2-bit cells sit 4-10x above the 4-bit ones; linear would flatten the 4-bit comparison
+    axR.set_yscale("log")  # the 2-bit cells reach 1344 m/s; a linear axis would flatten the 4-bit comparison around 200-300
     axR.yaxis.set_major_locator(FixedLocator([100, 150, 200, 300, 500, 1000, 1500]))
     axR.yaxis.set_minor_locator(NullLocator())
     axR.yaxis.set_major_formatter(ScalarFormatter())

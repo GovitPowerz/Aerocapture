@@ -251,9 +251,9 @@ last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is 
   `quant_v4/quantization_results.json` (asserted per_draw; the verdict cell starred, CVaR95 on a log
   axis so the 4-bit comparison survives the 2-bit cells), under `make figures` like every other
   figure; the runner-copied `quantization_sweep_v4.svg` (dated, outside the byte-identity gate) is
-  gone and `17_quantization.sh v4 collect` no longer copies it. `quantization_sweep.svg` (arxiv-v3,
-  shared path) stays until #181 points Appendix C at the new figure. The captions of both are
-  #181's; CI's figure gate covers 19 figures.
+  gone, as is the arxiv-v3 `quantization_sweep.svg` it superseded, and neither `collect` mode of
+  `17_quantization.sh` copies a chart any more; Appendix C embeds the new file under its unchanged
+  caption. The captions of both figures are #181's; CI's figure gate covers 19 figures.
 - 2026-10-08 (#180, first batch): six figures regenerate from the per-scenario bundle, the
   development-regime figures keep their bytes. `fig_arch_tail` plots the #173 headline-allocation
   cells per seed (CVaR95 and CVaR99.9 on the 10^6 per-scenario pool, replicate-SE whiskers, the

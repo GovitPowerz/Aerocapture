@@ -215,7 +215,6 @@ collect)
         echo "then: git add $PAPER_DATA, make -C articles/paper sums figures provenance, commit"
         exit 0
     fi
-    cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/ 2>/dev/null || true
     # criterion medians -> one compact JSON
     uv run python - <<'PY'
 import json, os

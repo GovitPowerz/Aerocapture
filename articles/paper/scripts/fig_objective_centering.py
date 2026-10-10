@@ -1,10 +1,10 @@
 """fig_objective_centering -- objective centering under per-scenario noise (issues #177, #180).
 
 Deployed off-nominal performance on the 9M high-dispersion stress pool, every cell trained and
-flown under per-scenario density noise (both files asserted per_draw). Left: capture rate (%).
-Middle: correction-DV CVaR95 (m/s, over captured runs). Right: constraint exceedance (% of
-draws over the heat-flux and heat-load limits; g-load tracks heat flux and is left to the
-table). The lever sweep (stacked cubed/max/n=2 -> centered linear/middle/n=16) at n = 1000 from
+flown under per-scenario density noise (both files asserted per_draw). Three stacked panels over
+the same cells. Top: capture rate (%). Middle: correction-DV CVaR95 (m/s, over captured runs).
+Bottom: constraint exceedance (% of draws over the heat-flux and heat-load limits; g-load tracks
+heat flux and is left to the table). The lever sweep (stacked cubed/max/n=2 -> centered linear/middle/n=16) at n = 1000 from
 objective_centering_v4.json, then the three centered-Mamba trainer seeds and the two retuned
 joint-FTC baselines (medium and high regime, grey) at n = 10 000 from centered_depth_v4.json.
 Whiskers are bootstrap 95% CIs where the data carry them (CVaR95 everywhere, capture for the
@@ -53,7 +53,6 @@ COLOR = {
     "jointFTC-medium": "#8c8c8c",
     "jointFTC-high": "#bdbdbd",
 }
-LABEL_SIZE = 7.5
 VALUE_SIZE = 7.0
 
 
@@ -68,7 +67,7 @@ def _cells():
     missing = [k for k in ORDER if k not in cells]
     if missing:
         raise KeyError(f"cells missing from {DATA} / {DEPTH}: {missing}")
-    return cells
+    return cells, lever["n_sims_eval"], depth["n_sims"]
 
 
 def _whiskers(ax, i, v, ci):
@@ -82,56 +81,56 @@ def _separators(ax):
 
 def main():
     fl.style()
-    cells = _cells()
+    cells, n_lever, n_depth = _cells()
     x = range(len(ORDER))
     cols = [COLOR[k] for k in ORDER]
 
-    fig, (axL, axM, axR) = plt.subplots(3, 1, figsize=(fl.SIZE1[0], 7.2), sharex=True)
+    fig, (ax_cap, ax_tail, ax_viol) = plt.subplots(3, 1, figsize=(fl.SIZE1[0], 7.2), sharex=True)
 
     caps = [cells[k]["capture_pct"] for k in ORDER]
-    axL.bar(x, caps, color=cols)
+    ax_cap.bar(x, caps, color=cols)
     tops = []
     for i, k in enumerate(ORDER):
         ci = cells[k].get("capture_pct_ci")  # the n = 1000 lever cells carry no capture CI
         if ci:
-            _whiskers(axL, i, caps[i], ci)
+            _whiskers(ax_cap, i, caps[i], ci)
         top = ci[1] if ci else caps[i]
         tops.append(top)
-        axL.text(i, top + 0.15, f"{caps[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
+        ax_cap.text(i, top + 0.15, f"{caps[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
     lo = min(c.get("capture_pct_ci", [c["capture_pct"]])[0] for c in cells.values())
-    axL.set_ylim(int(lo) - 1, max(tops) + 1.6)
-    axL.set_ylabel("deployed capture rate (%)")
-    n_depth = f"{cells['jointFTC-medium']['n']:,}".replace(",", " ")
-    axL.set_title(f"Off-nominal capture (9M stress pool, per-scenario noise; lever cells n = 1000, depth cells n = {n_depth})", loc="left")
+    ax_cap.set_ylim(int(lo) - 1, max(tops) + 1.6)
+    ax_cap.set_ylabel("deployed capture rate (%)")
+    depth = f"{n_depth:,}".replace(",", " ")
+    ax_cap.set_title(f"Off-nominal capture (9M stress pool, per-scenario noise; lever cells n = {n_lever}, depth cells n = {depth})", loc="left")
 
     cv = [cells[k]["dv_cvar95"] for k in ORDER]
-    axM.bar(x, cv, color=cols)
+    ax_tail.bar(x, cv, color=cols)
     for i, k in enumerate(ORDER):
-        _whiskers(axM, i, cv[i], cells[k]["dv_cvar95_ci"])
-        axM.text(i, cells[k]["dv_cvar95_ci"][1] + 12, f"{cv[i]:.0f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
-    axM.set_ylim(0, max(c["dv_cvar95_ci"][1] for c in cells.values()) * 1.1)
-    axM.set_ylabel("deployed CVaR$_{95}$ (m/s, over captures)")
-    axM.set_title("Off-nominal correction-DV tail", loc="left")
+        _whiskers(ax_tail, i, cv[i], cells[k]["dv_cvar95_ci"])
+        ax_tail.text(i, cells[k]["dv_cvar95_ci"][1] + 12, f"{cv[i]:.0f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
+    ax_tail.set_ylim(0, max(c["dv_cvar95_ci"][1] for c in cells.values()) * 1.1)
+    ax_tail.set_ylabel("deployed CVaR$_{95}$ (m/s, over captures)")
+    ax_tail.set_title("Off-nominal correction-DV tail", loc="left")
 
     w = 0.38
     hf = [cells[k]["violation_pct"]["heat_flux"] for k in ORDER]
     hl = [cells[k]["violation_pct"]["heat_load"] for k in ORDER]
-    axR.bar([i - w / 2 for i in x], hf, width=w, color=cols)
-    axR.bar([i + w / 2 for i in x], hl, width=w, color=cols, hatch="////", edgecolor="white", linewidth=0)
+    ax_viol.bar([i - w / 2 for i in x], hf, width=w, color=cols)
+    ax_viol.bar([i + w / 2 for i in x], hl, width=w, color=cols, hatch="////", edgecolor="white", linewidth=0)
     for i in x:
-        axR.text(i - w / 2, hf[i] + 0.4, f"{hf[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
-        axR.text(i + w / 2, hl[i] + 0.4, f"{hl[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
-    axR.set_ylim(0, max(hf) * 1.15)
-    axR.set_ylabel("draws over the limit (%)")
-    axR.set_title("Constraint exceedance", loc="left")
-    axR.legend(
+        ax_viol.text(i - w / 2, hf[i] + 0.4, f"{hf[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
+        ax_viol.text(i + w / 2, hl[i] + 0.4, f"{hl[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
+    ax_viol.set_ylim(0, max(hf + hl) * 1.15)
+    ax_viol.set_ylabel("draws over the limit (%)")
+    ax_viol.set_title("Constraint exceedance", loc="left")
+    ax_viol.legend(
         handles=[Patch(facecolor="#555555", label="heat flux"), Patch(facecolor="#555555", hatch="////", edgecolor="white", label="heat load")],
         loc="upper right",
     )
-    axR.set_xticks(list(x))
-    axR.set_xticklabels([PRETTY[k] for k in ORDER], fontsize=LABEL_SIZE)
+    ax_viol.set_xticks(list(x))
+    ax_viol.set_xticklabels([PRETTY[k] for k in ORDER], fontsize=7.5)
 
-    for ax in (axL, axM, axR):
+    for ax in (ax_cap, ax_tail, ax_viol):
         _separators(ax)
     fig.tight_layout()
     fl.save(fig, "fig_objective_centering")

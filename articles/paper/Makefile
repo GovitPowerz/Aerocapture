@@ -311,8 +311,8 @@ mc-compute-benchmark: need-sim
 mc-requote: need-sim
 	$(UVPY) articles/paper/scripts/fresh_pool_requote.py training_output/mamba_p962_long --toml configs/training/sweep/mamba_p962.toml --n-sims 1000
 
-# quant/{quantization_results,finalists_results,bench_forward}.json + figures/quantization_sweep.svg:
-# copied from the quantization campaign's training_output by its runner.
+# quant/{quantization_results,finalists_results,bench_forward}.json: copied from the arxiv-v3 quantization
+# campaign's training_output by its runner (the runner's own sweep chart is not a paper figure).
 mc-quant: need-sim
 	cd $(ROOT) && ./experiments/paper/17_quantization.sh collect
 
