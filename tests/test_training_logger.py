@@ -68,6 +68,14 @@ class TestTrainingLogger:
         assert "constraint_violation_rate" not in logger.buffer[0]
         logger.close()
 
+    def test_cost_outlier_rate_uses_the_finite_median(self, logger: TrainingLogger) -> None:
+        # Failed batch evals and the resume prologue log inf costs: finite median 1.5, both inf exceed 3.0
+        logger.log_generation(1, _make_population(n_pop=4), np.array([1.0, 2.0, np.inf, np.inf]), np.full(7, 0.5), _decode_fn)
+        logger.log_generation(2, _make_population(n_pop=4), np.full(4, np.inf), np.full(7, 0.5), _decode_fn)
+        assert logger.buffer[0]["cost_outlier_rate"] == 0.5
+        assert logger.buffer[1]["cost_outlier_rate"] == 0.0
+        logger.close()
+
     def test_multiple_generations_appended(self, logger: TrainingLogger, tmp_path: Path) -> None:
         for gen in range(1, 4):
             logger.log_generation(gen, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn)
