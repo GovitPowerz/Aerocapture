@@ -15,15 +15,13 @@ and exceedance. Reads only committed JSON; a missing cell is an error (never a t
 """
 
 import json
-from pathlib import Path
 
 import figlib as fl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
-REPO = Path(__file__).resolve().parents[3]
-DATA = REPO / "articles/paper/data/objective_centering_v4.json"
-DEPTH = REPO / "articles/paper/data/centered_depth_v4.json"
+DATA = fl.DATA / "objective_centering_v4.json"
+DEPTH = fl.DATA / "centered_depth_v4.json"
 DENSE = ["stacked", "plus_sims", "plus_bucket", "plus_transform", "centered"]
 SEEDS = ["mamba_centered_s1", "mamba_centered_s2", "mamba_centered_s3"]
 BASELINES = ["jointFTC-medium", "jointFTC-high"]
@@ -97,7 +95,7 @@ def main():
         top = ci[1] if ci else caps[i]
         tops.append(top)
         ax_cap.text(i, top + 0.15, f"{caps[i]:.1f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
-    lo = min(c.get("capture_pct_ci", [c["capture_pct"]])[0] for c in cells.values())
+    lo = min(cells[k].get("capture_pct_ci", [caps[i]])[0] for i, k in enumerate(ORDER))
     ax_cap.set_ylim(int(lo) - 1, max(tops) + 1.6)
     ax_cap.set_ylabel("deployed capture rate (%)")
     depth = f"{n_depth:,}".replace(",", " ")
@@ -108,7 +106,7 @@ def main():
     for i, k in enumerate(ORDER):
         _whiskers(ax_tail, i, cv[i], cells[k]["dv_cvar95_ci"])
         ax_tail.text(i, cells[k]["dv_cvar95_ci"][1] + 12, f"{cv[i]:.0f}", ha="center", va="bottom", fontsize=VALUE_SIZE)
-    ax_tail.set_ylim(0, max(c["dv_cvar95_ci"][1] for c in cells.values()) * 1.1)
+    ax_tail.set_ylim(0, max(cells[k]["dv_cvar95_ci"][1] for k in ORDER) * 1.1)
     ax_tail.set_ylabel("deployed CVaR$_{95}$ (m/s, over captures)")
     ax_tail.set_title("Off-nominal correction-DV tail", loc="left")
 

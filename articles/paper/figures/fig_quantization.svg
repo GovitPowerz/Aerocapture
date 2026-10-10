@@ -1685,7 +1685,7 @@ z
    </g>
    <g id="PathCollection_1">
     <defs>
-     <path id="mf6b0117cd8" d="M 0 -6.324555 
+     <path id="m3e547aa43e" d="M 0 -6.324555 
 L -1.419951 -1.954395 
 L -6.01501 -1.954395 
 L -2.297529 0.746512 
@@ -1699,7 +1699,7 @@ z
 " style="stroke: #ffffff; stroke-width: 0.8"/>
     </defs>
     <g clip-path="url(#p4db8934558)">
-     <use xlink:href="#mf6b0117cd8" x="202.550723" y="30.808571" style="fill: #d1701f; stroke: #ffffff; stroke-width: 0.8"/>
+     <use xlink:href="#m3e547aa43e" x="202.550723" y="30.808571" style="stroke: #ffffff; stroke-width: 0.8"/>
     </g>
    </g>
    <g id="legend_1">
@@ -1965,7 +1965,7 @@ z
     </g>
     <g id="PathCollection_2">
      <g>
-      <use xlink:href="#mf6b0117cd8" x="58.0225" y="219.376" style="fill: #d1701f; stroke: #ffffff; stroke-width: 0.8"/>
+      <use xlink:href="#m3e547aa43e" x="58.0225" y="219.376" style="stroke: #ffffff; stroke-width: 0.8"/>
      </g>
     </g>
     <g id="text_20">
@@ -2644,7 +2644,7 @@ z
    </g>
    <g id="PathCollection_3">
     <g clip-path="url(#p2aad2dcfce)">
-     <use xlink:href="#mf6b0117cd8" x="500.643973" y="173.598154" style="fill: #d1701f; stroke: #ffffff; stroke-width: 0.8"/>
+     <use xlink:href="#m3e547aa43e" x="500.643973" y="173.598154" style="stroke: #ffffff; stroke-width: 0.8"/>
     </g>
    </g>
   </g>

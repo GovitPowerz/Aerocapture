@@ -44,7 +44,7 @@ def main():
         axR.plot(bits, [r["dv_cvar95"] for r in rows], marker=marker, ms=4.5, color=color, label=label)
     for ax, y in ((axL, 100.0 * base["capture_rate"]), (axR, base["dv_cvar95"])):
         ax.axhline(y, ls="--", lw=1.0, color="#666666", label="full precision")
-    star = dict(marker="*", s=160, color=fl.C["accent"], edgecolor="white", linewidth=0.8, zorder=5, label=f"verdict ({verdict['bits']} b)")
+    star = dict(marker="*", s=160, color="black", edgecolor="white", linewidth=0.8, zorder=5, label=f"verdict ({verdict['bits']} b)")
     for ax, y in ((axL, 100.0 * verdict["capture_rate"]), (axR, verdict["dv_cvar95"])):
         ax.scatter([verdict["bits"]], [y], **star)
     bits = sorted({v["bits"] for v in d["variants"]}, reverse=True)
