@@ -211,7 +211,8 @@ collect)
         # The forward-pass micro-benchmark is architecture-only: data/quant/bench_forward.json stays.
         cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/quantization_sweep_v4.svg 2>/dev/null || true
         uv run python articles/paper/scripts/extract_quant_v4.py
-        echo "then: make -C articles/paper sums provenance, commit"
+        # `make sums` lists tracked files only: a new bundle file left unstaged is silently not checksummed.
+        echo "then: git add $PAPER_DATA articles/paper/figures/quantization_sweep_v4.svg, make -C articles/paper sums provenance, commit"
         exit 0
     fi
     cp "$QUANT_DIR/ptq_sweep/quantization_sweep.svg" articles/paper/figures/ 2>/dev/null || true
