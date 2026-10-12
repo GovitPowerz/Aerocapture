@@ -122,18 +122,20 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 `articles/paper/scripts/*.py` evaluate deployed cells (`training_output/<cell>/best_model.json` +
 `best_params.json`, flown by `cell_eval.evaluate_cell`, the one deploy-side evaluation path that
 the demo, the reports and `compare_guidance` also take) on the pools above and write
-`articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_eval.json`, the
-quantization finalists, `confirmatory_marginal.json` (the per-scenario far-tail confirmatory) and
-`quote_marginal.json` (the paired n = 1000 both-regime scoring), both extracted from
-`experiments/ou_marginal/`, and `centered_depth.json` (Section 7.3's centered cells at n = 10,000
-under both regimes), at compile time for the headline tables, the per-scenario headline
-quotes, Section 7.3's depth tables and Appendix E's tables and prose, the colophon reads `provenance.json`, `appendix.typ` reads
+`articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_marginal.json` (the
+per-scenario far-tail confirmatory), `quote_marginal.json` (the paired n = 1000 both-regime scoring)
+and `heat_load_slope.json`, all three extracted from `experiments/ou_marginal/`, plus
+`compute_benchmark.json`, `stress_depth.json`, `centered_depth_v4.json` (Section 7.3's centered
+cells at n = 10,000 under per-scenario noise; `centered_depth.json` is the arxiv-v3 pair),
+`objective_centering_v4.json`, `quant_v4/`, `probes/` and the deployed seed's ablation and
+fresh-pool re-quote under `runs/ou_marginal/hl_mamba_p962/`, at compile time for the headline tables, the per-scenario headline
+quotes, Section 7.3's depth tables and Section 6.4's conditioning table, the colophon reads `provenance.json`, `appendix.typ` reads
 `figures/appendix/<scheme>/stats.json` (the other prose numbers are still transcribed from the
 data files). `make -C articles/paper paper`
 is the one command from the committed bundle to the PDF (`articles/paper/Makefile`: results.json,
 the per-scenario confirmatory extract, the 19 figures, provenance, checksums; the `mc-*` targets are the opt-in simulator-backed
 producers, and the `FROZEN` block names the data files with no producer in the tree).
-`models/demo/ft_mamba_962/` is the committed copy of the headline cell that `aerocapture.demo` flies.
+`models/demo/hl_mamba_962/` is the committed copy of the deployed seed that `aerocapture.demo` flies (`--finetune` and `--legacy` select the two arxiv-v3 cells beside it).
 
 ## `training/` by role
 

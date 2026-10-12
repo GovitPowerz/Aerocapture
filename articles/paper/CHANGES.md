@@ -36,7 +36,9 @@ arxiv-v3 one stopped at 99.7 km), the deadline-margin factor from thirty to abou
 core-hours to about 49 (one overnight run), and Appendix C's kernel table and Section 9's head cost
 scale with the deployed seed's 771 guidance updates instead of the frozen 644-tick trajectory.
 Every per-scenario number of Sections 5-10 and Appendix C is an accessor call, and the counts and
-orderings the prose states are asserted in `paper.typ`; the development-regime studies (Sections 4-5,
+orderings the prose states are asserted in `paper.typ` (#182: the Section 5 table's caption said
+the unseeded dense PPO scratch run bought its capture with heat flux; its 265,565 exceedances per
+10^6 are all heat load, which the caption now says and an assert pins to the bundle); the development-regime studies (Sections 4-5,
 the Section 6.1 sweep, the bank-decoder comparison) and Appendix C's kernel micro-benchmark stay
 transcribed.
 

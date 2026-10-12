@@ -20,7 +20,7 @@ from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, make_reserved_see
 
 REPO = Path(__file__).resolve().parents[1]
 DEMO_TOML = REPO / "configs/training/sweep/mamba_p962.toml"
-DEMO_CELL = REPO / "models/demo/ft_mamba_962"
+DEMO_CELL = REPO / "models/demo/hl_mamba_962"
 
 N_COLS = 52
 

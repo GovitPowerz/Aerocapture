@@ -201,9 +201,10 @@ every first-step reward, every timeout and the reward scale leaked across episod
 ### Noise regimes: per-draw is the default, legacy reproduces quoted numbers
 
 `[monte_carlo] noise_seeding = "per_draw"` (ADR-0006) is the default: each dispersion draw gets its own OU-density / EKF-noise stream. `"legacy"` freezes ONE noise path across every
-n_sims=1 config and exists only to reproduce numbers quoted under it: the goldens, every `configs/test/*.toml`, the paper's main-body tables and every script that re-flies a shared-path cell
-pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. A new evaluation script must state which regime it runs and not mix the two in one table: `centered_depth_eval.py` flies
-both and labels each cell, so Section 7.3's per-scenario depth table (`tbl-centered-pd`) is the one per_draw table in the main body.
+n_sims=1 config and exists only to reproduce numbers quoted under it: the goldens, every `configs/test/*.toml`, the paper's development-regime studies (Sections 4-5, Appendix B;
+the arxiv-v3 main body) and every script that re-flies a shared-path cell pin it through `deploy_overrides.LEGACY_NOISE_REGIME`. Since v4 every main-body number is per_draw except
+Section 6.4's conditioning table, which scores both regimes. A new evaluation script must state which regime it runs and not mix the two in one table without labelling each
+cell (`centered_depth_eval.py` flies both and labels each cell).
 
 ## Conventions
 

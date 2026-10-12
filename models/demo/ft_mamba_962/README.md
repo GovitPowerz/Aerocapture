@@ -1,4 +1,4 @@
-# Demo model: Mamba-962, per-scenario fine-tune (paper Appendix E champion)
+# Demo model: Mamba-962, per-scenario fine-tune (arxiv-v3 Appendix E champion, `--finetune`)
 
 Copy of `training_output/ou_marginal/ft_mamba_p962/` (`best_model.json` + `best_params.json`):
 the shared-path champion checkpoint (`training_output/mamba_p962_long/`, the historical
@@ -23,8 +23,9 @@ confirmatory-screened. Feasible at the strict ceiling of ADR-0005.
 decoding); `best_params.json` carries the co-trained navigation/shaping scaffolding, applied
 as overrides at run time.
 
-Consumed by `uv run python -m aerocapture.demo` (the default model and regime since
-ADR-0006). The historical shared-path champion it was fine-tuned from lives beside it in
-`models/demo/mamba_962_legacy/` for `--legacy`. The demo runs on an arbitrary fixed seed,
+Consumed by `uv run python -m aerocapture.demo --finetune` (the demo's default from ADR-0006
+until paper v4, whose deployed seed `models/demo/hl_mamba_962/`, trained from scratch under
+per-scenario noise, replaced it; the v4 main body quotes no fine-tune). The historical shared-path
+champion it was fine-tuned from lives beside it in `models/demo/mamba_962_legacy/` for `--legacy`. The demo runs on an arbitrary fixed seed,
 deliberately outside every reserved evaluation pool, so its output is illustrative and can
 never be confused with the paper's quoted numbers.

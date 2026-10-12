@@ -128,7 +128,8 @@ path: every `configs/test/*.toml` and every evaluation script that re-flies a sh
 (`articles/paper/scripts/*`, `experiments/fnpag_ab/`, `param_sweep --eval`, `quantize` by default,
 the probe drivers) pins it through `deploy_overrides.LEGACY_NOISE_REGIME`, `confirmatory_eval.py` records
 it in its JSON, and `report.py` prints the regime it resolved. Unknown values hard-error. The
-goldens and the paper's main-body numbers are legacy-regime; `experiments/ou_marginal/` holds the
+goldens and the paper's development-regime studies (Sections 4-5, Appendix B; the arxiv-v3 main body) are
+legacy-regime, the v4 main body is `per_draw`; `experiments/ou_marginal/` holds the
 frozen-vs-marginal quantification and the per-draw retrain campaigns, NN cells, the classical
 retune of `training/ou_marginal/classical/` and its ungated reruns in
 `training/ou_marginal/classical_ungated/` (see

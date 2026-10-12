@@ -861,6 +861,15 @@ itself was simply the stronger tool here, so throughout we optimize the mission 
 // violation share on the 10^6 pool, and its paired deltas against the population cell of the same
 // architecture (negative favors PPO).
 #let ci8(iv, d: 1) = text(size: 8pt)[\[#R.ci(iv, d: d)\]]
+// The caption attributes the unseeded dense scratch run's exceedances to heat load: every one of
+// its violations on the 10^6 pool is a heat-load exceedance (viol_pct is the source's 2-decimal
+// rounding of the count), and it is the largest violation share of the eight PPO cells.
+#let ppo_scratch_s1 = R.marg("paper/rl/hl_dense_p515_ppo_scratch")
+#assert(ppo_scratch_s1.hl_viol_n != none and calc.abs(100 * ppo_scratch_s1.hl_viol_n / ppo_scratch_s1.n - ppo_scratch_s1.viol_pct) < 0.005,
+  message: "the caption states the unseeded dense scratch run's violations are all heat-load exceedances")
+#assert(("hl_dense_p515_ppo_scratch_s2", "hl_dense_p515_ppo_scratch_s3", "hl_dense_p515_ppo_warm", "hl_gru_p1014_ppo_scratch",
+    "hl_gru_p1014_ppo_scratch_s2", "hl_gru_p1014_ppo_scratch_s3", "hl_gru_p1014_ppo_warm").all(k => R.marg("paper/rl/" + k).viol_pct < ppo_scratch_s1.viol_pct),
+  message: "the caption singles out the unseeded dense scratch run as the PPO cell that bought its capture with exceedance")
 #let rl_row(name, key, pair) = {
   let r = R.per_draw_regime(key)
   let c = R.marg("paper/" + key)
@@ -891,7 +900,7 @@ itself was simply the stronger tool here, so throughout we optimize the mission 
   dense and #box[$1014$-weight] GRU cells), correction $Delta v$ in m/s. Capture, mean and $"CVaR"_95$ on the $n = 1000$ final-evaluation pool; Viol. is the share
   of the $10^6$ confirmatory pool exceeding any constraint (the population trainer's feasibility
   gate has no counterpart in the RL loop: the unseeded dense scratch run bought its capture with
-  heat flux); the deltas are paired against the population cell (negative favors PPO) with a
+  heat load); the deltas are paired against the population cell (negative favors PPO) with a
   $10\,000$-resample bootstrap $95%$ interval on the mean. Seed 1 of each scratch cell ran before
   the torch seed was pinned; seeds 2 and 3 are repeats.],
 ) <tbl-rl>

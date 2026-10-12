@@ -777,12 +777,15 @@ validation_n_sims` sims each).
 ## Paper tooling
 
 - `aerocapture.demo` (`src/python/aerocapture/demo.py`) — the clone-to-figure demo: flies the
-  deployed cell `models/demo/ft_mamba_962/` (a copy of `training_output/ou_marginal/ft_mamba_p962/`,
-  the per-scenario fine-tune) over 500 per-seed MC sims (`cell_eval.evaluate_cell`, the paper's
-  evaluation path) under `per_draw` noise and writes `demo_output/demo.svg`. `--legacy` flies the
-  shared-path champion `models/demo/mamba_962_legacy/` (a copy of `training_output/mamba_p962_long/`)
-  under `noise_seeding = "legacy"`; model and regime are printed and stamped on the figure. Demo
-  seeds come from an arbitrary RNG stream (424242), disjoint from every reserved pool.
+  deployed seed `models/demo/hl_mamba_962/` (a byte copy of `training_output/ou_marginal/hl_mamba_p962/`
+  and of its bundle run; gate `tests/test_demo_models.py`) over 500 per-seed MC sims
+  (`cell_eval.evaluate_cell`, the paper's evaluation path) under `per_draw` noise and writes
+  `demo_output/demo.svg`. `--finetune` flies the arxiv-v3 per-scenario fine-tune
+  `models/demo/ft_mamba_962/` (a copy of `training_output/ou_marginal/ft_mamba_p962/`) under the same
+  regime; `--legacy` flies the shared-path champion `models/demo/mamba_962_legacy/` (a copy of
+  `training_output/mamba_p962_long/`) under `noise_seeding = "legacy"`; model and regime are printed
+  and stamped on the figure. `demo.select_model` is the flag-to-cell map. Demo seeds come from an
+  arbitrary RNG stream (424242), disjoint from every reserved pool.
 - Paper driver `articles/paper/Makefile` (GNU make 3.81-compatible; always `make -C
   articles/paper <target>`): `figures` (default) rebuilds the 19 `fig_*.svg` from `data/` + the
   bundle with real dependency semantics (a missing input is a make error, never a thinner
@@ -817,7 +820,7 @@ validation_n_sims` sims each).
   cell of the performance, paired-comparison, quantization-finalists, sizing-depth centered,
   per-scenario far-tail, shared-path-versus-per-scenario and retraining tables (the Viol. column of the performance table
   excepted: `results.json` carries no violation field) and the per-scenario quotes of the abstract, Section 9, the
-  conclusion and Appendix E, and the colophon reads `provenance.json`; the shared-path prose
+  conclusion and Section 6.4, and the colophon reads `provenance.json`; the shared-path prose
   numbers are still transcribed from the bundle files. `paper` chains them; `check` =
   `data/SHA256SUMS` recomputed over every tracked bundle file and diffed verbatim (`sums`
   regenerates it + `SHA256SUMS.runlogs`, the latter only when no fewer run logs are present than it
