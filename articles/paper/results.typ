@@ -123,8 +123,8 @@
 }
 // Same with an explicit sign, for paired deltas.
 #let signed(x, d: 1) = (if x < 0 { "\u{2212}" } else { "+" }) + fixed(calc.abs(x), d: d)
-// "lo, hi" of a two-element interval, signed.
-#let ci(iv, d: 1) = signed(iv.at(0), d: d) + ", " + signed(iv.at(1), d: d)
+// "lo, hi" of a two-element interval, signed; the no-break space keeps the interval on one line.
+#let ci(iv, d: 1) = signed(iv.at(0), d: d) + ",\u{a0}" + signed(iv.at(1), d: d)
 // "min--max" of a list of numbers, each end formatted by f (fixed or signed) with d decimals.
 #let span(xs, f: fixed, d: 0) = [$#f(calc.min(..xs), d: d)$--$#f(calc.max(..xs), d: d)$]
 // One significant digit times a power of ten, as an equation (x > 0).
