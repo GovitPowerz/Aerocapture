@@ -125,6 +125,11 @@
 #assert(calc.abs(welch_t(window3, mamba3)) < 1 and calc.abs(welch_t(nodv3, mamba3)) < 1,
   message: "the prose states neither control's three-seed CVaR99.9 difference to the champion family is resolved (Welch t below 1)")
 #assert(reset.cvar999 > 4 * champ.cvar999 and reset.capture_pct > 99.9, message: "the prose states the reset-state tail collapses by more than a factor of four at capture above 99.9%")
+#let mamba_range = (calc.min(..mamba_seeds.map(c => c.cvar999)), calc.max(..mamba_seeds.map(c => c.cvar999)))
+#let window_rest = window_seeds.filter(c => c.cvar999 < calc.max(..window_seeds.map(c => c.cvar999)))
+#assert(window_rest.len() == 2 and window_rest.all(c => c.cvar999 > mamba_range.at(0) and c.cvar999 < mamba_range.at(1))
+  and window3.sd > calc.max(mamba3.sd, nodv3.sd),
+  message: "the prose states the window control's two other seeds sit inside the champion's range and its seed spread is the widest of the three families")
 // The n = 1000 paired final-evaluation pool (data/results.json, per_draw): the deployed seed against
 // every law and network; the laws against each other; the PPO cells against their population twins.
 #let pr(key) = R.paired(key)
@@ -195,6 +200,10 @@
 #let abl_top = R.ablation_ranked.slice(0, 3).map(r => r.name)
 #assert(abl_top == ("orbital_energy", "predicted_dv1", "predicted_dv2"), message: "Section 8 names orbital energy and the first two predicted-DV inputs as the three largest sensitivities")
 #assert(R.ablation_live.len() == 17 and R.ablation_live.all(r => r.delta > 0), message: "Section 8 states all seventeen masked inputs cost something when zeroed")
+#assert(R.ablation_ranked.slice(3, 6).map(r => r.name) == ("hdot_nominal", "radial_velocity", "pdyn_error"),
+  message: "Section 8 names the reference altitude rate, the radial velocity and the dynamic-pressure error as the next three sensitivities")
+#assert(R.ablation_ranked.slice(12).map(r => r.name).sorted() == ("eccentricity_excess", "prev_bank_signed_cos", "prev_bank_signed_sin", "prev_realized_cos", "prev_realized_sin"),
+  message: "Section 8 states the four bank-history encodings and the eccentricity excess contribute least")
 #let champ_run = R.per_draw_regime("ou_marginal/hl_mamba_p962")
 #assert(calc.abs(R.fresh4.dv_cvar95 - champ_run.dv_cvar95) < 5 and R.fresh4.capture_pct == 100, message: "Section 6 states the fresh-pool re-quote sits within 5 m/s of the final-evaluation CVaR95 at full capture")
 // The loss-versus-tail correlation of Section 6.3 is drawn in the figure (scripts/fig_loss_vs_tail.py)
@@ -233,6 +242,10 @@
 #assert(apx_mamba.noise_seeding == "per_draw" and apx_mamba.constraints.heat_load.max > apx_mamba.constraints.heat_load.limit
   and apx_mamba.constraints.heat_load.max < 1.01 * apx_mamba.constraints.heat_load.limit,
   message: "Section 6.2 states the deployed seed's worst heat load on its appendix card sits a fraction of a percent over the limit")
+#assert(("mamba_p962", "dense_p515").all(c => not R.slope_summary(c).outside_seed_spread),
+  message: "Section 6.2 states the ceiling study's slope is inside each cell's seed spread")
+// Appendix A's FNPAG paragraph reads the retuned cell's predictor step.
+#let fnpag_params = json("data/runs/ou_marginal/classical/fnpag/best_params.json")
 #let relaxed_v4_viol = R.span((("mamba_p962", "q27"), ("mamba_p962", "q30"), ("dense_p515", "q27"), ("dense_p515", "q30")).map(((c, q)) => R.slope(c, q, eval: "v4").viol_pct), d: 1)
 // Section 7.3's two further readings: the centered and middle-bucket dense tails overlap at n = 1000,
 // and the high-regime-retuned joint-FTC loses to the medium-deployed one on the same pool.
@@ -282,7 +295,8 @@
   from the *worst* optimizer under fixed scenarios into the *best*, and a policy trained on one
   density history fits that history -- the shared-path champions of our development regime lose
   $2$--$4 times$ more tail than the classical laws when each scenario gets its own realization. The
-  deployed policy computes with its state (zeroing it every tick multiplies the median cost by six),
+  deployed policy computes with its state (zeroing it every tick multiplies its $"CVaR"_95$ by more
+  than $#int(calc.floor(reset.cvar95 / champ.cvar95))$),
   but matched controls without learned state or without the engineered cost-to-go inputs reach the
   same tail within seed variance. The main deployment caveat: under a deliberately harsher
   off-nominal regime the analytic law generalizes better than the network, a gap that a
@@ -1530,8 +1544,8 @@ coordinate of the corridor itself -- and immediately behind it two of the engine
 *predicted correction-$Delta v$* components: the energy-closing burn (#raw("predicted_dv1")) and
 the periapsis-correction burn (#raw("predicted_dv2")), each evaluated on the current osculating
 orbit. The reference-trajectory altitude rate, the radial velocity and the dynamic-pressure error
--- the quantities a reference-tracking law would feed back on -- follow; the bank-history encodings
-contribute least.
+-- the quantities a reference-tracking law would feed back on -- follow; the four bank-history
+encodings and the eccentricity excess contribute least.
 
 This is the flat median of Section 6 seen from the inside. The network's strongest dependencies
 after the energy are signals that tell it, causally and smoothly, what the maneuver would cost if
@@ -1662,7 +1676,10 @@ uninitialized variables in the reference) -- which establishes equivalence with 
 implementation, not physical validation. Independent physics checks run in the test suite: an
 analytic potential-gradient oracle for the $J_2$--$J_4$ gravity expansion, integrator convergence
 on analytic systems, vacuum energy and angular-momentum conservation, and cross-language
-forward-pass parity for the network runtime at machine epsilon.
+forward-pass parity for the network runtime at machine epsilon. The simulator also carries EKF
+navigation, an altitude-dependent wind model, and adaptive integration; this campaign does not
+exercise them, so every run here uses the bias-filter navigation and fixed-step integration the
+validation covers.
 
 *Seed pools.* Every Monte Carlo pool derives from the mission base seed through disjoint reserved
 streams: the selection pool (offset $10^6$, $n = 1000$, the in-training promotion gate -- queried
@@ -1694,7 +1711,9 @@ cell is evaluated on it exactly once; tail statistics use the estimator of Secti
 ($"CVaR"_(99.9)$ averages $100$ observations per replicate, $1000$ pooled), and replicate-level
 dispersion gives the quoted standard errors and difference intervals with no distributional
 assumptions. Non-captures are re-flown individually without the evaluation wall clock and
-classified; every non-capture quoted in this paper is a physical crash.
+classified: every non-capture of a trained or retuned cell quoted in this paper is a physical
+crash (the reset-state control of Section 6.3 also logs a handful of timeouts at the simulation's
+own time limit).
 
 *Off-nominal stress regime.* The Section 7 stress pool raises four domains to their high presets:
 the atmospheric density bias to $plus.minus 100%$ (from $plus.minus 50%$); the Gauss--Markov
@@ -1776,7 +1795,7 @@ $[-1, 1]$. Three actuator-side parameters -- the navigation density-filter gain 
 and the command-shaping acceleration limit -- are co-optimized with the network weights.
 
 *FNPAG.* Two-second replan cycle; bisection corrector on the constant capture-bank magnitude (about
-eleven forward integrations per replan); forward-predictor integration step GA-tuned at $3.8$ s; the
+eleven forward integrations per replan); forward-predictor integration step GA-tuned at $#R.fixed(fnpag_params.prediction_dt)$ s; the
 onboard atmosphere is scaled by the navigation-estimated density factor so the predictor tracks the
 measured atmosphere.
 
