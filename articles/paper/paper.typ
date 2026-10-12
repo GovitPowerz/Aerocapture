@@ -50,7 +50,7 @@
 #set table(stroke: none, inset: (x: 7pt, y: 4.5pt))
 #show figure.where(kind: table): set figure.caption(position: top)
 #show figure: set block(above: 1.5em, below: 1.5em)
-#set figure(gap: 0.8em)
+#set figure(gap: 0.8em, placement: auto)
 #show grid: set block(above: 1.5em, below: 1.5em)
 
 // Figure helper: include from figures/, attach the caption and the label.
@@ -875,10 +875,10 @@ itself was simply the stronger tool here, so throughout we optimize the mission 
   let c = R.marg("paper/" + key)
   let p = pr(pair)
   (name, [#R.fixed(r.capture_pct)], [#R.fixed(c.viol_pct, d: 2)], [#R.fixed(r.dv_mean)], [#R.fixed(r.dv_cvar95)],
-    [$#R.signed(p.delta_mean)$ #ci8(p.delta_mean_ci)], [$#R.signed(p.delta_cvar95)$], [#R.fixed(p.win_rate_a * 100)])
+    [$#R.signed(p.delta_mean)$~#text(size: 8pt)[\[#R.ci(p.delta_mean_ci).replace(", ", ",\u{a0}")\]]], [$#R.signed(p.delta_cvar95)$], [#R.fixed(p.win_rate_a * 100)])
 }
 #figure({
-  set text(size: 9pt)
+  set text(size: 8.5pt)
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto, auto),
     align: (left, center, center, center, center, center, center, center),

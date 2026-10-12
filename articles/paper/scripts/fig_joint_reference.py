@@ -55,7 +55,7 @@ def main():
     ax.set_xticklabels(labels)
     ax.set_ylabel("correction $\\Delta v$ (m/s)")
     ax.set_title("Joint reference optimization recovers ref-tracking schemes\n(CVaR$_{95}$ bars, mean = white hatch overlay)", fontsize=10, loc="left")
-    ax.set_ylim(0, max(fixed_cvar) * 1.22)
+    ax.set_ylim(0, max(fixed_cvar) * 1.35)
     ax.legend(loc="upper right")
     ax.margins(x=0.08)
     fig.tight_layout()
