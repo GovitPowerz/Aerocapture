@@ -5,6 +5,7 @@
     "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
     "python": "3.14.8",
     "profile": "release (lto), f64 throughout, n_threads=1, idle box",
+    "noise_seeding": "per_draw",
     "timing": "median of 5 batch repeats after 1 warmup; per-scheme repeat spread in ms_per_sim_repeats",
     "guidance_cadence_s": 1.0
   },
@@ -12,72 +13,72 @@
     {
       "label": "NN-mamba",
       "n_sims": 200,
-      "ms_per_sim": 2.8414,
+      "ms_per_sim": 3.2838,
       "ms_per_sim_repeats": [
-        2.8248,
-        2.8397,
-        2.8414,
-        2.8565,
-        2.8604
+        3.2325,
+        3.2415,
+        3.2838,
+        3.2912,
+        3.419
       ],
-      "sims_per_s": 351.9,
-      "mean_sim_time_s": 734.1,
-      "n_guidance_updates": 734,
-      "us_per_update_incl_sim": 3.87,
-      "slowdown_vs_fastest": 3.4
+      "sims_per_s": 304.5,
+      "mean_sim_time_s": 771.1,
+      "n_guidance_updates": 771,
+      "us_per_update_incl_sim": 4.26,
+      "slowdown_vs_fastest": 2.5
     },
     {
       "label": "NN-dense",
       "n_sims": 200,
-      "ms_per_sim": 1.8617,
+      "ms_per_sim": 1.7764,
       "ms_per_sim_repeats": [
-        1.8596,
-        1.8612,
-        1.8617,
-        1.8857,
-        1.8878
+        1.7551,
+        1.7588,
+        1.7764,
+        1.8472,
+        1.8718
       ],
-      "sims_per_s": 537.1,
-      "mean_sim_time_s": 771.6,
-      "n_guidance_updates": 772,
-      "us_per_update_incl_sim": 2.41,
-      "slowdown_vs_fastest": 2.2
+      "sims_per_s": 562.9,
+      "mean_sim_time_s": 728.7,
+      "n_guidance_updates": 729,
+      "us_per_update_incl_sim": 2.44,
+      "slowdown_vs_fastest": 1.4
     },
     {
       "label": "FTC",
       "n_sims": 200,
-      "ms_per_sim": 0.8453,
+      "ms_per_sim": 1.2918,
       "ms_per_sim_repeats": [
-        0.8445,
-        0.845,
-        0.8453,
-        0.847,
-        0.8495
+        1.2793,
+        1.2899,
+        1.2918,
+        1.3437,
+        1.4462
       ],
-      "sims_per_s": 1183.0,
-      "mean_sim_time_s": 480.1,
-      "n_guidance_updates": 480,
-      "us_per_update_incl_sim": 1.76,
+      "sims_per_s": 774.1,
+      "mean_sim_time_s": 613.2,
+      "n_guidance_updates": 613,
+      "us_per_update_incl_sim": 2.11,
       "slowdown_vs_fastest": 1.0
     },
     {
       "label": "FNPAG",
       "n_sims": 200,
-      "ms_per_sim": 82.388,
+      "ms_per_sim": 207.5589,
       "ms_per_sim_repeats": [
-        82.3184,
-        82.3409,
-        82.388,
-        82.4399,
-        82.8949
+        206.8957,
+        206.9277,
+        207.5589,
+        208.02,
+        208.2419
       ],
-      "sims_per_s": 12.1,
-      "mean_sim_time_s": 636.1,
-      "n_guidance_updates": 636,
-      "us_per_update_incl_sim": 129.51,
-      "slowdown_vs_fastest": 97.5,
-      "n_replans": 318,
-      "ms_per_replan_derived": 0.2564
+      "sims_per_s": 4.8,
+      "mean_sim_time_s": 639.1,
+      "n_guidance_updates": 639,
+      "us_per_update_incl_sim": 324.75,
+      "slowdown_vs_fastest": 160.7,
+      "n_replans": 320,
+      "ms_per_replan_derived": 0.6455
     }
   ]
 }

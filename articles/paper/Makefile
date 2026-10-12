@@ -91,7 +91,7 @@ results:
 # ---------------------------------------------------------------------------
 # confirmatory_marginal.json <- the 10^6 per-scenario confirmatory (issues #137, #174)
 # ---------------------------------------------------------------------------
-# Every cell of the scorer's manifests (experiments/ou_marginal/confirmatory_cells*.txt) and the fields
+# Every cell of the scorer's manifests (experiments/ou_marginal/confirmatory_cells*.txt and controls_cells_v4.txt) and the fields
 # the paper quotes, extracted from experiments/ou_marginal/confirmatory_marginal.json (written by
 # confirmatory_marginal.py there: hours per cell, never a make recipe; `mc-confirmatory-v4` below). Pure stdlib.
 confirmatory-marginal:
@@ -167,7 +167,8 @@ paper: fetch-logs
 #   nominal_floor.json               fd396b4  undispersed-nominal correction-DV floor (section on the objective)
 #   fnpag_failure_classification.json f73a454 FNPAG confirmatory failed seeds: timeout vs physical
 #   s2_failure_classification.json   2b683e0  Mamba s2 confirmatory failed seeds: timeout vs physical (61/1e6 physical)
-#   quant/ticks_per_sim.json         d9a413e  guidance ticks per sim behind the Appendix C compute table
+#   quant/ticks_per_sim.json         d9a413e  guidance ticks per sim behind the arxiv-v3 Appendix C compute table
+#                                             (v4 scales it by compute_benchmark.json's n_guidance_updates)
 # ---------------------------------------------------------------------------
 FROZEN := $(DATA)/plateau.json $(DATA)/sigma_extras.json $(DATA)/selection_gate.json $(DATA)/nominal_floor.json \
           $(DATA)/fnpag_failure_classification.json $(DATA)/s2_failure_classification.json $(DATA)/quant/ticks_per_sim.json

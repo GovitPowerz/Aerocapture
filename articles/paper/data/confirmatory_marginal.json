@@ -2,7 +2,8 @@
  "source": "experiments/ou_marginal/confirmatory_marginal.json",
  "manifests": [
   "experiments/ou_marginal/confirmatory_cells.txt",
-  "experiments/ou_marginal/confirmatory_cells_v4.txt"
+  "experiments/ou_marginal/confirmatory_cells_v4.txt",
+  "experiments/ou_marginal/controls_cells_v4.txt"
  ],
  "noise_seeding": "per_draw",
  "freeze_commit": "738d612fb7f739b857bc9de51a725f0d73093677",
@@ -51181,6 +51182,139 @@
     208.1,
     283.23
    ]
+  },
+  {
+   "label": "ou_marginal/v4_reset_state",
+   "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
+   "eval_commit": "f3ee140694ea4305d12f4c5d7ac6f740034f5639",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999899,
+    "cvar95": 807.7,
+    "cvar999": 860.33,
+    "max": 919.72,
+    "viol_pct": 0.03,
+    "heat_load_viol_n": 264
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.42
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_window_p970",
+   "toml": "configs/training/ou_marginal/ctrl_window_p970.toml",
+   "eval_commit": "3c6fe51de2631c52952ec0b427cfdf84e6c8b1c9",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 127.02,
+    "cvar999": 158.3,
+    "max": 258.42,
+    "viol_pct": 0.15,
+    "heat_load_viol_n": 1521
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.55
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_window_p970_s2",
+   "toml": "configs/training/ou_marginal/ctrl_window_p970_s2.toml",
+   "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999999,
+    "cvar95": 131.19,
+    "cvar999": 226.67,
+    "max": 378.69,
+    "viol_pct": 0.33,
+    "heat_load_viol_n": 3263
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.4
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_window_p970_s3",
+   "toml": "configs/training/ou_marginal/ctrl_window_p970_s3.toml",
+   "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 124.78,
+    "cvar999": 151.83,
+    "max": 240.01,
+    "viol_pct": 0.11,
+    "heat_load_viol_n": 1151
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.61
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_mamba_p962_nodv",
+   "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv.toml",
+   "eval_commit": "3c6fe51de2631c52952ec0b427cfdf84e6c8b1c9",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 125.8,
+    "cvar999": 145.55,
+    "max": 236.47,
+    "viol_pct": 0.25,
+    "heat_load_viol_n": 2471
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.54
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_mamba_p962_nodv_s2",
+   "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv_s2.toml",
+   "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 999972,
+    "cvar95": 129.53,
+    "cvar999": 181.35,
+    "max": 976.52,
+    "viol_pct": 0.12,
+    "heat_load_viol_n": 1211
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 1.25
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/ctrl_mamba_p962_nodv_s3",
+   "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv_s3.toml",
+   "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 130.27,
+    "cvar999": 156.52,
+    "max": 211.99,
+    "viol_pct": 0.14,
+    "heat_load_viol_n": 1448
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.46
+    }
+   }
   }
  ]
 }

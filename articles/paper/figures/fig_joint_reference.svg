@@ -779,13 +779,13 @@ z
     </g>
     <g id="ytick_2">
      <g id="line2d_5">
-      <path d="M 42.8225 215.095266 
-L 514.08 215.095266 
+      <path d="M 42.8225 217.451466 
+L 514.08 217.451466 
 " clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
      </g>
      <g id="text_5">
       <!-- 50 -->
-      <g style="fill: #262626" transform="translate(24.9075 218.333766) scale(0.085 -0.085)">
+      <g style="fill: #262626" transform="translate(24.9075 220.689966) scale(0.085 -0.085)">
        <defs>
         <path id="STIXTwoText-78b" d="M 1114 -83 
 Q 742 -83 560 6 
@@ -828,13 +828,13 @@ z
     </g>
     <g id="ytick_3">
      <g id="line2d_6">
-      <path d="M 42.8225 178.970532 
-L 514.08 178.970532 
+      <path d="M 42.8225 183.682932 
+L 514.08 183.682932 
 " clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
      </g>
      <g id="text_6">
       <!-- 100 -->
-      <g style="fill: #262626" transform="translate(20.7 182.209032) scale(0.085 -0.085)">
+      <g style="fill: #262626" transform="translate(20.7 186.921432) scale(0.085 -0.085)">
        <defs>
         <path id="STIXTwoText-787" d="M 2726 0 
 L 512 0 
@@ -865,13 +865,13 @@ z
     </g>
     <g id="ytick_4">
      <g id="line2d_7">
-      <path d="M 42.8225 142.845798 
-L 514.08 142.845798 
+      <path d="M 42.8225 149.914398 
+L 514.08 149.914398 
 " clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
      </g>
      <g id="text_7">
       <!-- 150 -->
-      <g style="fill: #262626" transform="translate(20.7 146.084298) scale(0.085 -0.085)">
+      <g style="fill: #262626" transform="translate(20.7 153.152898) scale(0.085 -0.085)">
        <use xlink:href="#STIXTwoText-787"/>
        <use xlink:href="#STIXTwoText-78b" transform="translate(49.5 0)"/>
        <use xlink:href="#STIXTwoText-786" transform="translate(99 0)"/>
@@ -880,13 +880,13 @@ L 514.08 142.845798
     </g>
     <g id="ytick_5">
      <g id="line2d_8">
-      <path d="M 42.8225 106.721064 
-L 514.08 106.721064 
+      <path d="M 42.8225 116.145864 
+L 514.08 116.145864 
 " clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
      </g>
      <g id="text_8">
       <!-- 200 -->
-      <g style="fill: #262626" transform="translate(20.7 109.959564) scale(0.085 -0.085)">
+      <g style="fill: #262626" transform="translate(20.7 119.384364) scale(0.085 -0.085)">
        <defs>
         <path id="STIXTwoText-788" d="M 2765 0 
 L 243 0 
@@ -927,20 +927,79 @@ z
     </g>
     <g id="ytick_6">
      <g id="line2d_9">
-      <path d="M 42.8225 70.59633 
-L 514.08 70.59633 
+      <path d="M 42.8225 82.377329 
+L 514.08 82.377329 
 " clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
      </g>
      <g id="text_9">
       <!-- 250 -->
-      <g style="fill: #262626" transform="translate(20.7 73.83483) scale(0.085 -0.085)">
+      <g style="fill: #262626" transform="translate(20.7 85.615829) scale(0.085 -0.085)">
        <use xlink:href="#STIXTwoText-788"/>
        <use xlink:href="#STIXTwoText-78b" transform="translate(49.5 0)"/>
        <use xlink:href="#STIXTwoText-786" transform="translate(99 0)"/>
       </g>
      </g>
     </g>
-    <g id="text_10">
+    <g id="ytick_7">
+     <g id="line2d_10">
+      <path d="M 42.8225 48.608795 
+L 514.08 48.608795 
+" clip-path="url(#p36b83dd4e3)" style="fill: none; stroke: #dddddd; stroke-width: 0.6; stroke-linecap: round"/>
+     </g>
+     <g id="text_10">
+      <!-- 300 -->
+      <g style="fill: #262626" transform="translate(20.7 51.847295) scale(0.085 -0.085)">
+       <defs>
+        <path id="STIXTwoText-789" d="M 1094 -83 
+Q 806 -83 652 -28 
+Q 499 26 438 106 
+Q 378 186 378 269 
+Q 378 371 442 460 
+Q 506 550 627 550 
+Q 723 550 828 502 
+Q 934 454 1049 393 
+Q 1165 333 1283 285 
+Q 1402 237 1523 237 
+Q 1728 237 1907 310 
+Q 2086 384 2201 560 
+Q 2317 736 2317 1050 
+Q 2317 1338 2157 1549 
+Q 1997 1760 1731 1878 
+Q 1466 1997 1158 1997 
+L 1030 1997 
+L 1030 2240 
+L 1152 2240 
+Q 1370 2240 1574 2349 
+Q 1779 2458 1910 2656 
+Q 2042 2854 2042 3110 
+Q 2042 3392 1866 3549 
+Q 1690 3706 1389 3706 
+Q 1101 3706 909 3574 
+Q 717 3443 550 3187 
+L 403 3270 
+Q 582 3686 876 3904 
+Q 1171 4122 1562 4122 
+Q 2054 4122 2323 3875 
+Q 2592 3629 2592 3264 
+Q 2592 2931 2397 2726 
+Q 2202 2522 1901 2330 
+L 1901 2310 
+Q 2157 2234 2371 2090 
+Q 2586 1946 2714 1738 
+Q 2842 1530 2842 1242 
+Q 2842 806 2598 508 
+Q 2355 211 1958 64 
+Q 1562 -83 1094 -83 
+z
+" transform="scale(0.015625)"/>
+       </defs>
+       <use xlink:href="#STIXTwoText-789"/>
+       <use xlink:href="#STIXTwoText-786" transform="translate(49.5 0)"/>
+       <use xlink:href="#STIXTwoText-786" transform="translate(99 0)"/>
+      </g>
+     </g>
+    </g>
+    <g id="text_11">
      <!-- correction $\Delta v$ (m/s) -->
      <g style="fill: #262626" transform="translate(14.439 182.225) rotate(-90) scale(0.095 -0.095)">
       <defs>
@@ -1206,8 +1265,8 @@ L 514.08 34.57
    <g id="patch_7">
     <path d="M 75.323017 251.22 
 L 129.092255 251.22 
-L 129.092255 74.830149 
-L 75.323017 74.830149 
+L 129.092255 86.18642 
+L 75.323017 86.18642 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: #8c8c8c; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
@@ -1222,38 +1281,38 @@ z
    <g id="patch_9">
     <path d="M 374.041007 251.22 
 L 427.810245 251.22 
-L 427.810245 87.112559 
-L 374.041007 87.112559 
+L 427.810245 82.046398 
+L 374.041007 82.046398 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: #8c8c8c; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
    <g id="patch_10">
     <path d="M 129.092255 251.22 
 L 182.861493 251.22 
-L 182.861493 147.953835 
-L 129.092255 147.953835 
+L 182.861493 152.426777 
+L 129.092255 152.426777 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: #d1701f; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
    <g id="patch_11">
     <path d="M 278.45125 251.22 
 L 332.220488 251.22 
-L 332.220488 122.413649 
-L 278.45125 122.413649 
+L 332.220488 122.568639 
+L 278.45125 122.568639 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: #d1701f; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
    <g id="patch_12">
     <path d="M 427.810245 251.22 
 L 481.579483 251.22 
-L 481.579483 126.380144 
-L 427.810245 126.380144 
+L 481.579483 120.684355 
+L 427.810245 120.684355 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: #d1701f; stroke: #ffffff; stroke-linejoin: miter"/>
    </g>
-   <g id="text_11">
+   <g id="text_12">
     <!-- 244 -->
-    <g style="fill: #8c8c8c" transform="translate(96.267636 70.758665) scale(0.08 -0.08)">
+    <g style="fill: #8c8c8c" transform="translate(96.267636 82.256308) scale(0.08 -0.08)">
      <defs>
       <path id="STIXTwoText-78a" d="M 2426 0 
 L 1856 0 
@@ -1282,70 +1341,9 @@ z
      <use xlink:href="#STIXTwoText-78a" transform="translate(99 0)"/>
     </g>
    </g>
-   <g id="text_12">
-    <!-- 143 -->
-    <g style="fill: #d1701f" transform="translate(150.036874 143.882351) scale(0.08 -0.08)">
-     <defs>
-      <path id="STIXTwoText-789" d="M 1094 -83 
-Q 806 -83 652 -28 
-Q 499 26 438 106 
-Q 378 186 378 269 
-Q 378 371 442 460 
-Q 506 550 627 550 
-Q 723 550 828 502 
-Q 934 454 1049 393 
-Q 1165 333 1283 285 
-Q 1402 237 1523 237 
-Q 1728 237 1907 310 
-Q 2086 384 2201 560 
-Q 2317 736 2317 1050 
-Q 2317 1338 2157 1549 
-Q 1997 1760 1731 1878 
-Q 1466 1997 1158 1997 
-L 1030 1997 
-L 1030 2240 
-L 1152 2240 
-Q 1370 2240 1574 2349 
-Q 1779 2458 1910 2656 
-Q 2042 2854 2042 3110 
-Q 2042 3392 1866 3549 
-Q 1690 3706 1389 3706 
-Q 1101 3706 909 3574 
-Q 717 3443 550 3187 
-L 403 3270 
-Q 582 3686 876 3904 
-Q 1171 4122 1562 4122 
-Q 2054 4122 2323 3875 
-Q 2592 3629 2592 3264 
-Q 2592 2931 2397 2726 
-Q 2202 2522 1901 2330 
-L 1901 2310 
-Q 2157 2234 2371 2090 
-Q 2586 1946 2714 1738 
-Q 2842 1530 2842 1242 
-Q 2842 806 2598 508 
-Q 2355 211 1958 64 
-Q 1562 -83 1094 -83 
-z
-" transform="scale(0.015625)"/>
-     </defs>
-     <use xlink:href="#STIXTwoText-787"/>
-     <use xlink:href="#STIXTwoText-78a" transform="translate(49.5 0)"/>
-     <use xlink:href="#STIXTwoText-789" transform="translate(99 0)"/>
-    </g>
-   </g>
    <g id="text_13">
-    <!-- $\Delta$101 -->
-    <g style="fill: #d1701f" transform="translate(119.699755 59.802245) scale(0.085 -0.085)">
-     <use xlink:href="#STIXGeneral-Regular-254" transform="translate(0 0.59375)"/>
-     <use xlink:href="#STIXTwoText-787" transform="translate(72.199936 0.59375)"/>
-     <use xlink:href="#STIXTwoText-786" transform="translate(121.69989 0.59375)"/>
-     <use xlink:href="#STIXTwoText-787" transform="translate(171.199844 0.59375)"/>
-    </g>
-   </g>
-   <g id="text_14">
-    <!-- 246 -->
-    <g style="fill: #8c8c8c" transform="translate(245.626631 69.566549) scale(0.08 -0.08)">
+    <!-- 146 -->
+    <g style="fill: #d1701f" transform="translate(150.036874 148.496665) scale(0.08 -0.08)">
      <defs>
       <path id="STIXTwoText-78c" d="M 1658 -77 
 Q 1184 -77 880 156 
@@ -1381,27 +1379,45 @@ Q 1408 147 1683 147
 z
 " transform="scale(0.015625)"/>
      </defs>
-     <use xlink:href="#STIXTwoText-788"/>
+     <use xlink:href="#STIXTwoText-787"/>
      <use xlink:href="#STIXTwoText-78a" transform="translate(49.5 0)"/>
      <use xlink:href="#STIXTwoText-78c" transform="translate(99 0)"/>
     </g>
    </g>
-   <g id="text_15">
-    <!-- 178 -->
-    <g style="fill: #d1701f" transform="translate(299.395869 118.342165) scale(0.08 -0.08)">
+   <g id="text_14">
+    <!-- $\Delta$98 -->
+    <g style="fill: #d1701f" transform="translate(121.782255 72.006748) scale(0.085 -0.085)">
      <defs>
-      <path id="STIXTwoText-78d" d="M 1472 -51 
-L 966 -51 
-L 2477 3514 
-L 1050 3514 
-Q 870 3514 774 3482 
-Q 678 3450 617 3347 
-Q 557 3245 467 3034 
-L 269 3053 
-L 525 4032 
-L 2970 4032 
-L 2970 3834 
-L 1472 -51 
+      <path id="STIXTwoText-78f" d="M 544 -83 
+L 531 102 
+Q 973 154 1344 362 
+Q 1715 570 1961 931 
+Q 2208 1293 2278 1811 
+L 2240 1818 
+Q 2022 1619 1833 1520 
+Q 1645 1421 1402 1421 
+Q 877 1421 563 1776 
+Q 250 2131 250 2765 
+Q 250 3411 592 3772 
+Q 934 4134 1536 4134 
+Q 2016 4134 2310 3897 
+Q 2605 3661 2742 3264 
+Q 2880 2867 2880 2394 
+Q 2880 1773 2713 1312 
+Q 2547 851 2240 540 
+Q 1933 230 1504 76 
+Q 1075 -77 544 -83 
+z
+M 1594 1798 
+Q 1875 1798 2089 1968 
+Q 2304 2138 2304 2547 
+Q 2304 2950 2224 3257 
+Q 2144 3565 1968 3741 
+Q 1792 3917 1510 3917 
+Q 1197 3917 1001 3667 
+Q 806 3418 806 2803 
+Q 806 2355 1001 2076 
+Q 1197 1798 1594 1798 
 z
 " transform="scale(0.015625)"/>
       <path id="STIXTwoText-78e" d="M 1574 -77 
@@ -1457,44 +1473,76 @@ Q 1958 -77 1574 -77
 z
 " transform="scale(0.015625)"/>
      </defs>
-     <use xlink:href="#STIXTwoText-787"/>
-     <use xlink:href="#STIXTwoText-78d" transform="translate(49.5 0)"/>
-     <use xlink:href="#STIXTwoText-78e" transform="translate(99 0)"/>
-    </g>
-   </g>
-   <g id="text_16">
-    <!-- $\Delta$68 -->
-    <g style="fill: #d1701f" transform="translate(271.14125 58.610129) scale(0.085 -0.085)">
      <use xlink:href="#STIXGeneral-Regular-254" transform="translate(0 0.59375)"/>
-     <use xlink:href="#STIXTwoText-78c" transform="translate(72.199936 0.59375)"/>
+     <use xlink:href="#STIXTwoText-78f" transform="translate(72.199936 0.59375)"/>
      <use xlink:href="#STIXTwoText-78e" transform="translate(121.69989 0.59375)"/>
     </g>
    </g>
-   <g id="text_17">
-    <!-- 227 -->
-    <g style="fill: #8c8c8c" transform="translate(394.985626 83.041075) scale(0.08 -0.08)">
+   <g id="text_15">
+    <!-- 263 -->
+    <g style="fill: #8c8c8c" transform="translate(245.626631 69.707921) scale(0.08 -0.08)">
      <use xlink:href="#STIXTwoText-788"/>
-     <use xlink:href="#STIXTwoText-788" transform="translate(49.5 0)"/>
-     <use xlink:href="#STIXTwoText-78d" transform="translate(99 0)"/>
-    </g>
-   </g>
-   <g id="text_18">
-    <!-- 173 -->
-    <g style="fill: #d1701f" transform="translate(448.754864 122.30866) scale(0.08 -0.08)">
-     <use xlink:href="#STIXTwoText-787"/>
-     <use xlink:href="#STIXTwoText-78d" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-78c" transform="translate(49.5 0)"/>
      <use xlink:href="#STIXTwoText-789" transform="translate(99 0)"/>
     </g>
    </g>
-   <g id="text_19">
-    <!-- $\Delta$54 -->
-    <g style="fill: #d1701f" transform="translate(420.500245 72.084654) scale(0.085 -0.085)">
+   <g id="text_16">
+    <!-- 190 -->
+    <g style="fill: #d1701f" transform="translate(299.395869 118.638527) scale(0.08 -0.08)">
+     <use xlink:href="#STIXTwoText-787"/>
+     <use xlink:href="#STIXTwoText-78f" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-786" transform="translate(99 0)"/>
+    </g>
+   </g>
+   <g id="text_17">
+    <!-- $\Delta$72 -->
+    <g style="fill: #d1701f" transform="translate(271.14125 59.458361) scale(0.085 -0.085)">
+     <defs>
+      <path id="STIXTwoText-78d" d="M 1472 -51 
+L 966 -51 
+L 2477 3514 
+L 1050 3514 
+Q 870 3514 774 3482 
+Q 678 3450 617 3347 
+Q 557 3245 467 3034 
+L 269 3053 
+L 525 4032 
+L 2970 4032 
+L 2970 3834 
+L 1472 -51 
+z
+" transform="scale(0.015625)"/>
+     </defs>
      <use xlink:href="#STIXGeneral-Regular-254" transform="translate(0 0.59375)"/>
-     <use xlink:href="#STIXTwoText-78b" transform="translate(72.199936 0.59375)"/>
-     <use xlink:href="#STIXTwoText-78a" transform="translate(121.69989 0.59375)"/>
+     <use xlink:href="#STIXTwoText-78d" transform="translate(72.199936 0.59375)"/>
+     <use xlink:href="#STIXTwoText-788" transform="translate(121.69989 0.59375)"/>
+    </g>
+   </g>
+   <g id="text_18">
+    <!-- 250 -->
+    <g style="fill: #8c8c8c" transform="translate(394.985626 78.116286) scale(0.08 -0.08)">
+     <use xlink:href="#STIXTwoText-788"/>
+     <use xlink:href="#STIXTwoText-78b" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-786" transform="translate(99 0)"/>
+    </g>
+   </g>
+   <g id="text_19">
+    <!-- 193 -->
+    <g style="fill: #d1701f" transform="translate(448.754864 116.754242) scale(0.08 -0.08)">
+     <use xlink:href="#STIXTwoText-787"/>
+     <use xlink:href="#STIXTwoText-78f" transform="translate(49.5 0)"/>
+     <use xlink:href="#STIXTwoText-789" transform="translate(99 0)"/>
     </g>
    </g>
    <g id="text_20">
+    <!-- $\Delta$57 -->
+    <g style="fill: #d1701f" transform="translate(420.500245 67.866725) scale(0.085 -0.085)">
+     <use xlink:href="#STIXGeneral-Regular-254" transform="translate(0 0.59375)"/>
+     <use xlink:href="#STIXTwoText-78b" transform="translate(72.199936 0.59375)"/>
+     <use xlink:href="#STIXTwoText-78d" transform="translate(121.69989 0.59375)"/>
+    </g>
+   </g>
+   <g id="text_21">
     <!-- Joint reference optimization recovers ref-tracking schemes -->
     <g style="fill: #262626" transform="translate(42.8225 16.07) scale(0.1 -0.1)">
      <defs>
@@ -2180,48 +2228,48 @@ z
    <g id="patch_13">
     <path d="M 75.323017 251.22 
 L 129.092255 251.22 
-L 129.092255 127.926283 
-L 75.323017 127.926283 
+L 129.092255 132.95584 
+L 75.323017 132.95584 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
    <g id="patch_14">
     <path d="M 224.682012 251.22 
 L 278.45125 251.22 
-L 278.45125 123.52629 
-L 224.682012 123.52629 
+L 278.45125 122.811772 
+L 224.682012 122.811772 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
    <g id="patch_15">
     <path d="M 374.041007 251.22 
 L 427.810245 251.22 
-L 427.810245 130.310515 
-L 374.041007 130.310515 
+L 427.810245 130.389431 
+L 374.041007 130.389431 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
    <g id="patch_16">
     <path d="M 129.092255 251.22 
 L 182.861493 251.22 
-L 182.861493 160.005047 
-L 129.092255 160.005047 
+L 182.861493 165.745086 
+L 129.092255 165.745086 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
    <g id="patch_17">
     <path d="M 278.45125 251.22 
 L 332.220488 251.22 
-L 332.220488 148.531831 
-L 278.45125 148.531831 
+L 332.220488 158.592911 
+L 278.45125 158.592911 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
    <g id="patch_18">
     <path d="M 427.810245 251.22 
 L 481.579483 251.22 
-L 481.579483 147.050717 
-L 427.810245 147.050717 
+L 481.579483 157.039558 
+L 427.810245 157.039558 
 z
 " clip-path="url(#p36b83dd4e3)" style="fill: url(#hdfe033d2f4)"/>
    </g>
@@ -2247,7 +2295,7 @@ L 423.36 42.266
 z
 " style="fill: #8c8c8c; stroke: #ffffff; stroke-linejoin: miter"/>
     </g>
-    <g id="text_21">
+    <g id="text_22">
      <!-- fixed ref (CVaR$_{95}$) -->
      <g style="fill: #262626" transform="translate(445.76 47.866) scale(0.08 -0.08)">
       <defs>
@@ -2338,7 +2386,7 @@ L 423.36 54.266
 z
 " style="fill: #d1701f; stroke: #ffffff; stroke-linejoin: miter"/>
     </g>
-    <g id="text_22">
+    <g id="text_23">
      <!-- joint ref (CVaR$_{95}$) -->
      <g style="fill: #262626" transform="translate(445.76 59.866) scale(0.08 -0.08)">
       <defs>

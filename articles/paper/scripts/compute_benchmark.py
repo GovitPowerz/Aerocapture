@@ -1,7 +1,8 @@
 """Single-core guidance compute benchmark for the 3-way (NN / FTC / FNPAG).
 
 Measures wall-clock per trajectory on ONE core for each deployed scheme over a
-shared set of representative scenarios (the 2M final-eval pool, first --n-sims).
+shared set of representative scenarios (the 2M final-eval pool, first --n-sims, per-scenario
+noise: the regime of every v4 main-body number).
 The cross-scheme ratio of ms/sim is a CONSERVATIVE proxy for relative onboard
 guidance cost: the integration/physics cost is shared across schemes and sits
 in the denominator of both, so the ms/sim ratio UNDER-states the pure
@@ -12,7 +13,7 @@ evaluation). The guidance cadence is identical across schemes, so ms/sim ratio
 
 This is the "compute of the fastest" half of the NN deployability claim.
 Deployed-state aware: reuses deploy_overrides.resolve_eval_toml + scaffolding so each
-scheme runs at its deployed operating point. Gated on 01 (classical) + 02 (NN).
+scheme runs at its deployed operating point. Gated on the v4 cells (#172 retunes, #173 headline).
 
 Usage:
     uv run python articles/paper/scripts/compute_benchmark.py [--n-sims 200]
@@ -27,28 +28,29 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
-# (label, run_dir relative to training_output, training TOML) -- the 3-way.
-# NN = the Mamba_962 sizing headline (stateful SSM runtime -- a deliberately
-# pessimistic per-sim cost vs the dense efficiency reference; report both if asked).
+# (label, run_dir relative to training_output, training TOML) -- the 3-way, the v4 cells.
+# NN = the deployed Mamba_962 seed (stateful SSM runtime -- a deliberately pessimistic
+# per-sim cost vs the dense efficiency reference, seed 1 of its cell); FTC = the retuned
+# joint-reference FTC; FNPAG = the retuned FNPAG.
 SCHEMES = [
-    ("NN-mamba", "mamba_p962_long", "configs/training/sweep/mamba_p962.toml"),
-    ("NN-dense", "dense_p515_ga_paper_best", "configs/training/sweep/dense_p515.toml"),
-    ("FTC", "ftc", "configs/training/msr_aller_ftc_train.toml"),
-    ("FNPAG", "fnpag", "configs/training/msr_aller_fnpag_train.toml"),
+    ("NN-mamba", "ou_marginal/hl_mamba_p962", "configs/training/ou_marginal/hl_mamba_p962.toml"),
+    ("NN-dense", "ou_marginal/hl_dense_p515", "configs/training/ou_marginal/hl_dense_p515.toml"),
+    ("FTC", "ou_marginal/classical/ftc_joint", "configs/training/ou_marginal/classical/ftc_joint.toml"),
+    ("FNPAG", "ou_marginal/classical/fnpag", "configs/training/ou_marginal/classical/fnpag.toml"),
 ]
+PER_DRAW = {"monte_carlo.noise_seeding": "per_draw"}
 OUT = REPO / "articles/paper/data/compute_benchmark.json"
 
 
 def _bench_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     import aerocapture_rs
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
     # Warmup (discard: caches, page-ins) through cell_eval, which resolves the cell once; the
     # timed repeats replay that resolved batch on the bare seam so cell resolution stays untimed.
-    warm = evaluate_cell(scheme_dir, Path(toml), pool=(FINAL_EVAL_SEED_OFFSET, n_sims), extra_overrides=LEGACY_NOISE_REGIME, n_threads=1)
+    warm = evaluate_cell(scheme_dir, Path(toml), pool=(FINAL_EVAL_SEED_OFFSET, n_sims), extra_overrides=PER_DRAW, n_threads=1)
     overrides = [{**warm.overrides, "monte_carlo.seed": s} for s in warm.seeds]
 
     def run() -> None:
@@ -113,6 +115,7 @@ def main(argv: list[str] | None = None) -> None:
             "rustc": subprocess.run(["rustc", "--version"], capture_output=True, text=True).stdout.strip(),
             "python": platform.python_version(),
             "profile": "release (lto), f64 throughout, n_threads=1, idle box",
+            "noise_seeding": PER_DRAW["monte_carlo.noise_seeding"],
             "timing": "median of 5 batch repeats after 1 warmup; per-scheme repeat spread in ms_per_sim_repeats",
             "guidance_cadence_s": 1.0,
         }

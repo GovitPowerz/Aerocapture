@@ -2,8 +2,6 @@
 // paper.typ read data/*.json instead of quoting transcribed literals (issue #120).
 //   run(key)      -> a results.json run summary (n = 1000 final-evaluation pool)
 //   paired(key)   -> a results.json paired comparison
-//   conf(label)   -> a confirmatory_eval.json cell (10 x 100 000 frozen pool)
-//   finalist(l)   -> a quant/finalists_results.json row (re-quote pool, n = 1000)
 //   marg(label)   -> a confirmatory_marginal.json cell (10 x 100 000, per-scenario noise)
 //   ou(label)     -> a quote_marginal.json cell (paired n = 1000; regime: "marginal" = one noise
 //                    path per scenario, "frozen" = the shared path)
@@ -11,29 +9,25 @@
 //                    "dense_p515") fine-tuned under ceiling "q25" / "q27" / "q30", scored at its "own"
 //                    ceiling or at the "v4" limit (paired n = 1000, the marginal regime of ou())
 //   slope_summary(cell)  -> its CVaR95 slope per MJ/m2 and the source seeds' CVaR95 spread
-//   centered(label, regime)          -> a centered_depth.json cell (9M stress pool, n = 10 000, high
-//                                       regime; regime "per_draw" or "legacy", the file's pair, asserted; #156)
-//   centered_paired(a, b, regime)    -> its paired seed-versus-baseline deltas under one regime
-//   bench(label)  -> a compute_benchmark.json row (one idle core, wall-clock; NN-mamba, NN-dense,
-//                    FTC, FNPAG): ms_per_sim, n_guidance_updates, us_per_update_incl_sim, and
-//                    FNPAG's ms_per_replan_derived
+//   bench(label)  -> a compute_benchmark.json row (one idle core, wall-clock, per-scenario noise; the
+//                    v4 cells NN-mamba = the deployed seed, NN-dense, FTC = joint-reference FTC, FNPAG):
+//                    ms_per_sim, n_guidance_updates, us_per_update_incl_sim, and FNPAG's ms_per_replan_derived
 //   probe_ref(p, ref, arm)  -> an Appendix B probe's higher-budget reference row against its
 //                    retrained in-regime baseline arm (data/probes/<p>_probe_results.json): p95 of
 //                    the reference, three-seed mean p95 of the arm and its sigma_run
 //   span(xs)      -> the min--max range of a list of numbers, as math (f: fixed or signed, d decimals)
 // The regime is part of the number (ADR-0003 / ADR-0006): a results.json run enters a table only
 // through legacy_regime(key) or per_draw_regime(key), each asserting the run's noise_seeding, so a
-// shared-path (development-regime) run cannot enter a per-scenario table or the reverse. The
-// confirmatory_eval.json cells are legacy throughout; confirmatory_marginal.json is per_draw
-// throughout, asserted at load (issues #137, #174). quote_marginal.json
+// shared-path (development-regime) run cannot enter a per-scenario table or the reverse.
+// confirmatory_marginal.json is per_draw throughout, asserted at load (issues #137, #174); the
+// arxiv-v3 shared-path products (confirmatory_eval.json, centered_depth.json, quant/) stay in the
+// bundle as that version's record and are read by nothing here (issue #181). quote_marginal.json
 // (issue #157) pins legacy seeding for both of its regimes and reaches the per-scenario one through
 // a per-seed override of simulation.random_seed, asserted at load on the protocol record its source
 // writes (`regimes`, `seed_pool`; issue #166), so the assert tests the scoring script, not the extract;
 // heat_load_slope.json (issue #192) carries the same marginal protocol record and is asserted the same way.
 
 #let results = json("data/results.json")
-#let confirmatory = json("data/confirmatory_eval.json")
-#let finalists = json("data/quant/finalists_results.json").finalists
 #let marginal = json("data/confirmatory_marginal.json")
 #assert(marginal.noise_seeding == "per_draw", message: "confirmatory_marginal.json is not the per_draw regime")
 #let quotes = json("data/quote_marginal.json")
@@ -45,38 +39,27 @@
   and heat_load.regime.per_seed_override == quotes.regimes.marginal.per_seed_override
   and heat_load.seed_pool == quotes.seed_pool and heat_load.n_sims == quotes.n_sims,
   message: "heat_load_slope.json is not the marginal regime of quote_marginal.json (legacy seeding, per-scenario random_seed override, the same seed pool and n)")
-#let centered_depth = json("data/centered_depth.json")
-#assert(centered_depth.regimes.keys() == ("per_draw", "legacy")
-  and centered_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"
-  and centered_depth.regimes.legacy.at("monte_carlo.noise_seeding") == "legacy",
-  message: "centered_depth.json does not carry the per_draw / legacy regime pair")
 #let benchmark = json("data/compute_benchmark.json")
-#assert(benchmark.single_core, message: "compute_benchmark.json is not the single-core benchmark the prose quotes")
+#assert(benchmark.single_core and benchmark.meta.at("noise_seeding", default: none) == "per_draw",
+  message: "compute_benchmark.json is not the single-core per_draw benchmark the prose quotes")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)
-#let conf(label) = {
-  let cell = confirmatory.cells.find(c => c.label == label)
-  assert(cell != none, message: "confirmatory_eval.json has no cell " + label)
-  cell
-}
-#let finalist(label) = {
-  let row = finalists.find(f => f.label == label)
-  assert(row != none, message: "finalists_results.json has no row " + label)
-  row
-}
 
 // A per-scenario confirmatory cell, pooled over the full pool (asserted): n, capture % from
 // n_captured / n (the source's capture_pct is rounded to 2 decimals, 100.0 for 5 losses), the
 // scenarios lost, the pooled CVaR95 / CVaR99.9 / worst case / constraint-violation %, and the
 // CVaR99.9 standard error over the replicates.
-#let marg(label) = {
-  let cell = marginal.cells.find(c => c.label == label)
-  assert(cell != none, message: "confirmatory_marginal.json has no cell " + label)
+#let pooled_cell(cell, label) = {
   let p = cell.pooled
   assert(p.n == marginal.n_replicates * marginal.n_per_replicate, message: label + " does not cover the full confirmatory pool")
   (n: p.n, capture_pct: 100 * p.n_captured / p.n, lost: p.n - p.n_captured, cvar95: p.cvar95, cvar999: p.cvar999,
-    cvar999_se: cell.replicate_stats.cvar999.se, max: p.max, viol_pct: p.viol_pct)
+    cvar999_se: cell.replicate_stats.cvar999.se, max: p.max, viol_pct: p.viol_pct, hl_viol_n: p.at("heat_load_viol_n", default: none))
+}
+#let marg(label) = {
+  let cell = marginal.cells.find(c => c.label == label)
+  assert(cell != none, message: "confirmatory_marginal.json has no cell " + label)
+  pooled_cell(cell, label)
 }
 // A paired n = 1000 cell of the OU-marginal campaign: capture %, CVaR95 of the correction DV over
 // captured scenarios, heat-load violation %, under the per-scenario ("marginal") or the
@@ -99,20 +82,6 @@
 #let slope_summary(cell) = {
   assert(cell in heat_load.summary, message: "heat_load_slope.json has no summary for " + cell)
   heat_load.summary.at(cell)
-}
-// A centered high-regime cell at sizing depth, under one of the file's two regimes: n, capture %
-// (+ CI), the conditional DV statistics (+ CIs) of run_stats.
-#let centered(label, regime) = {
-  let cell = centered_depth.cells.at(regime).find(c => c.label == label)
-  assert(cell != none, message: "centered_depth.json has no " + regime + " cell " + label)
-  cell
-}
-// Its paired a-versus-b record: capture-rate and conditional-CVaR95 deltas with bootstrap CIs
-// (negative CVaR95 delta = a's tail is better), the both-captured mean delta, win rate, Wilcoxon p.
-#let centered_paired(a, b, regime) = {
-  let p = centered_depth.paired.at(regime).find(p => p.a == a and p.b == b)
-  assert(p != none, message: "centered_depth.json has no " + regime + " pair " + a + " - " + b)
-  p
 }
 #let bench(label) = {
   let row = benchmark.schemes.find(s => s.label == label)
@@ -170,3 +139,100 @@
 // as "< 1e-15" as the tbl-paired caption states; resolved values keep one significant digit
 // below 0.01 and two decimals above.
 #let pval(p) = if p < 1e-100 { $< 10^(-15)$ } else if p < 0.01 { sci(p) } else { $#fixed(p, d: 2)$ }
+
+// ---------------------------------------------------------------------------------------------
+// The per-scenario main body (issue #181): every file below is asserted per_draw at load.
+//   quant4_marg(label)       -> a quant_v4/confirmatory_marginal.json cell (10 x 100 000, the champion's pool)
+//   quant4_paired(label)     -> its paired replicate deltas against the champion (mean, se, t(9) 95% CI)
+//   quant4_finalist(label)   -> a quant_v4/finalists_results.json row (re-quote pool, n = 10 000)
+//   quant4_cell(b, g, p)     -> a quant_v4/quantization_results.json grid cell (re-quote pool, n = 1000)
+//   quant4_loo(tensor)       -> its one-tensor probe row; quant4_memory(b, g, p) -> its analytic footprint
+//   stress_cell(label) / stress_pair(b)  -> stress_depth.json: the champion and four retuned laws on the 9M
+//                               stress pool, n = 10 000, and the champion's paired deltas against each law
+//   centered4(label) / centered4_pair(a, b)  -> centered_depth_v4.json (9M stress pool, n = 10 000)
+//   lever4(label)            -> an objective_centering_v4.json dense lever cell (n = 1000)
+//   ablation_input(name) / ablation_ranked  -> the champion's closed-loop input sensitivity (n = 1000, log cost)
+//   fresh4                   -> the champion's fresh-pool re-quote (offset 8M, n = 1000)
+// ---------------------------------------------------------------------------------------------
+#let quant4 = json("data/quant_v4/confirmatory_marginal.json")
+#assert(quant4.noise_seeding == "per_draw" and quant4.reference == "ou_marginal/hl_mamba_p962"
+  and quant4.n_replicates == marginal.n_replicates and quant4.n_per_replicate == marginal.n_per_replicate,
+  message: "quant_v4/confirmatory_marginal.json is not the per_draw 10 x 100 000 pool paired against the v4 champion")
+#let quant4_grid = json("data/quant_v4/quantization_results.json")
+#assert(quant4_grid.noise_seeding == "per_draw" and quant4_grid.n_sims == 1000, message: "quant_v4/quantization_results.json is not the per_draw n = 1000 grid")
+#let quant4_finalists = json("data/quant_v4/finalists_results.json")
+#assert(quant4_finalists.noise_seeding == "per_draw" and quant4_finalists.n_sims == 10000, message: "quant_v4/finalists_results.json is not the per_draw n = 10 000 re-quote")
+#let stress = json("data/stress_depth.json")
+#assert(stress.noise_seeding == "per_draw" and stress.n_sims == 10000, message: "stress_depth.json is not the per_draw n = 10 000 stress scoring")
+#let centered4_depth = json("data/centered_depth_v4.json")
+#assert(centered4_depth.regimes.keys() == ("per_draw",) and centered4_depth.regimes.per_draw.at("monte_carlo.noise_seeding") == "per_draw"
+  and centered4_depth.n_sims == 10000, message: "centered_depth_v4.json is not the per_draw n = 10 000 scoring")
+#let levers4 = json("data/objective_centering_v4.json")
+#assert(levers4.noise_seeding == "per_draw" and levers4.n_sims_eval == 1000, message: "objective_centering_v4.json is not the per_draw n = 1000 lever sweep")
+#let ablation = json("data/runs/ou_marginal/hl_mamba_p962/ablation_results.json")
+#assert(ablation.noise_seeding == "per_draw" and ablation.n_sims == 1000 and ablation.cost_transform == "log",
+  message: "the champion's ablation_results.json is not the per_draw n = 1000 log-cost record")
+#let fresh4 = json("data/runs/ou_marginal/hl_mamba_p962/fresh_pool_requote.json")
+#assert(fresh4.noise_seeding == "per_draw" and fresh4.n == 1000, message: "the champion's fresh_pool_requote.json is not the per_draw n = 1000 re-quote")
+
+#let quant4_marg(label) = {
+  let cell = quant4.cells.find(c => c.label == label)
+  assert(cell != none, message: "quant_v4/confirmatory_marginal.json has no cell " + label)
+  pooled_cell(cell, label)
+}
+#let quant4_paired(label) = {
+  assert(label in quant4.paired, message: "quant_v4/confirmatory_marginal.json has no paired record for " + label)
+  quant4.paired.at(label)
+}
+#let quant4_finalist(label) = {
+  let row = quant4_finalists.finalists.find(f => f.label == label)
+  assert(row != none, message: "quant_v4/finalists_results.json has no row " + label)
+  row
+}
+#let quant4_cell(bits, granularity, policy) = {
+  let v = quant4_grid.variants.find(v => v.bits == bits and v.granularity == granularity and v.tensor_policy == policy)
+  assert(v != none, message: "quantization_results.json has no grid cell " + str(bits) + "b " + granularity + " " + policy)
+  v
+}
+#let quant4_loo(tensor) = {
+  let v = quant4_grid.loo.find(v => v.tensor == tensor)
+  assert(v != none, message: "quantization_results.json has no one-tensor row " + tensor)
+  v
+}
+#let quant4_memory(bits, granularity, policy) = {
+  let m = quant4_grid.memory.find(m => m.bits == bits and m.granularity == granularity and m.tensor_policy == policy)
+  assert(m != none, message: "quantization_results.json has no memory row " + str(bits) + "b " + granularity + " " + policy)
+  m
+}
+#let stress_cell(label) = {
+  let c = stress.cells.find(c => c.label == label)
+  assert(c != none, message: "stress_depth.json has no cell " + label)
+  c
+}
+#let stress_pair(b) = {
+  let p = stress.paired.find(p => p.a == "NN" and p.b == b)
+  assert(p != none, message: "stress_depth.json has no pair NN - " + b)
+  p
+}
+#let centered4(label) = {
+  let c = centered4_depth.cells.per_draw.find(c => c.label == label)
+  assert(c != none, message: "centered_depth_v4.json has no cell " + label)
+  c
+}
+#let centered4_pair(a, b) = {
+  let p = centered4_depth.paired.per_draw.find(p => p.a == a and p.b == b)
+  assert(p != none, message: "centered_depth_v4.json has no pair " + a + " - " + b)
+  p
+}
+#let lever4(label) = {
+  let c = levers4.cells.find(c => c.label == label)
+  assert(c != none, message: "objective_centering_v4.json has no cell " + label)
+  c
+}
+#let ablation_live = ablation.results.filter(r => not r.at("masked_out", default: false))
+#let ablation_ranked = ablation_live.sorted(key: r => r.rank)
+#let ablation_input(name) = {
+  let r = ablation_live.find(r => r.name == name)
+  assert(r != none, message: "ablation_results.json has no live input " + name)
+  r
+}

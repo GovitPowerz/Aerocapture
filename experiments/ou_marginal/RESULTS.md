@@ -819,6 +819,28 @@ champion `ou_marginal/hl_mamba_p962` flies 771.1 s on average against
 `mamba_p962_long`'s 734.1 s (final-eval pools), so its ms per simulation is not
 measured here.
 
+2026-10-12 (#181): `compute_benchmark.py` now times the v4 cells under per_draw
+(`ou_marginal/hl_mamba_p962`, `ou_marginal/hl_dense_p515`, `classical/ftc_joint`
+as the FTC row, `classical/fnpag`), same protocol and toolchain, under
+`caffeinate -i` with the box left idle:
+
+| scheme | ms / sim | repeat sd / median | guidance updates |
+|---|---|---|---|
+| NN-mamba | 3.28 | 2.3% | 771 |
+| NN-dense | 1.78 | 3.0% | 729 |
+| FTC (joint ref.) | 1.29 | 5.4% | 613 |
+| FNPAG | 207.56 | 0.3% | 639 |
+
+The fast schemes' spread is one or two slow repeats each (FTC: 1.45 against a
+1.28-1.34 cluster); the median absorbs them. FNPAG / NN-mamba 63 (was 29),
+NN-mamba / FTC 2.5, NN-mamba / NN-dense 1.85. The
+FNPAG jump is the retune, not noise: its bisection tolerance went from 99.7 km to
+343 m of exit apoapsis, so nearly every replan runs the full 2 + 1 + 8 = 11
+predictor integrations, at a 2.85 s predictor step (was 3.76 s). Joint-FTC flies
+613 updates against fixed-FTC's 480 and loads its reference table once per batch
+(the table is the optimized TOML's `[data] reference_trajectory`, not a per-sim
+override).
+
 ## v4 quantization finalists at 10^6 (#178)
 
 `17_quantization.sh v4`, on the champion `ou_marginal/hl_mamba_p962` under per_draw:

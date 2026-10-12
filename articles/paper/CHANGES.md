@@ -1,5 +1,47 @@
 # Changes since arxiv-v3
 
+## v4: the single-regime paper (#181)
+
+What changed against the arxiv-v3 source, in the order a reader meets it. The regime: every
+main-body number is per-scenario density noise (`noise_seeding = "per_draw"`, ADR-0006); the shared
+noise path is named once in Section 2.2 as the development regime of the Sections 4-5 studies and
+Appendix B, and appears in one table (Section 6.4's conditioning table). The recipe: the quoted
+network cells are trained from scratch at the 512 x 2 allocation for 20 000 generations under
+per-scenario noise (`ou_marginal/hl_*`, three seeds for the Mamba and the dense-515 reference, one
+for the GRU, dense-972 and LSTM cells); the deployed seed is seed 1 by the rule fixed before any
+confirmatory score existed; the fine-tune recipe of arxiv-v3 leaves the main body (its runs stay
+in the bundle and the loss-versus-tail figure). The baselines: all nine classical schemes are
+retuned under per-scenario noise at one allocation (`ou_marginal/classical/*`); piecewise constant
+and equilibrium glide quote their ungated reruns with a footnote. Sections moved: the abstract and
+Section 1 quote the 10^6 per-scenario table; Section 2.2 carries the noise model; Section 5's RL
+paragraph is eight lines and a four-architecture table of the PPO cells paired against the
+population cells; Section 6.2 is the per-seed architecture table at 10^6 (`tbl-arch`), 6.3 the
+reset / window / no-predicted-DV controls at three seeds and the loss-versus-tail reading, 6.4
+(new, from Appendix E) the conditioning table; Section 7.1 is re-quoted from the retuned cells
+and its figure regenerated from them; 7.2 reads the retuned laws, the stress scoring at
+n = 10 000 and the compute file; 7.3 is one per-scenario depth table with the exceedance columns
+plus the dense lever table; Section 8 reads the deployed seed's ablation; Appendix A gains the
+per-scenario seeding definition, the deployed-seed rule and the retune parity statement;
+Appendix C is the deployed seed's quantization (`data/quant_v4/`); Appendix D keeps three cards;
+Appendix E is removed. Accessors: `results.typ` gains the `quant4_*`, `stress_*`, `centered4*`,
+`lever4`, `ablation_*` and `fresh4` readers (every file asserted per_draw at load) and drops the
+arxiv-v3 readers nothing quotes any more (`conf`, `finalist`, `centered`, `centered_paired`; their
+files stay in the bundle as that version's record); `data/confirmatory_marginal.json` gains the
+seven #176 control cells through a third scorer manifest, `experiments/ou_marginal/controls_cells_v4.txt`.
+Compute: `compute_benchmark.json` is re-measured on the v4 cells under per-scenario noise (the
+deployed Mamba seed, the dense-515 seed 1, joint-FTC as the FTC row, the retuned FNPAG; asserted
+per_draw at load): Mamba 3.28 ms, dense 1.78, joint-FTC 1.29, FNPAG 207.6. The network's factor
+below FNPAG moves from 29x to 63x (the retuned FNPAG bisects to a 343 m tolerance where the
+arxiv-v3 one stopped at 99.7 km), the deadline-margin factor from thirty to about 76, the training
+core-hours to about 49 (one overnight run), and Appendix C's kernel table and Section 9's head cost
+scale with the deployed seed's 771 guidance updates instead of the frozen 644-tick trajectory.
+Every per-scenario number of Sections 5-10 and Appendix C is an accessor call, and the counts and
+orderings the prose states are asserted in `paper.typ`; the development-regime studies (Sections 4-5,
+the Section 6.1 sweep, the bank-decoder comparison) and Appendix C's kernel micro-benchmark stay
+transcribed.
+
+## Changes before v4
+
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,
 last on 2026-10-01 with #170 and the Pareto sweep cells); the arxiv-v3 build is the `arxiv-v3` tag.
 

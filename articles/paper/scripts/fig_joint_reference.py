@@ -1,9 +1,10 @@
-"""fig_joint_reference -- Study E (joint reference recovers ref-tracking schemes).
+"""fig_joint_reference -- Section 7.1 (joint reference recovers ref-tracking schemes).
 
 Paired bars (fixed-ref vs joint-ref) for the three table-reading classical schemes
-{FTC, energy_controller, pred_guid}, on the mission-SIZING TAIL. Co-optimizing the
-constant-bank reference together with the guidance gains (joint_bank gene) collapses
-the sizing tail: FTC drops from CVaR95 244.1 -> 142.9 m/s (mean 170.7 -> 126.2).
+{FTC, energy_controller, pred_guid}, on the mission-SIZING TAIL: the #172 cells retuned
+under per-scenario noise, scored on the n = 1000 final-evaluation pool (2M, per_draw) of
+results.json, the regime of every v4 main-body table. Co-optimizing the constant-bank
+reference together with the guidance gains (joint_bank gene) collapses the sizing tail.
 Primary metric dv_cvar95 (heavy bars), dv_mean overlaid as light hatched bars.
 """
 
@@ -13,15 +14,17 @@ import numpy as np
 
 # (display label, fixed-ref key, joint-ref key) ordered by joint-ref CVaR95.
 SCHEMES = [
-    ("FTC", "classical_baselines/ftc", "joint_reference/ftc"),
-    ("Energy ctrl", "classical_baselines/energy_controller", "joint_reference/energy_controller"),
-    ("PredGuid", "classical_baselines/pred_guid", "joint_reference/pred_guid"),
+    ("FTC", "ou_marginal/classical/ftc", "ou_marginal/classical/ftc_joint"),
+    ("Energy ctrl", "ou_marginal/classical/energy_controller", "ou_marginal/classical/energy_controller_joint"),
+    ("PredGuid", "ou_marginal/classical/pred_guid", "ou_marginal/classical/pred_guid_joint"),
 ]
 
 
 def main():
     fl.style()
     runs = fl.results()["runs"]
+    for _, fixed, joint in SCHEMES:
+        assert runs[fixed]["noise_seeding"] == "per_draw" and runs[joint]["noise_seeding"] == "per_draw", "the v4 figure reads per-scenario cells only"
 
     labels = [s[0] for s in SCHEMES]
     fixed_cvar = np.array([runs[s[1]]["dv_cvar95"] for s in SCHEMES])
