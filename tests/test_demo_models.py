@@ -1,4 +1,8 @@
-"""The committed demo cells are byte copies of their bundle runs, and the demo's flags pick them (issue #182)."""
+"""The committed demo cells are byte copies of their bundle runs, and the demo's flags pick them (issue #182).
+
+The arxiv-v3 fine-tune `ft_mamba_962` has no bundle run (its source is `training_output/ou_marginal/ft_mamba_p962/`), so only the
+other two cells are pinned here.
+"""
 
 from pathlib import Path
 

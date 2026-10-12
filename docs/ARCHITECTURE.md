@@ -125,8 +125,8 @@ the demo, the reports and `compare_guidance` also take) on the pools above and w
 `articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_eval.json`, the
 quantization finalists, `confirmatory_marginal.json` (the per-scenario far-tail confirmatory) and
 `quote_marginal.json` (the paired n = 1000 both-regime scoring), both extracted from
-`experiments/ou_marginal/`, and `centered_depth.json` (Section 7.3's centered cells at n = 10,000
-under both regimes), at compile time for the headline tables, the per-scenario headline
+`experiments/ou_marginal/`, and `centered_depth_v4.json` (Section 7.3's centered cells at n = 10,000
+under per-scenario noise; `centered_depth.json` is the arxiv-v3 pair), at compile time for the headline tables, the per-scenario headline
 quotes, Section 7.3's depth tables and Section 6.4's conditioning table, the colophon reads `provenance.json`, `appendix.typ` reads
 `figures/appendix/<scheme>/stats.json` (the other prose numbers are still transcribed from the
 data files). `make -C articles/paper paper`

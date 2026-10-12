@@ -54,7 +54,8 @@ The next arXiv version is v4 (issue #169; the `arxiv-v4` tag and Release are iss
 the merge commit after this note). It is a single-regime paper: every main-body number is
 per-scenario, the quoted network cells are trained from scratch under that regime at the headline
 allocation (the fine-tune of the shared-path champion that this ADR named as the demo's model left
-the main body with the appendix that held it), all nine classical schemes are retuned under it, and
+the main body with the appendix that held it), the nine classical cells (six schemes, three of them
+also with a co-optimized reference) are retuned under it, and
 the shared path is named once as the development regime of Sections 4-5 and Appendix B and appears
 in one table (Section 6.4, the conditioning table). The demo flies the deployed seed
 `models/demo/hl_mamba_962/`; the fine-tune stays behind `--finetune` and the shared-path champion

@@ -84,7 +84,7 @@ captures every scenario at CVaR99.9 173.9 +- 2.2 and exceeds the heat-load ceili
 them. The seed spread is the finding's limit: the 515-parameter dense reference reaches
 160.5 +- 23.2 on the same pool, so the networks beat the laws by a margin the spread does not erase
 and beat one another by a margin it does. The arxiv-v3 results this replaces (shared-path headline
-123.3 +- 0.1; its per-scenario fine-tune 163.2 +- 1.3) are the README's historical table.
+123.3 +- 0.1; its per-scenario fine-tune 163.0 +- 0.3) are the README's historical section.
 
 Paper: `articles/paper/paper.pdf`, v4 (the single-regime rewrite, #181; the `arxiv-v4` tag and
 GitHub Release are #183's, cut on the merge commit that follows #182). The arxiv-v3 build is the

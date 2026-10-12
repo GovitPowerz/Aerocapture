@@ -20,7 +20,7 @@ feasible unless flagged.
 v4 run order and the regime of every committed bundle directory:
 `experiments/paper/README.md` ("Where results land"). In short: the per-scenario
 cells are `training_output/ou_marginal/**` (bundled as
-`articles/paper/data/runs/ou_marginal/**`) and the `rl/hl_*` cells; the runners
+`articles/paper/data/runs/ou_marginal/**`) and every `rl/*` cell; the runners
 are `classical_campaign.sh` (`classical`, `classical_ungated`), `campaign.sh`
 over `jobs_headline.txt`, `jobs_controls.txt`, `jobs_centering.txt`,
 `jobs_centering_dense.txt`, `jobs_heat_load.txt` (and the arxiv-v3 fine-tunes'

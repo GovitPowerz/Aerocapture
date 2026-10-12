@@ -15,7 +15,7 @@ Far-tail confirmatory, 10 x 100,000 pre-registered scenarios under per-scenario 
 (`articles/paper/data/confirmatory_marginal.json`, key `ou_marginal/hl_mamba_p962`): capture
 100% (10^6 of 10^6), heat-load ceiling exceeded on 0.11% of scenarios, DV CVaR95 120.1 m/s (the
 lowest of the nine network seeds), CVaR99.9 173.9 +- 2.2 m/s (replicate standard error), worst
-scenario 300 m/s. The two other seeds (`_s2`, `_s3`) hold CVaR99.9 164.6 / 142.3: three-seed mean
+scenario 300 m/s. The two other seeds (`_s2`, `_s3`) hold CVaR99.9 159.3 / 142.3: three-seed mean
 158.5 +- 15.8 m/s (one seed standard deviation), 19 m/s below the best classical law at this
 statistic (joint-reference FTC, 177.8) and 31 below FNPAG (189.1). The seed spread is the
 finding's limit: the 515-parameter dense reference reaches 160.5 +- 23.2 on the same pool.
