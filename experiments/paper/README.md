@@ -92,15 +92,39 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   (`training_output/quant_v4/`, `data/quant_v4/`), scoring the finalists of
   `experiments/ou_marginal/quant_cells_v4.txt` on the 10^6 per-scenario pool. Details in
   `src/python/aerocapture/training/README.md` (`quantize.py`).
-- Noise regime: every committed cell under `runs/` was trained and evaluated
-  under the shared noise path (`noise_seeding = "legacy"`), the simulator
-  default until ADR-0006 (2026-09-16). The eval scripts (`articles/paper/scripts/*`,
-  `param_sweep --eval`, `quantize`, the probe drivers) pin `legacy` explicitly through
-  `deploy_overrides.LEGACY_NOISE_REGIME` so the bundle reproduces; the training configs inherit the new
-  `per_draw` default, so re-running a campaign script trains under
-  per-scenario noise -- a new experiment, not a reproduction. The
-  per-scenario cells live under `experiments/ou_marginal/` and
-  `configs/training/ou_marginal/`.
+- Noise regime of the committed bundle (`data/provenance.json` states the same per file; each
+  `results.json` run carries its own `noise_seeding`). Per-scenario (`per_draw`, ADR-0006, the
+  paper's main body): `runs/ou_marginal/**` (the #172 / #188 classical retunes, the #173
+  headline-allocation cells, the fine-tunes, the #176 controls) and `runs/rl/**` (#101, #154,
+  #175), `confirmatory_marginal.json`, `stress_depth.json`, `centered_depth_v4.json`,
+  `objective_centering_v4.json`, `quant_v4/`, `compute_benchmark.json`. Shared path (`legacy`,
+  the development regime of Sections 4-5 and Appendix B): every other `runs/` directory
+  (`architecture_sweep`, `classical_baselines`, `cost_transform`, `curation_shaping`,
+  `headline`, `joint_reference`, `legacy`, `optimizer_budget`, `optimizer_dimensionality`,
+  `output_param`, `seed_strategy`, `tail_repeats`, `training_n_sims`), `confirmatory_eval.json`,
+  `far_tail_eval.json`, `robustness_*.json`, `objective_centering.json`, `quant/`. Both regimes,
+  each cell labelled: `quote_marginal.json` and `heat_load_slope.json` (the paired n = 1000 pool,
+  the marginal regime re-seeded per scenario, #157 / #192) and `centered_depth.json` (#156).
+  The arxiv-v3 eval scripts (`articles/paper/scripts/*`, `param_sweep --eval`, `quantize`
+  without `v4`, the probe drivers) pin `legacy` explicitly through
+  `deploy_overrides.LEGACY_NOISE_REGIME` so the shared-path files reproduce; the training
+  configs inherit the `per_draw` default, so re-running one of the 01-11 campaign scripts trains
+  under per-scenario noise -- a new experiment, not a reproduction. The per-scenario cells live
+  under `experiments/ou_marginal/` and `configs/training/ou_marginal/`.
+- v4 run order (#169, per-scenario regime throughout; every runner resumable under
+  `caffeinate -i`): `experiments/ou_marginal/classical_campaign.sh` then
+  `classical_campaign.sh classical_ungated` (#172, #188) -> `campaign.sh jobs_headline.txt`
+  (#173) -> `18_rl_baseline.sh hl` and `hl_repeats` (#175) -> `15_state_controls.sh v4` (#176,
+  with `campaign.sh jobs_controls.txt`) -> `14_objective_centering.sh v4` and `v4-dense` (#177,
+  with `campaign.sh jobs_centering.txt` / `jobs_centering_dense.txt`) -> `17_quantization.sh v4`
+  (#178) -> `campaign.sh jobs_heat_load.txt` (#192). Scorers, each writing under
+  `experiments/ou_marginal/` from where the Makefile extracts copy into the bundle:
+  `confirmatory_marginal.py --manifest` over `confirmatory_cells_v4.txt`, `controls_cells_v4.txt`
+  and `quant_cells_v4.txt` (`make -C articles/paper mc-confirmatory-v4`), `quote_marginal.py`
+  (`mc-quote-marginal`, plus `--manifest classical_cells.txt`), `heat_load_slope.py`
+  (`mc-heat-load-slope`); the paper-side v4 scorers are `mc-stress-depth`,
+  `mc-centered-depth-v4`, `mc-objective-centering-v4`, `mc-compute-benchmark` and
+  `mc-quant-v4`. Then `12_collect_results.sh` and `make -C articles/paper paper`.
 
 ## Configs
 
@@ -132,13 +156,16 @@ lives in these runners, because cells are reused across studies (e.g.
 - "Compute-matched" claims must report **actual sims** per run (from the JSONL:
   training = n_pop x n_sims x n_gen; validations = records with a `validation`
   key x 1000; curations = distinct `last_curation_gen` x top_k x 1000).
-- The final headline model (**Mamba_962**, `training_output/mamba_p962_long/`) gets
-  one **fresh-pool** MC re-quote (seed offset 8M) for the abstract number (CVaR95 115.2).
-- sigma_run on the SIZING TAIL comes from 10c (dense/mamba/lstm s2/s3 at the headline
-  allocation); 11_seed_repeats (optimizer-cell mean sigma_run) is OBSOLETE/skipped.
-  `aggregate_results.py` folds the 10c triplets into `results.json` under
-  `sigma_run.tail_groups` (per-seed CVaR99.9/max + mean/range/std) -- the durable
-  source of the paper's 3-seed-mean tail numbers (124.5/129.2/139.2).
+- The deployed model gets one **fresh-pool** MC re-quote (seed offset 8M): for v4 the deployed
+  seed `ou_marginal/hl_mamba_p962` (`runs/ou_marginal/hl_mamba_p962/fresh_pool_requote.json`,
+  `15_state_controls.sh v4`); for arxiv-v3 it was **Mamba_962** (`training_output/mamba_p962_long/`,
+  `mc-requote`, CVaR95 115.2).
+- sigma_run on the SIZING TAIL: for v4 it is the three `hl_*` seeds of the Mamba and dense-515
+  cells at 10^6 (`confirmatory_marginal.json`; the paper's `mean_sd` over them). For arxiv-v3 it
+  came from 10c (dense/mamba/lstm s2/s3 at the headline allocation), which `aggregate_results.py`
+  folds into `results.json` under `sigma_run.tail_groups` (per-seed CVaR99.9/max +
+  mean/range/std; the shared-path 3-seed-mean tail numbers 124.5/129.2/139.2); 11_seed_repeats
+  (optimizer-cell mean sigma_run) is OBSOLETE/skipped.
 
 ## Legacy dirs (preserved, PRE-FIX regime -- footnote when quoted)
 

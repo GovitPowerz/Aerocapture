@@ -47,3 +47,15 @@ result is quoted under a heading that names it as the historical result and its 
 - The paper's next arXiv version leads with the per-scenario result in the abstract and the
   conclusion (`articles/paper/CHANGES.md`); its committed PDF is recompiled only when that version
   pass is complete, so the source and the PDF differ until then.
+
+## Closing note (2026-10-12, issue #182)
+
+The next arXiv version is v4 (issue #169; the `arxiv-v4` tag and Release are issue #183's, cut on
+the merge commit after this note). It is a single-regime paper: every main-body number is
+per-scenario, the quoted network cells are trained from scratch under that regime at the headline
+allocation (the fine-tune of the shared-path champion that this ADR named as the demo's model left
+the main body with the appendix that held it), all nine classical schemes are retuned under it, and
+the shared path is named once as the development regime of Sections 4-5 and Appendix B and appears
+in one table (Section 6.4, the conditioning table). The demo flies the deployed seed
+`models/demo/hl_mamba_962/`; the fine-tune stays behind `--finetune` and the shared-path champion
+behind `--legacy`. The README leads with v4 and keeps the shared-path table as the arxiv-v3 record.

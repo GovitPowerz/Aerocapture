@@ -18,8 +18,9 @@ scaffolding, applied as overrides at run time.
 This champion was trained and quoted under the historical shared density-noise
 path (`noise_seeding = "legacy"`), the conditioning defect the paper's Appendix E
 discloses; under per-scenario noise (the default since ADR-0006) it captures 97.9%
-with 0.9% heat-load violations. The deployed model is its per-scenario fine-tune,
-`models/demo/ft_mamba_962/`.
+with 0.9% heat-load violations. The deployed model is `models/demo/hl_mamba_962/`, trained from
+scratch under per-scenario noise (paper v4); its arxiv-v3 per-scenario fine-tune is
+`models/demo/ft_mamba_962/` (`--finetune`).
 
 Consumed by `uv run python -m aerocapture.demo --legacy`, which also pins the
 shared-path regime. The demo runs on an arbitrary fixed seed, deliberately outside

@@ -17,6 +17,21 @@ All numbers below are the MARGINAL
 regime, DV CVaR95 in m/s; every listed run is 100% capture and heat-load
 feasible unless flagged.
 
+v4 run order and the regime of every committed bundle directory:
+`experiments/paper/README.md` ("Where results land"). In short: the per-scenario
+cells are `training_output/ou_marginal/**` (bundled as
+`articles/paper/data/runs/ou_marginal/**`) and the `rl/hl_*` cells; the runners
+are `classical_campaign.sh` (`classical`, `classical_ungated`), `campaign.sh`
+over `jobs_headline.txt`, `jobs_controls.txt`, `jobs_centering.txt`,
+`jobs_centering_dense.txt`, `jobs_heat_load.txt` (and the arxiv-v3 fine-tunes'
+`jobs_phase2.txt`), with `experiments/paper/{14,15,17,18}_*.sh` in their `v4` /
+`hl` modes; the scorers are `confirmatory_marginal.py` over
+`confirmatory_cells_v4.txt`, `controls_cells_v4.txt` and `quant_cells_v4.txt`,
+`quote_marginal.py` (plus `--manifest classical_cells.txt`) and
+`heat_load_slope.py`, each with a `make -C articles/paper mc-*` alias. Every
+`runs/` directory outside `ou_marginal/` and `rl/` is the shared-path
+development regime.
+
 ## Scratch per_draw retrains (3 seed repeats each: s1/s2/s3)
 
 Allocation: every run here (scratch and fine-tune) used the sweep config's
