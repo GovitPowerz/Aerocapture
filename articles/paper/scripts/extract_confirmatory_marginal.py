@@ -4,7 +4,8 @@ The per-scenario-noise (per_draw) 10^6 confirmatory the paper's performance tabl
 results.typ (issues #137, #174). Its source, experiments/ou_marginal/confirmatory_marginal.json, is
 written by confirmatory_marginal.py next to it (hours per cell); this extract keeps every cell of
 the scorer's manifests (confirmatory_cells.txt, the arxiv-v3 rows; confirmatory_cells_v4.txt, every
-v4 row: issue #179) and only the fields the paper quotes (plus the survival subsample of the
+v4 row: issue #179; controls_cells_v4.txt, the #176 mechanism controls Section 6.3 reads) and only
+the fields the paper quotes (plus the survival subsample of the
 cells fig_survival.py draws, issue #180), so the bundle carries them under data/SHA256SUMS and
 the provenance digest. The manifests are the one cell list: a cell added to a
 manifest is scored, extracted and quotable from the same line. `make check` runs `--check`, which
@@ -22,7 +23,11 @@ from confirmatory_marginal import read_manifest  # noqa: E402
 
 SRC = REPO / "experiments/ou_marginal/confirmatory_marginal.json"
 OUT = REPO / "articles/paper/data/confirmatory_marginal.json"
-MANIFEST_REL = ("experiments/ou_marginal/confirmatory_cells.txt", "experiments/ou_marginal/confirmatory_cells_v4.txt")
+MANIFEST_REL = (
+    "experiments/ou_marginal/confirmatory_cells.txt",
+    "experiments/ou_marginal/confirmatory_cells_v4.txt",
+    "experiments/ou_marginal/controls_cells_v4.txt",
+)
 MANIFESTS = tuple(REPO / m for m in MANIFEST_REL)
 POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
 # heat_load_viol_n (the #173 outcome's "scenarios over the ceiling per 10^6") postdates the rows scored
