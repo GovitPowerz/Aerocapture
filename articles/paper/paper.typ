@@ -184,7 +184,10 @@
 #let ms_state = ms("NN-mamba") / ms("NN-dense")
 #let fl_replan_ms = 100 * R.bench("FNPAG").ms_per_replan_derived
 #let fl_update_ms = 100 * R.bench("NN-mamba").us_per_update_incl_sim / 1000
-#assert(calc.abs((1000 / fl_update_ms) / (2000 / fl_replan_ms) - 30) < 5, message: "the Compute paragraph states the two deadline margins differ by a factor of thirty")
+#let deadline_ratio = (1000 / fl_update_ms) / (2000 / fl_replan_ms)
+// Appendix C's forward-kernel micro-benchmark (transcribed ns per tick) scaled to one flight of the
+// deployed seed: its mean guidance updates per simulation on the final-evaluation pool.
+#let head_ms(ns) = ns * R.bench("NN-mamba").n_guidance_updates / 1e6
 #let bench_rustc = R.benchmark.meta.rustc.split(" ").at(1).split(".").slice(0, 2).join(".")
 #let bench_spread = ("NN-mamba", "NN-dense", "FTC", "FNPAG").map(l => 100 * R.mean_sd(R.bench(l).ms_per_sim_repeats).sd / ms(l))
 // Noise conditioning (Section 6.4, data/quote_marginal.json, paired n = 1000): the five shared-path
@@ -1266,7 +1269,7 @@ $#fnpag.lost$ physical crashes in $10^6$ (surface impacts on individual re-runs 
 timeout, not censoring) -- so the repaired FTC is the better classical scheme at sizing depth.
 
 *Compute.* On a single idle core, the dense network runs at $#R.fixed(ms("NN-dense"), d: 2)$ ms per simulation and the stateful
-Mamba at $#R.fixed(ms("NN-mamba"), d: 2)$ ms, against $#R.fixed(ms("FTC"), d: 2)$ ms for FTC and $#R.fixed(ms("FNPAG"))$ ms for FNPAG (@fig-classical). The network is
+Mamba at $#R.fixed(ms("NN-mamba"), d: 2)$ ms, against $#R.fixed(ms("FTC"), d: 2)$ ms for the joint-reference FTC and $#R.fixed(ms("FNPAG"))$ ms for FNPAG (@fig-classical). The network is
 about $#R.fixed(ms_vs_ftc) times$ FTC -- the same fast class -- and $#ms_vs_fnpag times$ faster than the numerical
 predictor--corrector. On accuracy and compute FNPAG is dominated -- joint-FTC matches its accuracy
 and the network beats it, both at a small fraction of its cost -- though the off-nominal stress
@@ -1277,7 +1280,7 @@ divided by the $approx #R.bench("NN-mamba").n_guidance_updates$ updates flown --
 predictor work amounts to $approx #R.fixed(R.bench("FNPAG").ms_per_replan_derived, d: 2)$ ms per $2$ s replan cycle. Flight processors run one to
 two orders of magnitude slower than the laptop core measured here; at a conservative $100 times$
 scaling neither scheme breaches its own deadline ($approx #int(calc.round(fl_replan_ms))$ ms per replan against $2$ s;
-$approx #R.fixed(fl_update_ms)$ ms per update against $1$ s), but the deadline margins differ by a factor of thirty,
+$approx #R.fixed(fl_update_ms)$ ms per update against $1$ s), but the deadline margins differ by a factor of about $#int(calc.round(deadline_ratio))$,
 and the relative cost ordering is host-independent. None of these measurements establish worst-case
 execution time or memory on qualified hardware (Section 9).
 
@@ -1603,8 +1606,8 @@ on, and widening the training environment recovers what the narrow one gave away
 
 A third tradeoff is the cost of state. The deployed Mamba runs at $#R.fixed(ms("NN-mamba"), d: 2)$ ms per simulation against
 $#R.fixed(ms("NN-dense"), d: 2)$ ms for the dense network -- about $#R.fixed(ms_state) times$ for the selective-state-space core. The head
-itself accounts for $approx 1.2$ ms of that cost; single-precision arithmetic would roughly halve
-it, while integer quantization buys memory rather than speed at this scale (Appendix C). Both
+itself accounts for $approx #R.fixed(head_ms(1888), d: 1)$ ms of that cost; single-precision arithmetic would cut it by
+about a third, while integer quantization buys memory rather than speed at this scale (Appendix C). Both
 remain in the fast compute class, an order of magnitude below the numerical predictor--corrector,
 so the choice is between the network and FTC, not between the network and FNPAG. If on-board
 compute or implementation simplicity is the binding constraint, the memoryless
@@ -1796,7 +1799,7 @@ interpreter lock released, network weights pass in memory rather than through fi
 dispersion-independent tables (atmosphere, winds, reference trajectories) are shared read-only
 across the batch. At the measured single-core cost of Section 7.2, the deployed run's
 #R.sci(champ_run.actual_sims.training) training passes (#R.sci(champ_run.actual_sims.total) with the selection, curation and
-re-evaluation passes) amount to roughly $#int(calc.round(champ_run.actual_sims.total * ms("NN-mamba") / 3.6e6))$ core-hours -- two nights of training
+re-evaluation passes) amount to roughly $#int(calc.round(champ_run.actual_sims.total * ms("NN-mamba") / 3.6e6))$ core-hours -- one overnight run
 on a laptop.
 
 *Deployed architecture.* Dense($17 -> 16$, swish) $->$ Mamba($d_"inner" = 16$, $d_"state" = 12$)
@@ -1825,7 +1828,7 @@ stateful sequences.
 one idle core of an Apple M4 Pro laptop (native code compiled with rustc #bench_rustc at the release
 profile with link-time optimization; $64$-bit floats throughout; single-threaded). Quoted values
 are the median of five timed batch repeats after one warm-up; the standard deviation over the
-repeats is #R.span(bench_spread, d: 1)% of the median. A flown simulation spans $approx 480$--$770$ guidance updates depending on the scheme,
+repeats is #R.span(bench_spread, d: 1)% of the median. A flown simulation spans #R.span(("FTC", "FNPAG", "NN-dense", "NN-mamba").map(l => R.bench(l).n_guidance_updates)) guidance updates on average depending on the scheme,
 giving the per-update and per-replan shares quoted in Section 7.2 (whole-simulation cost divided by
 update count -- a loose upper bound on pure guidance inference). These are
 implementation-and-host measurements supporting the relative comparison; flight-processor
@@ -2110,7 +2113,7 @@ The deployment benefit, stated plainly, is memory -- not compute:
   by the $#R.quant4_memory(4, "per_tensor", "proj_only").fp_bytes$ B of dynamics and bias parameters kept in floating point.],
 ) <tbl-quant-memory>
 
-On compute, the head accounts for $approx 1.22$ ms of the deployed policy's $#R.fixed(ms("NN-mamba"), d: 2)$ ms
+On compute, the head accounts for $approx #R.fixed(head_ms(1888), d: 2)$ ms of the deployed policy's $#R.fixed(ms("NN-mamba"), d: 2)$ ms
 whole-simulation cost (Section 7.2), a measurement of the architecture that the champion's weights
 do not change:
 
@@ -2121,16 +2124,16 @@ do not change:
     table.hline(stroke: 0.7pt),
     table.header([*Forward kernel*], [*ns / tick*], [*vs deployed*], [*ms / simulation*]),
     table.hline(stroke: 0.35pt),
-    [64-bit (deployed runtime)], [1888], [--], [1.22],
-    [64-bit hand-rolled], [1670], [$-11.6%$], [1.08],
-    [32-bit hand-rolled], [1290], [$-31.7%$], [0.83],
-    [int8 weights, int8 activations], [1735], [$-8.1%$], [1.12],
-    [packed int4 weights, int8 activations], [1747], [$-7.5%$], [1.13],
+    [64-bit (deployed runtime)], [1888], [--], [#R.fixed(head_ms(1888), d: 2)],
+    [64-bit hand-rolled], [1670], [$-11.6%$], [#R.fixed(head_ms(1670), d: 2)],
+    [32-bit hand-rolled], [1290], [$-31.7%$], [#R.fixed(head_ms(1290), d: 2)],
+    [int8 weights, int8 activations], [1735], [$-8.1%$], [#R.fixed(head_ms(1735), d: 2)],
+    [packed int4 weights, int8 activations], [1747], [$-7.5%$], [#R.fixed(head_ms(1747), d: 2)],
     table.hline(stroke: 0.7pt),
   ),
   caption: [Forward-pass micro-benchmark (median ns per guidance tick, laptop-class core, scalar
   code, the SSM recurrence in floating point for every variant; ms per simulation over the
-  measured $644$ forward passes of a flown trajectory). Quantization is not a compute win at this
+  deployed seed's mean of $#R.bench("NN-mamba").n_guidance_updates$ forward passes per flown trajectory, Section 7.2). Quantization is not a compute win at this
   scale.],
 ) <tbl-quant-bench>
 

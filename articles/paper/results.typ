@@ -9,9 +9,9 @@
 //                    "dense_p515") fine-tuned under ceiling "q25" / "q27" / "q30", scored at its "own"
 //                    ceiling or at the "v4" limit (paired n = 1000, the marginal regime of ou())
 //   slope_summary(cell)  -> its CVaR95 slope per MJ/m2 and the source seeds' CVaR95 spread
-//   bench(label)  -> a compute_benchmark.json row (one idle core, wall-clock; NN-mamba, NN-dense,
-//                    FTC, FNPAG): ms_per_sim, n_guidance_updates, us_per_update_incl_sim, and
-//                    FNPAG's ms_per_replan_derived
+//   bench(label)  -> a compute_benchmark.json row (one idle core, wall-clock, per-scenario noise; the
+//                    v4 cells NN-mamba = the deployed seed, NN-dense, FTC = joint-reference FTC, FNPAG):
+//                    ms_per_sim, n_guidance_updates, us_per_update_incl_sim, and FNPAG's ms_per_replan_derived
 //   probe_ref(p, ref, arm)  -> an Appendix B probe's higher-budget reference row against its
 //                    retrained in-regime baseline arm (data/probes/<p>_probe_results.json): p95 of
 //                    the reference, three-seed mean p95 of the arm and its sigma_run
@@ -40,7 +40,8 @@
   and heat_load.seed_pool == quotes.seed_pool and heat_load.n_sims == quotes.n_sims,
   message: "heat_load_slope.json is not the marginal regime of quote_marginal.json (legacy seeding, per-scenario random_seed override, the same seed pool and n)")
 #let benchmark = json("data/compute_benchmark.json")
-#assert(benchmark.single_core, message: "compute_benchmark.json is not the single-core benchmark the prose quotes")
+#assert(benchmark.single_core and benchmark.meta.at("noise_seeding", default: none) == "per_draw",
+  message: "compute_benchmark.json is not the single-core per_draw benchmark the prose quotes")
 
 #let run(key) = results.runs.at(key)
 #let paired(key) = results.paired.at(key)

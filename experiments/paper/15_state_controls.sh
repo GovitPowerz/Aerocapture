@@ -27,8 +27,9 @@ set -euo pipefail
 #                    ctrl_mamba_p962_nodv from scratch at the champion's allocation and budget
 #                    (GA 512 x 2, 20000 gens, 4-7 h each), then their seed 2 / 3 repeats; every
 #                    finished control on the 10^6 pool (an unfinished one is skipped until a rerun).
-#   6. compute       regime-independent: compute_benchmark.json is kept unless the release binary changed
-#                    (rustc / crate version); the script prints the recorded and current rustc.
+#   6. compute       compute_benchmark.json times the v4 cells under per_draw (re-measured 2026-10-12);
+#                    re-run it when the release binary changes (rustc / crate version); the script prints
+#                    the recorded and current rustc.
 # Quick steps first (minutes) so their records post while the retrains drain.
 #
 # PRE-REGISTERED DECISION RULE (before either v4 control ran, 2026-10-06): the controls are single seeds.

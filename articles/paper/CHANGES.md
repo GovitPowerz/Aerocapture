@@ -28,6 +28,13 @@ Appendix E is removed. Accessors: `results.typ` gains the `quant4_*`, `stress_*`
 arxiv-v3 readers nothing quotes any more (`conf`, `finalist`, `centered`, `centered_paired`; their
 files stay in the bundle as that version's record); `data/confirmatory_marginal.json` gains the
 seven #176 control cells through a third scorer manifest, `experiments/ou_marginal/controls_cells_v4.txt`.
+Compute: `compute_benchmark.json` is re-measured on the v4 cells under per-scenario noise (the
+deployed Mamba seed, the dense-515 seed 1, joint-FTC as the FTC row, the retuned FNPAG; asserted
+per_draw at load): Mamba 3.28 ms, dense 1.78, joint-FTC 1.29, FNPAG 207.6. The network's factor
+below FNPAG moves from 29x to 63x (the retuned FNPAG bisects to a 343 m tolerance where the
+arxiv-v3 one stopped at 99.7 km), the deadline-margin factor from thirty to about 76, the training
+core-hours to about 49 (one overnight run), and Appendix C's kernel table and Section 9's head cost
+scale with the deployed seed's 771 guidance updates instead of the frozen 644-tick trajectory.
 Every per-scenario number of Sections 5-10 and Appendix C is an accessor call, and the counts and
 orderings the prose states are asserted in `paper.typ`; the development-regime studies (Sections 4-5,
 the Section 6.1 sweep, the bank-decoder comparison) and Appendix C's kernel micro-benchmark stay
