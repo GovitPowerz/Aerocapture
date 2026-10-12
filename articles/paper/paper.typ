@@ -50,11 +50,16 @@
 #set table(stroke: none, inset: (x: 7pt, y: 4.5pt))
 #show figure.where(kind: table): set figure.caption(position: top)
 #show figure: set block(above: 1.5em, below: 1.5em)
-#set figure(gap: 0.8em)
+#set figure(gap: 0.8em, placement: auto)
 #show grid: set block(above: 1.5em, below: 1.5em)
 
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
+// Side-by-side pair: the grid floats as one unit; its figures stay in-flow inside it.
+#let figpair(a, b) = place(auto, float: true, {
+  set figure(placement: none)
+  grid(columns: 2, gutter: 6pt, a, b)
+})
 
 // Bundle accessors (results.json, confirmatory_marginal.json, quote_marginal.json and the v4 files
 // listed in results.typ).
@@ -768,7 +773,7 @@ flips hard: just $n_"sims" = 2$ per generation, run for many generations, gives 
 noise per generation is bought back, and then some, by the far greater scenario diversity the moving
 environment sees over the run. The deployed headline policy uses this allocation.
 
-#grid(columns: 2, gutter: 6pt,
+#figpair(
   fig("fig_cost_transform.svg", [Cost transform versus the sizing tail, at the sizing depth
   ($n = 10\,000$ pool). The cubed transform minimizes both the far-tail $"CVaR"_(99.9)$ and the
   sample maximum, even though a shallow $"CVaR"_95$ read would mildly favor square-root.], <fig-cost>),
@@ -875,10 +880,10 @@ itself was simply the stronger tool here, so throughout we optimize the mission 
   let c = R.marg("paper/" + key)
   let p = pr(pair)
   (name, [#R.fixed(r.capture_pct)], [#R.fixed(c.viol_pct, d: 2)], [#R.fixed(r.dv_mean)], [#R.fixed(r.dv_cvar95)],
-    [$#R.signed(p.delta_mean)$ #ci8(p.delta_mean_ci)], [$#R.signed(p.delta_cvar95)$], [#R.fixed(p.win_rate_a * 100)])
+    [$#R.signed(p.delta_mean)$~#ci8(p.delta_mean_ci)], [$#R.signed(p.delta_cvar95)$], [#R.fixed(p.win_rate_a * 100)])
 }
 #figure({
-  set text(size: 9pt)
+  set text(size: 8.5pt)
   table(
     columns: (auto, auto, auto, auto, auto, auto, auto, auto),
     align: (left, center, center, center, center, center, center, center),
@@ -1311,7 +1316,7 @@ $#R.fixed(st("NN").capture_pct, d: 0)%$ far outside its training regime -- but t
 extrapolates better than a policy trained on a narrower distribution. The network wins the nominal
 sizing tail it was trained for; Section 7.3 asks whether the gap is intrinsic.
 
-#grid(columns: 2, gutter: 6pt,
+#figpair(
   fig("fig_classical_vs_nn.svg", [Deployability: per-simulation compute versus far-tail
   $"CVaR"_(99.9)$ on the confirmatory pool (network points are three-seed means). Both
   network points sit lower-left -- a tighter tail than every classical scheme and far cheaper than

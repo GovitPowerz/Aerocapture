@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -37,7 +38,7 @@ POINT_STRIDE = 3
 SCHEMES = [
     (
         "nn_mamba",
-        "NN -- Mamba (962 params, deployed)",
+        "NN \u2013 Mamba (962 params, deployed)",
         "ou_marginal/hl_mamba_p962",
         "configs/training/ou_marginal/hl_mamba_p962.toml",
         "ou_marginal/hl_mamba_p962",
@@ -98,7 +99,7 @@ def chart_dv_cdf_overlay(final_records, output):
         ax.plot(v, y, color=color, lw=lw, label=label)
     ax.set_xlabel("correction Δv (m/s)")
     ax.set_ylabel("cumulative fraction")
-    ax.set_title("Correction Δv -- empirical CDF (total + burns)")
+    ax.set_title("Correction Δv \u2013 empirical CDF (total + burns)")
     ax.set_ylim(0, 1)
     ax.legend(fontsize="small", loc="lower right")
     sns.despine(fig=fig)
@@ -204,6 +205,10 @@ def main():
     parser.add_argument("--schemes", nargs="*", default=None, choices=[s[0] for s in SCHEMES], help="slugs to collect (default all)")
     parser.add_argument("--n-sims", type=int, default=1000)
     args = parser.parse_args()
+    # Byte-reproducible SVGs (figlib.save's rule; charts.* call savefig themselves): element ids
+    # hashed from a fixed salt instead of uuid4, and a fixed <dc:date> instead of the wall clock.
+    plt.rcParams["svg.hashsalt"] = "appendix"
+    os.environ["SOURCE_DATE_EPOCH"] = "0"
     wanted = set(args.schemes) if args.schemes else None
     for row in SCHEMES:
         if wanted is None or row[0] in wanted:

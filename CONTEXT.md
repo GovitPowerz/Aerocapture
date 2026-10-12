@@ -139,3 +139,12 @@ One deployed training run in a campaign grid (e.g. a sweep cell), pinned by its 
 
 **Probe**:
 A budget-matched experimental training arm comparing one architecture axis against a sweep-cell anchor.
+
+**Bundle**:
+The tracked `articles/paper/data` tree a paper version is computed from (results, extracts, checksums).
+
+**Run Log**:
+The per-generation JSONL a cell's training writes; gitignored, published as a Release asset and verified against the bundle's manifest.
+
+**Provenance**:
+The record of which inputs, versions and regime a paper PDF was computed from; the PDF's colophon names the commit.

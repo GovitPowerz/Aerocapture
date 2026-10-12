@@ -41,7 +41,7 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/GovitPowerz/Aerocapture"
 Paper = "https://github.com/GovitPowerz/Aerocapture/blob/main/articles/paper/paper.pdf"
-Release = "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v3"
+Release = "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v4"
 
 [dependency-groups]
 dev = [

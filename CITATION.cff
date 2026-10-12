@@ -7,9 +7,9 @@ authors:
     given-names: "Grégory"
     email: gregory.gelly@gmail.com
 version: 1.0.0
-date-released: 2026-09-04
+date-released: 2026-10-12
 repository-code: "https://github.com/GovitPowerz/Aerocapture"
-url: "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v3"
+url: "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v4"
 license: MIT
 keywords:
   - aerocapture
@@ -26,5 +26,5 @@ preferred-citation:
     - family-names: Gelly
       given-names: "Grégory"
   year: 2026
-  url: "https://github.com/GovitPowerz/Aerocapture/blob/main/articles/paper/paper.pdf"
-  notes: "Preprint, version 3 (GitHub Release arxiv-v3, 2026-09-04)."
+  url: "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v4/paper.pdf"
+  notes: "Preprint, version 4 (GitHub Release arxiv-v4, 2026-10-12)."

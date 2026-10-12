@@ -87,7 +87,7 @@
  },
  "dv_p99": 120.74661641240576,
  "dv_cvar95": 119.65383775294066,
- "title": "NN -- Mamba (962 params, deployed)",
+ "title": "NN \u2013 Mamba (962 params, deployed)",
  "noise_seeding": "per_draw",
  "pool": "FINAL_EVAL 2M",
  "results_key": "ou_marginal/hl_mamba_p962"
