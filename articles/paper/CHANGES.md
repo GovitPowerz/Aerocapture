@@ -28,8 +28,10 @@ Appendix E is removed. Accessors: `results.typ` gains the `quant4_*`, `stress_*`
 arxiv-v3 readers nothing quotes any more (`conf`, `finalist`, `centered`, `centered_paired`; their
 files stay in the bundle as that version's record); `data/confirmatory_marginal.json` gains the
 seven #176 control cells through a third scorer manifest, `experiments/ou_marginal/controls_cells_v4.txt`.
-Every quoted number of Sections 5-10 and Appendix C is an accessor call, and the counts and
-orderings the prose states are asserted in `paper.typ`.
+Every per-scenario number of Sections 5-10 and Appendix C is an accessor call, and the counts and
+orderings the prose states are asserted in `paper.typ`; the development-regime studies (Sections 4-5,
+the Section 6.1 sweep, the bank-decoder comparison) and Appendix C's kernel micro-benchmark stay
+transcribed.
 
 ## Changes before v4
 

@@ -1,7 +1,8 @@
 # #176's mechanism controls on the v4 champion at 10^6 per-scenario, label|toml[|model_dir], the specs
 # experiments/paper/15_state_controls.sh v4 passes to confirmatory_marginal.py --cells (the reset-state row is
 # the champion flown with --extra-override guidance.neural_network.reset_state_every_tick=true; the six
-# control cells train from scratch at the champion's allocation, jobs_controls.txt). Section 6.3 reads them
+# control cells train from scratch at the champion's allocation, jobs_controls.txt; `--manifest` over this file
+# stops at the reset-state row, which only --cells with its override scores). Section 6.3 reads them
 # through articles/paper/scripts/extract_confirmatory_marginal.py, which lists this manifest.
 ou_marginal/v4_reset_state|configs/training/ou_marginal/hl_mamba_p962.toml|training_output/ou_marginal/hl_mamba_p962
 ou_marginal/ctrl_window_p970|configs/training/ou_marginal/ctrl_window_p970.toml

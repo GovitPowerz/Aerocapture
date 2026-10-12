@@ -61,7 +61,8 @@ def build() -> dict:
     if missing:
         sys.exit(
             f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: "
-            "run experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/ou_marginal/confirmatory_cells_v4.txt"
+            "score them with experiments/ou_marginal/confirmatory_marginal.py --manifest <the manifest listing them> "
+            "(controls_cells_v4.txt's reset-state row needs its --extra-override: experiments/paper/15_state_controls.sh v4)"
         )
     return {
         "source": str(SRC.relative_to(REPO)),

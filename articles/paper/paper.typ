@@ -3,9 +3,10 @@
 // Compile: make -C articles/paper pdf (runs typst from the repo ROOT so figure paths resolve,
 // and passes the git head the colophon prints).
 // Data: articles/paper/data/ (results.json + the eval JSONs). Every main-body table and every
-// quoted number of Sections 5-10 and Appendix C is an accessor call through results.typ or is
-// asserted against the bundle at compile time (the ou_*/v4_* blocks below); Sections 4-5 and
-// Appendix B are development-regime studies and quote their transcribed numbers under that label.
+// per-scenario number of Sections 5-10 and Appendix C is an accessor call through results.typ or is
+// asserted against the bundle at compile time (the ou_*/v4_* blocks below); Sections 4-5, the
+// Section 6.1 sweep, the bank-decoder comparison and Appendix B are development-regime studies and
+// quote their transcribed numbers under that label, as does Appendix C's kernel micro-benchmark.
 // Rebuild everything: make -C articles/paper paper (see the Makefile).
 // Section order: methodology-first (the spine). One noise regime in the main body (per-scenario
 // density noise, ADR-0006); the shared noise path is the development regime of Sections 4-5.
@@ -55,8 +56,8 @@
 // Figure helper: include from figures/, attach the caption and the label.
 #let fig(path, cap, lbl) = [#figure(image("figures/" + path, width: 100%), caption: cap)#lbl]
 
-// Bundle accessors (results.json, confirmatory_eval.json, quant/finalists_results.json,
-// confirmatory_marginal.json, quote_marginal.json).
+// Bundle accessors (results.json, confirmatory_marginal.json, quote_marginal.json and the v4 files
+// listed in results.typ).
 #import "results.typ" as R
 // ---------------------------------------------------------------------------------------------
 // The per-scenario far-tail cells (data/confirmatory_marginal.json, per_draw, 10 x 100 000 scenarios
@@ -97,6 +98,8 @@
   message: "the prose states two Mamba seeds capture 10^6 of 10^6 and the third loses a handful")
 #assert(nets9.all(c => c.hl_viol_n != none and c.hl_viol_n > 0) and champ.hl_viol_n == calc.max(..mamba_seeds.map(c => c.hl_viol_n)),
   message: "the prose states every network exceeds the heat-load ceiling on some scenarios, the deployed seed on the most of its three")
+#assert(calc.min(..nets9.map(c => c.hl_viol_n)) >= 10 and calc.max(..nets9.map(c => c.hl_viol_n)) < 10000,
+  message: "the prose puts the networks' heat-load exceedances at the 10^-5 -- 10^-3 level")
 #let net_hl_span = R.span(nets9.map(c => c.hl_viol_n))
 // The margins the headline quotes: the Mamba three-seed mean against the best law and the best
 // dense network; the deployed seed against joint-FTC and FNPAG.
@@ -125,6 +128,8 @@
 #assert(calc.abs(welch_t(window3, mamba3)) < 1 and calc.abs(welch_t(nodv3, mamba3)) < 1,
   message: "the prose states neither control's three-seed CVaR99.9 difference to the champion family is resolved (Welch t below 1)")
 #assert(reset.cvar999 > 4 * champ.cvar999 and reset.capture_pct > 99.9, message: "the prose states the reset-state tail collapses by more than a factor of four at capture above 99.9%")
+#assert(nodv_seeds.all(c => c.cvar95 < jftc.cvar95) and nodv3.mean < jftc.cvar999 and nodv_seeds.all(c => c.hl_viol_n > 0),
+  message: "Appendix A states the no-predicted-DV control beats joint-FTC at CVaR95 on every seed and at CVaR99.9 on its three-seed mean, at a heat-load exceedance")
 #let mamba_range = (calc.min(..mamba_seeds.map(c => c.cvar999)), calc.max(..mamba_seeds.map(c => c.cvar999)))
 #let window_rest = window_seeds.filter(c => c.cvar999 < calc.max(..window_seeds.map(c => c.cvar999)))
 #assert(window_rest.len() == 2 and window_rest.all(c => c.cvar999 > mamba_range.at(0) and c.cvar999 < mamba_range.at(1))
@@ -145,7 +150,9 @@
 #let st = R.stress_cell
 #let st_laws = ("joint-FTC", "FTC-fixed", "PredGuid", "FNPAG")
 #assert(st_laws.all(l => R.stress_pair(l).delta_capture_pts_ci.at(1) < 0), message: "the prose states the champion captures less than every law under stress, intervals excluding zero")
-#assert(st_laws.filter(l => R.stress_pair(l).delta_cvar95_ci.at(1) < 0) == ("FNPAG",), message: "the prose states FNPAG is the one law with a worse conditional stress tail than the champion")
+#assert(st_laws.filter(l => R.stress_pair(l).delta_cvar95_ci.at(1) < 0) == ("FNPAG",)
+  and st_laws.filter(l => l != "FNPAG").all(l => R.stress_pair(l).delta_cvar95_ci.at(0) > 0),
+  message: "the prose states FNPAG is the one law with a worse conditional stress tail than the champion and every other law's is better")
 #let st_cap_deficit = R.span(st_laws.map(l => -R.stress_pair(l).delta_capture_pts))
 // Objective centering under per-scenario noise (Section 7.3): the three centered seeds against the
 // medium-deployed and the high-regime-retuned joint-FTC on the 9M stress pool at n = 10 000.
@@ -215,17 +222,21 @@
 #let q4 = R.quant4_marg
 #let q4p = R.quant4_paired
 #let q4_cells = ("ou_marginal/hl_mamba_p962", "quant_v4/ptq4_verdict", "quant_v4/qat4_finetune", "quant_v4/qat4_scratch").map(q4)
+#let q4_scratch_over = q4_cells.at(3).cvar999 - mamba_range.at(1)
+#assert(q4_cells.at(2).cvar999 > mamba_range.at(0) and q4_cells.at(2).cvar999 < mamba_range.at(1) and q4_scratch_over > 0,
+  message: "Appendix C states the QAT fine-tune sits inside the Mamba family's CVaR99.9 range and the scratch arm above its worst seed")
 #let q4_grid8 = R.quant4_grid.variants.filter(v => v.bits == 8)
 #assert(q4_grid8.len() == 4 and q4_grid8.all(v => v.capture_rate == 1 and calc.abs(v.delta_dv_cvar95) < 0.5), message: "Appendix C states every 8-bit cell captures everything within 0.5 m/s of full precision")
 #let q4_verdict = R.quant4_grid.verdict
 #assert(q4_verdict.bits == 4 and q4_verdict.granularity == "per_tensor" and q4_verdict.tensor_policy == "proj_only", message: "Appendix C names the 4-bit per-tensor projections-only cell as the verdict")
 #let q4_grid4 = R.quant4_grid.variants.filter(v => v.bits == 4)
-#assert(q4_grid4.filter(v => v.capture_rate == 1).len() == 1, message: "Appendix C states the verdict is the only 4-bit cell at full capture")
+#assert(q4_grid4.filter(v => v.capture_rate == 1).map(v => (v.granularity, v.tensor_policy)) == ((q4_verdict.granularity, q4_verdict.tensor_policy),),
+  message: "Appendix C states the verdict is the only 4-bit cell at full capture")
 #assert(q4p("quant_v4/qat4_finetune").delta_cvar999.ci95.at(1) < 0 and q4p("quant_v4/qat4_scratch").delta_cvar999.ci95.at(0) < 0 and q4p("quant_v4/qat4_scratch").delta_cvar999.ci95.at(1) > 0
   and q4p("quant_v4/ptq4_verdict").delta_cvar999.ci95.at(0) > 0,
   message: "Appendix C states the fine-tune's far-tail delta is negative, the scratch arm's straddles zero and the PTQ cell's is positive")
-#let q4_loo_top = R.quant4_grid.loo.sorted(key: v => -v.delta_dv_cvar95).first().tensor
-#assert(q4_loo_top == "layer_1.x_proj_w", message: "Appendix C names the SSM input projection as the most sensitive tensor")
+#let q4_loo_top = R.quant4_grid.loo.sorted(key: v => -v.delta_dv_cvar95).slice(0, 2).map(v => v.tensor)
+#assert(q4_loo_top == ("layer_1.x_proj_w", "layer_0.w"), message: "Appendix C names the SSM input projection as the most sensitive tensor and the input dense layer next")
 // The nine headline-allocation cells on the n = 1000 final-evaluation pool (data/results.json):
 // the flat median the architecture section quotes.
 #let net_runs = hl_labels.map(l => R.per_draw_regime("ou_marginal/" + l))
@@ -663,7 +674,7 @@ cost-transform, curation and allocation studies of this section and the optimize
 were run in the development regime of Section 2.2 (one density-noise realization shared across the
 scenarios of a pool); they compare like with like under that conditioning and their numbers are
 development quantities. The reinforcement-learning baseline of Section 5 and everything from
-Section 6 on are per-scenario.
+Section 6.2 on are per-scenario, save the bank-decoder comparison that closes Section 6.4.
 
 == Seed strategy: the genetic algorithm needs a non-stationary objective
 
@@ -1047,7 +1058,7 @@ exceeds the integrated heat-load limit on some scenarios of the $10^6$ pool -- #
 million across the nine cells, $#champ.hl_viol_n$ for the deployed seed -- where the retuned
 joint-FTC exceeds nothing and FNPAG exceeds it on $#fnpag.hl_viol_n$; no cell exceeds the heat-flux
 or g-load limits. The training gate holds every candidate to zero violations on its $n = 1000$
-selection pool, so these are exceedances the gate cannot see, at the $10^(-4)$--$10^(-3)$ level,
+selection pool, so these are exceedances the gate cannot see, at the $10^(-5)$--$10^(-3)$ level,
 and the appendix cards (Appendix D) put the deployed seed's worst heat load a fraction of a
 percent over the limit. We therefore report the share rather than exclude the cell, and we read
 the ceiling itself as a design margin: fine-tuning the deployed seed and the dense reference under
@@ -1107,8 +1118,9 @@ whether more sophisticated memory would help: Appendix B probes three further re
 the plain cells -- two arms are significantly worse.
 
 #fig("fig_loss_vs_tail.svg", [Best validation RMS versus far-tail $"CVaR"_(99.9)$ on the
-confirmatory pool for the nine headline-allocation runs (filled) and the four bundled fine-tune runs
-of the other recipe (hollow; Section 6.4). The Spearman rank correlation over the nine
+confirmatory pool for the nine headline-allocation runs (filled) and four bundled runs of another
+recipe (hollow: shared-path champions fine-tuned under per-scenario noise, population $60$, ten
+scenarios per individual, $2000$ generations). The Spearman rank correlation over the nine
 same-allocation runs is printed on the figure and read as descriptive (the runs are not
 exchangeable across families): the loss the gate selects on does not order the sizing tail.], <fig-losstail>)
 
@@ -1135,7 +1147,7 @@ $"CVaR"_95$ when each scenario receives its own realization -- ordinary distribu
 while the five shared-path-trained networks lose #R.span(ou_nets.map(ou_shift)), $2$--$4 times$ more, and every
 one adds heat-load violations, which no law incurs. A policy with internal state can fit the one
 density history it ever sees, and did. The nine cells of @tbl-arch, trained under per-scenario
-noise, score the two regimes within #R.span(hl_shifts.map(calc.abs), d: 1) m/s of each other: training on the
+noise, score the two regimes within $#R.fixed(calc.max(..hl_shifts.map(calc.abs)), d: 1)$ m/s of each other: training on the
 marginal distribution is what makes a policy's number a marginal number, and it is the one change
 between that earlier headline and this one.
 
@@ -1187,14 +1199,15 @@ between that earlier headline and this one.
   the development-regime FNPAG beats every shared-path-trained network.],
 ) <tbl-conditioning>
 
-A final architectural detail concerns the bank decoder. Among the single-output decoders that attack
+A final architectural detail concerns the bank decoder, settled in the development regime on the
+#box[$515$-parameter] dense cell of Section 5. Among the single-output decoders that attack
 the $plus.minus pi$ wrap seam, the classical two-output atan2 decoder of @eq-atan2 still
 wins: it reaches $117.4$ m/s mean and $128.7$ m/s $"CVaR"_95$ against the delta decoder ($119.9$/$141.6$)
 and the scaled-$pi$ decoder ($122.2$/$140.4$), with the edge concentrated on the tail (roughly $12$--$13$
 m/s at $"CVaR"_95$, paired) (@fig-outparam). The decoder we inherited from 2009 is still the right one.
 
-#fig("fig_output_param.svg", [Bank-decoder variants on the #box[$515$-parameter] dense network. The
-two-output atan2 decoder inherited from the 2009 work wins, with most of its advantage on the tail.], <fig-outparam>)
+#fig("fig_output_param.svg", [Bank-decoder variants on the #box[$515$-parameter] dense network, in the
+development regime. The two-output atan2 decoder inherited from the 2009 work wins, with most of its advantage on the tail.], <fig-outparam>)
 
 = Classical versus neural network
 
@@ -1338,7 +1351,7 @@ sizing tail it was trained for; Section 7.3 asks whether the gap is intrinsic.
   replicate standard errors in @tbl-arch). Network rows are the deployed seed of each cell (seed 1,
   fixed by rule); the Mamba and dense-$515$ three-seed means are in @tbl-arch. Viol. is the share of
   confirmatory draws exceeding any of the heat-flux, g-load, or heat-load limits: the networks'
-  exceedances are heat load at the $10^(-4)$--$10^(-3)$ level (Section 6.2), the fixed-reference
+  exceedances are heat load at the $10^(-5)$--$10^(-3)$ level (Section 6.2), the fixed-reference
   FTC's and the two signed-bank schemes' are heat flux, and the joint-reference trackers and FNPAG
   exceed nothing or next to it. Every classical scheme was retuned under per-scenario noise at one
   allocation (Appendix A); #super[‡]these two were selected without the strict feasibility ceiling
@@ -1465,7 +1478,7 @@ The effect transfers to the deployed architecture, and the comparison is read at
 three independent centered-Mamba retrainings and two joint-FTC baselines -- the medium-deployed
 retune of @tbl-perf and a joint-FTC retuned on the high regime -- scored on $n = 10\,000$
 scenarios of the same stress pool, paired on scenario, with bootstrap $95%$ intervals
-(@tbl-centered). The three seeds hold capture at #cd_span(cd_seeds, "capture_pct", d: 1)$%$ against
+(@tbl-centered). The three seeds hold capture at #cd_span(cd_seeds, "capture_pct", d: 2)$%$ against
 $#R.fixed(cd("jointFTC-medium").capture_pct)%$ for the medium-deployed joint-FTC, within the half-point parity band, and
 every seed wins the conditional tail: $"CVaR"_95 (Delta v | "capture")$ of #cd_span(cd_seeds, "dv_cvar95") m/s
 against $#R.fixed(cd("jointFTC-medium").dv_cvar95, d: 0)$, every paired delta negative with an interval excluding
@@ -1580,7 +1593,7 @@ The second limitation is the one the per-scenario campaign measured on our own e
 networks beat the classical schemes at sizing depth by a margin the seed spread does not erase, but
 they beat one another by a margin it does: the Mamba's three seeds span $#R.fixed(calc.max(..mamba_seeds.map(c => c.cvar999)) - calc.min(..mamba_seeds.map(c => c.cvar999)))$ m/s of
 $"CVaR"_(99.9)$ and the dense reference's $#R.fixed(calc.max(..dense_seeds.map(c => c.cvar999)) - calc.min(..dense_seeds.map(c => c.cvar999)))$, the controls without learned state
-or without the cost-to-go inputs land inside those spans, and the deployed seed is the worst of its
+or without the cost-to-go inputs are not resolved from the Mamba family (Section 6.3), and the deployed seed is the worst of its
 family at the depth that sizes the tanks. A sizing engineer should quote a family mean with its
 spread, repeat seeds before quoting any architecture ordering, and expect the gate -- which
 promotes on validation loss -- to pick a seed the far tail does not favor. The broader pattern,
@@ -1744,8 +1757,9 @@ classical searches plateau far inside their budget, so the network's longer run 
 nothing. The joint-reference co-optimization of Section 7.1 is the classical counterpart of the
 network's co-tuned actuator parameters, and the information asymmetry is tested directly: retrained
 without the three predicted-$Delta v$ observations the classical schemes cannot consume, the
-network reaches the same far tail within seed variance and still beats the co-tuned joint-FTC on
-every reported statistic (Section 6.3, third control).
+network reaches the same far tail within seed variance and still beats the co-tuned joint-FTC at
+$"CVaR"_95$ on every seed and at $"CVaR"_(99.9)$ on its three-seed mean, at the heat-load exceedance
+every network carries (Section 6.3, third control).
 
 *Correction burns.* The reported $Delta v$ is the three-burn plan from the captured orbit (apsis
 radii $r_a$, $r_p$) to the $500$ km circular parking orbit (radius $r_c$), using the elliptical
@@ -2023,7 +2037,8 @@ gains $#R.fixed(-q4p("quant_v4/qat4_finetune").delta_cvar999.mean)$ at $"CVaR"_(
 $4$-bit constraint trained from scratch at the champion's full $512 times 20\,000$ budget matches the
 champion's far tail ($#R.signed(q4p("quant_v4/qat4_scratch").delta_cvar999.mean)$, interval across zero) at $#R.signed(q4p("quant_v4/qat4_scratch").delta_cvar95.mean)$
 m/s of $"CVaR"_95$. Both intervals condition on this champion, the worst far tail of its three
-seeds (Section 6.2), and both QAT rows sit inside that family's range: a $4$-bit projections-only
+seeds (Section 6.2); the fine-tune row sits inside that family's range and the scratch row
+$#R.fixed(q4_scratch_over)$ m/s above its worst seed: a $4$-bit projections-only
 head is tail-equivalent to the full-precision family at sizing depth, by fine-tune or from scratch,
 and not better than it. The fine-tune's deployed head is the validation gate's last promotion, and
 its final population was wholly gate-infeasible on heat load -- the gate kept the feasible head.
@@ -2162,14 +2177,15 @@ cell of this paper.
   #set par(justify: false)
   *Provenance.* Every cell of @tbl-rl, @tbl-arch, @tbl-conditioning, @tbl-perf, @tbl-paired,
   @tbl-levers, @tbl-centered, @tbl-quant-finalists, @tbl-quant-loo and @tbl-quant-memory, every
-  quoted number of Sections 5--10 and Appendix C, the compute quotes, the heat-load ceiling
+  per-scenario number of Sections 5--10 and Appendix C, the compute quotes, the heat-load ceiling
   sentence of Section 6.2 and the budget caveat of Appendix B are read at compile time from
   `data/results.json`, `data/confirmatory_marginal.json`, `data/quote_marginal.json`,
   `data/heat_load_slope.json`, `data/stress_depth.json`, `data/centered_depth_v4.json`,
   `data/objective_centering_v4.json`, `data/quant_v4/`, `data/compute_benchmark.json`,
   `data/probes/` and the deployed seed's bundled run directory through `results.typ`, and the
-  counts and orderings the prose states are asserted against the same files. Sections 4--5 and
-  Appendix B quote development-regime numbers under that label. Paper inputs digest (SHA-256 over every
+  counts and orderings the prose states are asserted against the same files. Sections 4--5, the
+  Section 6.1 sweep, the bank-decoder comparison and Appendix B quote development-regime numbers
+  under that label; Appendix C's forward-kernel micro-benchmark is transcribed. Paper inputs digest (SHA-256 over every
   tracked paper input, `data/provenance.json`): #raw(prov.paper_inputs_sha256). Run logs: Release
   #raw(prov.release_tag). Simulator crate #prov.simulator_crate_version, Typst #prov.typst_version,
   matplotlib #prov.matplotlib_version. Noise regime: #prov.noise_regime. Compiled at git
