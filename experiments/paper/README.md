@@ -95,18 +95,20 @@ piecewise_constant run keeps its corridor and reference in its own dir.
 - Noise regime of the committed bundle (`data/provenance.json` states the same per file; each
   `results.json` run carries its own `noise_seeding`). Per-scenario (`per_draw`, ADR-0006, the
   paper's main body): `runs/ou_marginal/**` (the #172 / #188 classical retunes, the #173
-  headline-allocation cells, the fine-tunes, the #176 controls) and `runs/rl/**` (#101, #154,
-  #175), `confirmatory_marginal.json`, `stress_depth.json`, `centered_depth_v4.json`,
+  headline-allocation cells, the fine-tunes) and `runs/rl/**` (#101, #154, #175),
+  `confirmatory_marginal.json` (also the only bundle copy of the #176 controls), `stress_depth.json`, `centered_depth_v4.json`,
   `objective_centering_v4.json`, `quant_v4/`, `compute_benchmark.json`. Shared path (`legacy`,
   the development regime of Sections 4-5 and Appendix B): every other `runs/` directory
   (`architecture_sweep`, `classical_baselines`, `cost_transform`, `curation_shaping`,
   `headline`, `joint_reference`, `legacy`, `optimizer_budget`, `optimizer_dimensionality`,
   `output_param`, `seed_strategy`, `tail_repeats`, `training_n_sims`), `confirmatory_eval.json`,
   `far_tail_eval.json`, `robustness_*.json`, `objective_centering.json`, `quant/`. Both regimes,
-  each cell labelled: `quote_marginal.json` and `heat_load_slope.json` (the paired n = 1000 pool,
-  the marginal regime re-seeded per scenario, #157 / #192) and `centered_depth.json` (#156).
-  The arxiv-v3 eval scripts (`articles/paper/scripts/*`, `param_sweep --eval`, `quantize`
-  without `v4`, the probe drivers) pin `legacy` explicitly through
+  each cell labelled: `quote_marginal.json` (the paired n = 1000 pool, the marginal regime
+  re-seeded per scenario, #157) and `centered_depth.json` (#156). `heat_load_slope.json` (#192)
+  scores quote_marginal's marginal regime only. The shared-path eval paths
+  (`articles/paper/scripts/*` in their default mode, `param_sweep --eval`, `quantize` without
+  `v4`, the probe drivers; `compute_benchmark.py` and `stress_depth_eval.py` fly per-scenario
+  only) pin `legacy` explicitly through
   `deploy_overrides.LEGACY_NOISE_REGIME` so the shared-path files reproduce; the training
   configs inherit the `per_draw` default, so re-running one of the 01-11 campaign scripts trains
   under per-scenario noise -- a new experiment, not a reproduction. The per-scenario cells live
@@ -117,10 +119,13 @@ piecewise_constant run keeps its corridor and reference in its own dir.
   (#173) -> `18_rl_baseline.sh hl` and `hl_repeats` (#175) -> `15_state_controls.sh v4` (#176,
   with `campaign.sh jobs_controls.txt`) -> `14_objective_centering.sh v4` and `v4-dense` (#177,
   with `campaign.sh jobs_centering.txt` / `jobs_centering_dense.txt`) -> `17_quantization.sh v4`
+  `ptq`, then (after reading its verdict) `qat_finetune`, `qat_scratch`, `finalists`, `collect`
   (#178) -> `campaign.sh jobs_heat_load.txt` (#192). Scorers, each writing under
   `experiments/ou_marginal/` from where the Makefile extracts copy into the bundle:
-  `confirmatory_marginal.py --manifest` over `confirmatory_cells_v4.txt`, `controls_cells_v4.txt`
-  and `quant_cells_v4.txt` (`make -C articles/paper mc-confirmatory-v4`), `quote_marginal.py`
+  `confirmatory_marginal.py --manifest confirmatory_cells_v4.txt` (`make -C articles/paper
+  mc-confirmatory-v4`); `controls_cells_v4.txt` is scored by `15_state_controls.sh v4` (`--cells`:
+  `--manifest` stops at the reset-state row, which needs its `--extra-override`) and
+  `quant_cells_v4.txt` by `17_quantization.sh v4 finalists`; `quote_marginal.py`
   (`mc-quote-marginal`, plus `--manifest classical_cells.txt`), `heat_load_slope.py`
   (`mc-heat-load-slope`); the paper-side v4 scorers are `mc-stress-depth`,
   `mc-centered-depth-v4`, `mc-objective-centering-v4`, `mc-compute-benchmark` and
