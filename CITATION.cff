@@ -7,7 +7,8 @@ authors:
     given-names: "Grégory"
     email: gregory.gelly@gmail.com
 version: 1.0.0
-date-released: 2026-10-12
+date-released: 2026-10-16
+doi: 10.5281/zenodo.23422624
 repository-code: "https://github.com/GovitPowerz/Aerocapture"
 url: "https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v4"
 license: MIT
@@ -26,5 +27,6 @@ preferred-citation:
     - family-names: Gelly
       given-names: "Grégory"
   year: 2026
+  doi: 10.5281/zenodo.23422624
   url: "https://github.com/GovitPowerz/Aerocapture/releases/download/arxiv-v4/paper.pdf"
-  notes: "Preprint, version 4 (GitHub Release arxiv-v4, 2026-10-12)."
+  notes: "Preprint, version 4 (GitHub Release arxiv-v4, 2026-10-16)."
