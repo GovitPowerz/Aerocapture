@@ -163,7 +163,7 @@ jobs:
         with:
           typst-version: 0.15.1
 
-      - name: Fetch the run logs (Release asset arxiv-v2) and verify them
+      - name: Fetch the run logs (the Release asset named in data/provenance.json) and verify them
         run: make -C articles/paper fetch-logs check-logs
 
       # The one top-level target end to end (results -> figures -> provenance -> pdf),
