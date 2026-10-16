@@ -98,7 +98,7 @@ def paired_comparison(
         delta_mean=r3(d.mean()),
         delta_mean_ci=[r3(v) for v in bootstrap_ci(d, np.mean, n_boot, seed)],
         win_rate_a=r3((d < 0).mean()),
-        wilcoxon_p=float(w.pvalue),
+        wilcoxon_p=float(f"{w.pvalue:.6g}"),  # six significant digits: the raw value differs in its last ulp across libm builds (x86_64 vs arm64)
     )
     return out
 
