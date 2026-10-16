@@ -171,4 +171,6 @@ jobs:
       - name: make paper, then require results.json, figures and provenance unchanged
         run: |
           make -C articles/paper paper PDF=/tmp/paper.pdf
+          git diff --stat -- articles/paper/data articles/paper/figures
+          git diff -- articles/paper/data/results.json | head -400
           make -C articles/paper check
