@@ -2,6 +2,8 @@
 
 ## v4: the single-regime paper (#181)
 
+Released 2026-10-16 as the `arxiv-v4` tag and GitHub Release (`paper.pdf` and the run-log asset `paper_run_logs.tar`, #183), Zenodo DOI 10.5281/zenodo.23422624; 46 pages after the proof pass (#216: figures float, Figure 13 labels, Table 4 intervals, Appendix D card titles).
+
 What changed against the arxiv-v3 source, in the order a reader meets it. The regime: every
 main-body number is per-scenario density noise (`noise_seeding = "per_draw"`, ADR-0006); the shared
 noise path is named once in Section 2.2 as the development regime of the Sections 4-5 studies and

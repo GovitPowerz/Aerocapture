@@ -78,6 +78,19 @@ The paper's three contributions, in one line each (paper Section 1):
 2. **An architecture finding with a mechanism.** Engineered, cost-aligned inputs flatten the *median* correction cost to a common 108–112 m/s for every architecture trained to convergence (dense, GRU, LSTM, windowed, Transformer, Mamba); the separation appears only on the *tail*, where internal state, not training loss, picks the winner (the state-reset control measures it directly).
 3. **A systematic head-to-head of neural versus predictor–corrector guidance** for an MSR-class Mars aerocapture: an end-to-end learned policy against classical baselines co-tuned on the same objective, on paired dispersed scenarios, under a far-tail correction-ΔV risk metric (Section 5 adds the policy-gradient alternative, PPO from scratch and warm-started, under the same protocol).
 
+**Cite as.** The v4 paper is published as the GitHub Release [`arxiv-v4`](https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v4), archived on Zenodo under DOI [10.5281/zenodo.23422624](https://doi.org/10.5281/zenodo.23422624) (`CITATION.cff` carries the same record):
+
+```bibtex
+@misc{gelly2026aerocapture,
+  author = {Gelly, Gr\'egory},
+  title  = {Seventeen years later: stateful neural guidance and the tail that sizes a Mars aerocapture mission},
+  year   = {2026},
+  note   = {Preprint, version 4},
+  doi    = {10.5281/zenodo.23422624},
+  url    = {https://github.com/GovitPowerz/Aerocapture/releases/tag/arxiv-v4}
+}
+```
+
 ## Quick Start
 
 ```bash
