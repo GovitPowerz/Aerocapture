@@ -384,7 +384,7 @@ def run_final_select(
     CLI would leave the PREVIOUS winner's optimized TOML and ref_trajectory.dat
     behind a re-selected best_params.json (gains and reference co-adapt, so a
     mismatched table invalidates every downstream evaluation)."""
-    from aerocapture.training.artifacts import deploy_optimized_artifacts, write_best_artifacts  # noqa: PLC0415
+    from aerocapture.training.artifacts import deploy_winner  # noqa: PLC0415
     from aerocapture.training.evaluate import constraint_violation_rates, format_violation_rates, is_feasible  # noqa: PLC0415
 
     state = load_selection_state(training_dir)
@@ -418,12 +418,7 @@ def run_final_select(
         max_violation_rate=ceiling,
         cost_kwargs=problem.cost_kwargs,
     )
-    write_best_artifacts(sel.individual, config, param_specs, training_dir, cwd=None)
-    if config.guidance_type != "neural_network" and base_toml is not None and toml_data is not None:
-        from aerocapture.training.encoding import decode_normalized  # noqa: PLC0415
-
-        params = decode_normalized(np.asarray(sel.individual, dtype=np.float64), param_specs)
-        deploy_optimized_artifacts(params, config, toml_data, training_dir, base_toml)
+    deploy_winner(sel.individual, config, param_specs, training_dir, toml_data=toml_data, base_toml=base_toml, cwd=None)
     if patch:
         island_name: str | None = None
         if state.kind == "islands":
@@ -452,6 +447,7 @@ def main() -> None:
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout (seconds)")
     args = parser.parse_args()
 
+    from aerocapture.training.chromosome_layout import ChromosomeLayout  # noqa: PLC0415
     from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
     from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
@@ -475,10 +471,10 @@ def main() -> None:
         )
     val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
 
-    if state.population.shape[1] != len(param_specs):
-        raise SystemExit(
-            f"ERROR: checkpoint chromosome width {state.population.shape[1]} != config param count {len(param_specs)} -- wrong TOML for this training dir?"
-        )
+    try:
+        ChromosomeLayout.from_specs(param_specs, config.guidance_type).check_width(state.population.shape[1], "wrong TOML for this training dir?")
+    except ValueError as exc:
+        raise SystemExit(f"ERROR: checkpoint {exc}") from exc
 
     problem = AerocaptureProblem(
         param_specs=param_specs,

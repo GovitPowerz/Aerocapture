@@ -11,14 +11,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sys
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from aerocapture.training.artifacts import deploy_optimized_artifacts, owned_deploy_path, piecewise_artifact_dir, write_best_artifacts
+from aerocapture.training.artifacts import deploy_winner, owned_deploy_path, piecewise_artifact_dir
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.cost import build_cost_kwargs
@@ -357,24 +356,17 @@ if __name__ == "__main__":
 
     # Save best result and run final evaluation
     if result["best_individual"] is not None:
+        assert cfg.sim.toml_config is not None
+        save_path = Path(cfg.save_dir)
+        base_toml = Path(cwd or cfg.sim.exec_dir) / cfg.sim.toml_config
+        decoded = deploy_winner(result["best_individual"], cfg, param_specs, save_path, toml_data=_toml_data, base_toml=base_toml, cwd=cwd, deploy_to_cwd=True)
         if cfg.guidance_type == "neural_network":
-            from aerocapture.training.param_spaces import active_scaffolding_specs
-
-            save_path = Path(cfg.save_dir)
-            write_best_artifacts(result["best_individual"], cfg, param_specs, save_path, cwd=cwd, deploy_to_cwd=True)
             print(f"Best weights saved to {save_path / 'best_model.json'}")
-            if active_scaffolding_specs(cfg.network.scaffolding):
+            if decoded.params:
                 print(f"Best scaffolding params saved to {save_path / 'best_params.json'}")
         else:
-            params = decode_normalized(result["best_individual"], param_specs)
-            params_path = Path(cfg.save_dir) / "best_params.json"
-            with open(params_path, "w") as fp:
-                json.dump(params, fp, indent=2)
-            print(f"Best params saved to {params_path}")
-            print(f"  Params: {params}")
-
-            assert cfg.sim.toml_config is not None
-            deploy_optimized_artifacts(params, cfg, _toml_data, Path(cfg.save_dir), Path(cwd) / cfg.sim.toml_config)
+            print(f"Best params saved to {save_path / 'best_params.json'}")
+            print(f"  Params: {decoded.params}")
 
         # Report Generation. NEVER on an interrupted run: the report writes
         # final_eval.parquet, which is the campaign runners' skip-if-done marker

@@ -19,10 +19,11 @@ import numpy.typing as npt
 
 from aerocapture.training.artifacts import _emit_warm_start_artifacts
 from aerocapture.training.checkpoint import _check_resume_chromosome_shape
+from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.evaluate import write_nn_json
 from aerocapture.training.initialization_v2 import init_v2_population
-from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.param_spaces import ParamSpec, scaffolding_seed_params
 from aerocapture.training.population import create_initial_population, create_nn_initial_population
 from aerocapture.training.problem import AerocaptureProblem, PerSeedEvaluator
 from aerocapture.training.seeds import make_reserved_seeds
@@ -84,7 +85,7 @@ def build_initial_population_for_v2(
     n_pop: int,
     bound_multiplier: float,
     rng: np.random.Generator,
-    param_specs: list[ParamSpec],
+    layout: ChromosomeLayout,
     scaffolding_slab: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64]:
     """Activation-aware initial population for v2 architectures.
@@ -95,14 +96,12 @@ def build_initial_population_for_v2(
     """
     physical = init_v2_population(architecture, n_pop, bound_multiplier, rng)
     n_pop_actual, n_params = physical.shape
+    n_weight_specs = layout.n_weights
+    assert n_params == n_weight_specs, f"init_v2_population produced {n_params} params, the layout has {n_weight_specs} weight specs (width {layout.width})"
     n_scaff = 0 if scaffolding_slab is None else scaffolding_slab.shape[1]
-    n_weight_specs = len(param_specs) - n_scaff
-    assert n_params == n_weight_specs, (
-        f"init_v2_population produced {n_params} params, ParamSpec has {n_weight_specs} weight specs (total {len(param_specs)}, scaff {n_scaff})"
-    )
-    normalized = np.empty((n_pop_actual, len(param_specs)), dtype=np.float64)
-    for j in range(n_weight_specs):
-        s = param_specs[j]
+    assert n_scaff == len(layout.params), f"scaffolding slab has {n_scaff} columns, the layout {len(layout.params)} scaffolding specs"
+    normalized = np.empty((n_pop_actual, layout.width), dtype=np.float64)
+    for j, s in enumerate(layout.weights):
         normalized[:, j] = np.clip((physical[:, j] - s.p_min) / (s.p_max - s.p_min), 0.0, 1.0)
     if scaffolding_slab is not None:
         normalized[:, n_weight_specs:] = scaffolding_slab
@@ -210,25 +209,11 @@ def _make_warm_start_eval_callback(
     def _evaluate_pool(label: str, seeds: list[int], temp_nn_json_path: Path) -> dict[str, Any]:
         """Run MC on `seeds` with the current temp NN JSON; compute the eval summary."""
         # Mirror evaluate_individual_records_per_seed's logic, but skip the
-        # chromosome -> weights step (we already have the weights on disk).
-        decoded_params: dict[str, float] = {}
-        from aerocapture.training.param_spaces import active_scaffolding_specs
-
-        _eval_pack = active_scaffolding_specs(config.network.scaffolding)
-        if config.network.scaffolding == "full":
-            # Pull the scaffolding values from FTC's best_params.json so the
-            # eval runs with the same scaffolding the chromosome will carry.
-            # build_scaffolding_initial_slab already hard-errored on a missing
-            # file / missing keys before this callback could fire, so read
-            # unconditionally -- a silent fallback here would score the eval
-            # on TOML defaults while the chromosome carries FTC values.
-            ftc_params = json.loads(_FTC_SCAFFOLDING_PARAMS_PATH.read_text())
-            for spec in _eval_pack:
-                decoded_params[spec.name] = float(ftc_params[spec.name])
-        elif config.network.scaffolding == "live":
-            # live tail is seeded from defaults; eval with the same.
-            for spec in _eval_pack:
-                decoded_params[spec.name] = float(spec.default)
+        # chromosome -> weights step (we already have the weights on disk). The
+        # scaffolding values are the ones the chromosome's tail will carry (the
+        # rule the warm-start tail encodes with); build_scaffolding_initial_slab
+        # already hard-errored on a missing FTC file / key before this fires.
+        decoded_params = scaffolding_seed_params(config.network.scaffolding, _FTC_SCAFFOLDING_PARAMS_PATH)
 
         from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
 
@@ -289,7 +274,7 @@ def _make_warm_start_eval_callback(
 def _build_initial_population(
     resumed: dict | None,
     config: TrainingConfig,
-    param_specs: list[ParamSpec],
+    layout: ChromosomeLayout,
     seed_weights: npt.NDArray[np.float64] | None,
     problem: PerSeedEvaluator,
     val_seeds: list[int] | None,
@@ -299,10 +284,11 @@ def _build_initial_population(
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None]:
     """Build the initial population (resume / v1-NN / v2-NN / non-NN), incl. the warm-start chromosome path. Returns (pop_array, pop_costs).
 
-    CRITICAL: in the warm-start branch this MUTATES `param_specs` IN PLACE
-    (param_specs[j] = warm_weight_specs[j]) so the caller's AerocaptureProblem --
-    which holds the same list reference -- decodes under the warm-start bounds.
-    The list object must NOT be reassigned; only its elements are overwritten.
+    The warm-start branch is the fresh-start constructor of the run's layout: the
+    weight slab is re-laid under the warm-start chromosome's specs and the problem
+    is rebound to it (`problem.param_specs = layout.specs`) before anything
+    evaluates the chromosome, so every holder decodes under the bounds it was
+    encoded with. The caller reads `problem.param_specs` back afterwards.
     """
     # Recomputed here (formerly set in the param-spec block) for the v2-NN
     # population-build branch below; both are pure functions of config.
@@ -316,7 +302,7 @@ def _build_initial_population(
         # Ensure pop_array is float64 (legacy checkpoints may have int8)
         if pop_array.dtype != np.float64:
             pop_array = pop_array.astype(np.float64)
-        _check_resume_chromosome_shape(pop_array, expected_n_params=len(param_specs))
+        _check_resume_chromosome_shape(pop_array, expected_n_params=layout.width)
         if config.optimizer.n_pop != pop_array.shape[0]:
             from aerocapture.training.population import resize_population  # noqa: PLC0415
 
@@ -393,19 +379,13 @@ def _build_initial_population(
                     base_mc_seed=base_mc_seed,
                     eval_callback=warm_eval_callback,
                 )
-                from aerocapture.training.param_spaces import active_scaffolding_specs
-
-                n_scaff = len(active_scaffolding_specs(config.network.scaffolding))
-                n_weights = len(warm_chromo) - n_scaff
-                # Propagate the warm-start bounds back into param_specs so PSO/GA/DE
-                # decode chromosomes under the same bounds they were encoded with.
-                # ParamSpec is frozen; replace entries in-place so Problem (which
-                # holds a reference to the same list) sees the new bounds at decode
-                # time. Length is preserved -- only the NN-weight slab [0..n_weights)
-                # is rewritten; scaffolding tail stays untouched.
-                assert len(warm_weight_specs) == n_weights, f"warm_weight_specs length ({len(warm_weight_specs)}) != n_weights ({n_weights})"
-                for j in range(n_weights):
-                    param_specs[j] = warm_weight_specs[j]
+                # The warm-start chromosome was encoded under its own (adaptive) weight
+                # bounds: re-lay the slab under them and hand the layout to the problem
+                # so PSO/GA/DE decode chromosomes under the bounds they were encoded with.
+                layout.check_width(warm_chromo.shape[0], "the warm-start chromosome does not fit the config's chromosome")
+                layout = layout.with_weight_bounds(warm_weight_specs, source="the warm-start chromosome's weight specs")
+                problem.param_specs = layout.specs
+                n_weights = layout.n_weights
                 pop_array = _seed_initial_population(
                     algorithm_name=config.optimizer.algorithm,
                     chromosome=warm_chromo,
@@ -425,20 +405,20 @@ def _build_initial_population(
                     # encodes the un-jittered center directly, so we copy it back.
                     pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
-                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, warm_weight_specs, verbose)
+                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, layout.specs, verbose)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,
                     config.optimizer.n_pop,
                     bound_multiplier=bound_mult,
                     rng=rng,
-                    param_specs=param_specs,
+                    layout=layout,
                     scaffolding_slab=scaffolding_slab,
                 )
         else:
             # Non-NN scheme: uniform [0, 1] with ParamSpec-defaults seeding.
             pop_array = create_initial_population(
-                param_specs,
+                layout.specs,
                 config.optimizer.n_pop,
                 rng,
             )

@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.chromosome_layout import ChromosomeLayout, DecodedChromosome
 from aerocapture.training.config import TrainingConfig
-from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
 from aerocapture.training.evaluate import write_nn_json
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.training_config import _resolve_config_normalization
@@ -30,7 +30,7 @@ def _emit_warm_start_artifacts(
     problem: PerSeedEvaluator,
     val_seeds: list[int] | None,
     warm_chromo: npt.NDArray[np.float64],
-    warm_weight_specs: list[ParamSpec],
+    param_specs: list[ParamSpec],
     verbose: bool,
 ) -> None:
     """Best-effort warm-start sidecars: gen-0 validation baseline, supervisor-vs-NN trajectory comparison, warm-start report PDF.
@@ -91,7 +91,7 @@ def _emit_warm_start_artifacts(
             cfg=config,
             base_mc_seed=base_mc_seed,
             warm_chromo=warm_chromo,
-            nn_weight_specs=warm_weight_specs,
+            param_specs=param_specs,
         )
     except Exception as e:
         print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
@@ -144,23 +144,19 @@ def write_best_artifacts(
     save_dir: Path,
     cwd: str | Path | None = None,
     deploy_to_cwd: bool = False,
-) -> None:
-    """Write best_model.json (NN) / best_params.json from a normalized chromosome.
+) -> DecodedChromosome:
+    """Write best_model.json (NN) / best_params.json from a normalized chromosome, decoded
+    through its layout (`ChromosomeLayout.from_specs`: the one width check and decode).
 
     Always writes into save_dir. With `deploy_to_cwd`, the NN model also goes to
     `cwd / config.sim.nn_param_file` when that path lies in save_dir
     (`owned_deploy_path`); any other path is never written.
     """
+    layout = ChromosomeLayout.from_specs(param_specs, config.guidance_type)
+    decoded = layout.decode(best_individual, f"{config.guidance_type} chromosome under {config.sim.toml_config}")
     if config.guidance_type == "neural_network":
-        from aerocapture.training.param_spaces import active_scaffolding_specs
-
-        _pack = active_scaffolding_specs(config.network.scaffolding)
-        n_scaff = len(_pack)
-        n_weights = len(param_specs) - n_scaff
-        weights = _decode_nn_weights(
-            best_individual[:n_weights],
-            param_specs[:n_weights],
-        )
+        weights = decoded.weights
+        assert weights is not None
         cfg_norm = _resolve_config_normalization(config, cwd)
         write_nn_json(
             weights,
@@ -180,20 +176,39 @@ def write_best_artifacts(
                 output_param=config.network.output_parameterization,
                 normalization=cfg_norm,
             )
-        if n_scaff > 0:
-            scaff_params = decode_normalized(
-                best_individual[n_weights:],
-                list(_pack),
-            )
-            for s in _pack:
+        if layout.params:
+            scaff_params: dict[str, float] = dict(decoded.params)
+            for s in layout.params:
                 if s.is_integer and s.name in scaff_params:
                     scaff_params[s.name] = int(round(scaff_params[s.name]))
             with open(save_dir / "best_params.json", "w") as fp:
                 json.dump(scaff_params, fp, indent=2)
     else:
-        params = decode_normalized(best_individual, param_specs)
         with open(save_dir / "best_params.json", "w") as fp:
-            json.dump(params, fp, indent=2)
+            json.dump(decoded.params, fp, indent=2)
+    return decoded
+
+
+def deploy_winner(
+    best_individual: npt.NDArray[np.float64],
+    config: TrainingConfig,
+    param_specs: list[ParamSpec],
+    save_dir: Path,
+    *,
+    toml_data: dict | None,
+    base_toml: Path | None,
+    cwd: str | Path | None,
+    deploy_to_cwd: bool = False,
+    verbose: bool = True,
+) -> DecodedChromosome:
+    """The one decode-and-deploy of a run's winner, shared by the end of training and the
+    `final_select` CLI: `write_best_artifacts`, then for a classical winner the optimized
+    TOML (+ the joint-reference table) when `base_toml` / `toml_data` are given.
+    """
+    decoded = write_best_artifacts(best_individual, config, param_specs, save_dir, cwd=cwd, deploy_to_cwd=deploy_to_cwd)
+    if config.guidance_type != "neural_network" and base_toml is not None and toml_data is not None:
+        deploy_optimized_artifacts(decoded.params, config, toml_data, save_dir, base_toml, verbose)
+    return decoded
 
 
 def deploy_optimized_artifacts(

@@ -103,10 +103,7 @@ def winner_chromosome(run: Path) -> npt.NDArray[np.float64]:
 
 def rebuild(run: Path, toml: Path, dest: Path) -> None:
     config, _toml_data, specs = run_param_specs(toml, run)
-    x = winner_chromosome(run)
-    if x.shape[0] != len(specs):
-        raise ValueError(f"chromosome width {x.shape[0]} != {len(specs)} params under {toml.relative_to(REPO)}")
-    write_best_artifacts(x, config, specs, dest, cwd=REPO)
+    write_best_artifacts(winner_chromosome(run), config, specs, dest, cwd=REPO)
 
 
 def audit_run(run: Path, committed: dict[Path, Path], repair: bool) -> str:

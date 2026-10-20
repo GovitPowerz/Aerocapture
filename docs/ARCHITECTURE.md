@@ -33,7 +33,11 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
    refuses a ref-tracking scheme that does not point at the mission's optimized reference.
 2. `_setup_param_specs` (training_config.py) builds the chromosome: a `ParamSpec` per gene (NN weights from the
    `[[network.architecture]]` via `encoding.nn_param_specs_from_v2`, plus the scaffolding slab when
-   `scaffolding != "off"`, plus `ref_bank` for joint-reference runs).
+   `scaffolding != "off"`, plus `ref_bank` for joint-reference runs). `ChromosomeLayout`
+   (chromosome_layout.py) is that list as one value, `[weight slab | params tail | ref_bank]`: the only
+   splice of warm-start bounds into the slab, the only width check and the only decode; the problem,
+   the artifact writers and the offline consumers (`run_param_specs`) read the layout instead of
+   subtracting.
 3. `_build_initial_population` (initial_population.py, called from the adapter's `from_config`) seeds the population (activation-aware init, or the warm-start
    chromosome from `warm_start.build_warm_start_chromosome`).
 4. `AerocaptureProblem` (problem.py) is the pymoo problem: decode normalized genes, route them to

@@ -129,3 +129,28 @@ class TestRunParamSpecs:
         (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": f"w_{i}", "p_min": -1.0, "p_max": 1.0} for i in range(n)]))
         with pytest.raises(SystemExit, match="warm_start_bounds.json has"):
             run_param_specs(toml_path, run_dir)
+
+    def test_is_the_offline_constructor_of_the_layout(self, tmp_path: Path, toml_path: Path) -> None:
+        """Fresh start (the warm-start splice), resume (the sidecar) and this rebuild are three
+        constructors of ONE `ChromosomeLayout` (#222): same slab bounds, same tail, same decode."""
+        import numpy as np
+        from aerocapture.training.chromosome_layout import ChromosomeLayout
+        from aerocapture.training.param_spaces import ParamSpec
+        from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml, run_param_specs
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        config, toml_data = build_training_config_from_toml(str(toml_path))
+        init = ChromosomeLayout.from_specs(_setup_param_specs(config, toml_data, verbose=False), config.guidance_type)
+        warm_specs = [ParamSpec(f"w_{i}", -7.0 - i, 7.0 + i, 0.0) for i in range(init.n_weights)]
+        (run_dir / "warm_start_bounds.json").write_text(json.dumps([{"name": s.name, "p_min": s.p_min, "p_max": s.p_max} for s in warm_specs]))
+
+        fresh = init.with_weight_bounds(warm_specs, source="the warm-start chromosome")
+        resumed = init.with_sidecar(run_dir)
+        _, _, specs = run_param_specs(toml_path, run_dir)
+        offline = ChromosomeLayout.from_specs(specs, config.guidance_type)
+
+        assert fresh == resumed == offline
+        x = np.linspace(0.0, 1.0, offline.width)
+        decoded = [layout.decode(x, "test") for layout in (fresh, resumed, offline)]
+        assert all(np.array_equal(d.weights, decoded[0].weights) and d.params == decoded[0].params for d in decoded[1:])  # type: ignore[arg-type]
