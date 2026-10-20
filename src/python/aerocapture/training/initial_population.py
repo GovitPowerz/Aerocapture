@@ -202,19 +202,17 @@ def _make_warm_start_eval_callback(
     import tempfile
 
     from aerocapture.training.report import compute_eval_summary, format_eval_summary
-    from aerocapture.training.warm_start import _policy_to_flat_weights_v2
+    from aerocapture.training.warm_start import _policy_to_flat_weights_v2, warm_start_scaffolding_source
 
     save_dir = Path(config.save_dir)
+    # The scaffolding values the chromosome's tail will carry: the rule and the
+    # source file the warm-start tail encodes with.
+    decoded_params = scaffolding_seed_params(config.network.scaffolding, warm_start_scaffolding_source(config))
 
     def _evaluate_pool(label: str, seeds: list[int], temp_nn_json_path: Path) -> dict[str, Any]:
         """Run MC on `seeds` with the current temp NN JSON; compute the eval summary."""
         # Mirror evaluate_individual_records_per_seed's logic, but skip the
-        # chromosome -> weights step (we already have the weights on disk). The
-        # scaffolding values are the ones the chromosome's tail will carry (the
-        # rule the warm-start tail encodes with); build_scaffolding_initial_slab
-        # already hard-errored on a missing FTC file / key before this fires.
-        decoded_params = scaffolding_seed_params(config.network.scaffolding, _FTC_SCAFFOLDING_PARAMS_PATH)
-
+        # chromosome -> weights step (we already have the weights on disk).
         from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
 
         overrides_list = []
@@ -405,7 +403,7 @@ def _build_initial_population(
                     # encodes the un-jittered center directly, so we copy it back.
                     pop_array[0, n_weights:] = warm_chromo[n_weights:]
 
-                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, layout.specs, verbose)
+                _emit_warm_start_artifacts(config, base_mc_seed, problem, val_seeds, warm_chromo, verbose)
             else:
                 pop_array = build_initial_population_for_v2(
                     config.network.architecture,

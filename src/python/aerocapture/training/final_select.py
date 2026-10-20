@@ -471,8 +471,9 @@ def main() -> None:
         )
     val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
 
+    layout = ChromosomeLayout.from_specs(param_specs, config.guidance_type)
     try:
-        ChromosomeLayout.from_specs(param_specs, config.guidance_type).check_width(state.population.shape[1], "wrong TOML for this training dir?")
+        layout.check_width(state.population.shape[1], "wrong TOML for this training dir?")
     except ValueError as exc:
         raise SystemExit(f"ERROR: checkpoint {exc}") from exc
 

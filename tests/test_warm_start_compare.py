@@ -21,6 +21,7 @@ ARCH = [
 def test_warm_started_network_flies_under_the_config_normalization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     pytest.importorskip("aerocapture_rs")
     from aerocapture.training import warm_start_compare as wsc
+    from aerocapture.training.param_spaces import _NN_LIVE_PARAMS
     from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
 
     from tests.fixtures.factories import leaf_toml_with_architecture
@@ -38,10 +39,13 @@ def test_warm_started_network_flies_under_the_config_normalization(tmp_path: Pat
     specs = _setup_param_specs(config, toml_data, verbose=False)
 
     flown_models: list[dict] = []
+    flown_tails: list[dict] = []
 
     def fake_evaluate_cell(cell_dir: Path | None, base_toml: Path, seeds: list[int], *, model: Path | None = None, **kwargs: object) -> None:
         if model is not None:
+            assert cell_dir is not None and model.parent == cell_dir
             flown_models.append(json.loads(model.read_text()))
+            flown_tails.append(json.loads((cell_dir / "best_params.json").read_text()))
         raise RuntimeError("no flight in this test")
 
     monkeypatch.setattr(wsc, "evaluate_cell", fake_evaluate_cell)
@@ -53,4 +57,6 @@ def test_warm_started_network_flies_under_the_config_normalization(tmp_path: Pat
     for model in flown_models:
         assert model["normalization"] == expected
         assert [layer["input_size"] for layer in model["architecture"]] == [17, 4]
+    # The NN side flies the chromosome's scaffolding tail (the cell's best_params.json), not the TOML's.
+    assert [set(tail) for tail in flown_tails] == [{s.name for s in _NN_LIVE_PARAMS}] * 2
     assert set(manifest["pools"]) == {"train", "val"}

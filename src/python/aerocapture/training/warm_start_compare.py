@@ -59,7 +59,7 @@ def _run_one_pool_one_side(
     side: str,
     primary_scheme: str,
     supervisor_params: dict[str, float],
-    nn_json_path: Path,
+    nn_cell_dir: Path,
     sim_timeout_secs: float | None,
 ) -> tuple[npt.NDArray[np.float64], list[npt.NDArray[np.float64]]]:
     """Run a single pool through either the supervisor or the NN. Returns
@@ -67,8 +67,8 @@ def _run_one_pool_one_side(
     `overrides_from_params` so all scaffolding (lateral / exit / thermal /
     nav / shaping) values from the supervisor's `best_params.json` are honored,
     matching what `build_warm_start_chromosome` fed into `collect_supervised`.
-    The NN branch swaps `data.neural_network` to the temp JSON written from the
-    freshly-encoded warm-start chromosome.
+    The NN branch flies the scratch cell written from the warm-start chromosome:
+    its `best_model.json` and its scaffolding tail (`best_params.json`).
     """
     if side == "supervisor":
         overrides_template: dict[str, object] = overrides_from_params(supervisor_params, primary_scheme)
@@ -78,9 +78,10 @@ def _run_one_pool_one_side(
     else:
         raise ValueError(f"unknown side {side!r}; expected 'supervisor' or 'nn'")
 
-    model = nn_json_path if side == "nn" else None
+    cell_dir = nn_cell_dir if side == "nn" else None
+    model = nn_cell_dir / "best_model.json" if side == "nn" else None
     results = evaluate_cell(
-        None, Path(toml_path), seeds, model=model, extra_overrides=overrides_template, include_trajectories=True, sim_timeout_secs=sim_timeout_secs
+        cell_dir, Path(toml_path), seeds, model=model, extra_overrides=overrides_template, include_trajectories=True, sim_timeout_secs=sim_timeout_secs
     )
     assert results.trajectories is not None
     return results.final_records, results.trajectories
@@ -164,11 +165,11 @@ def render_trajectory_comparison(
     }
 
     # The warm-started NN flies from a scratch cell written by the trainer's own
-    # artifact writer (the chromosome's layout, the config's normalization table),
-    # never the TOML's deploy path.
+    # artifact writer (the chromosome's layout and scaffolding tail, the config's
+    # normalization table), never the TOML's deploy path.
     with tempfile.TemporaryDirectory(prefix="warm_start_nn_") as scratch:
-        write_best_artifacts(warm_chromo, cfg, param_specs, Path(scratch), cwd=None)
-        nn_tmp_path = Path(scratch) / "best_model.json"
+        nn_cell_dir = Path(scratch)
+        write_best_artifacts(warm_chromo, cfg, param_specs, nn_cell_dir, cwd=None)
 
         pools: list[tuple[str, list[int], int]] = [
             ("train", train_seeds, ws.n_warm_seeds),
@@ -190,7 +191,7 @@ def render_trajectory_comparison(
                         side=side,
                         primary_scheme=primary_scheme,
                         supervisor_params=supervisor_params,
-                        nn_json_path=nn_tmp_path,
+                        nn_cell_dir=nn_cell_dir,
                         sim_timeout_secs=cfg.sim.sim_timeout_secs,
                     )
                     traj_class = _charts.classify_trajectories(

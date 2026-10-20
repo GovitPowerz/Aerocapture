@@ -30,7 +30,6 @@ def _emit_warm_start_artifacts(
     problem: PerSeedEvaluator,
     val_seeds: list[int] | None,
     warm_chromo: npt.NDArray[np.float64],
-    param_specs: list[ParamSpec],
     verbose: bool,
 ) -> None:
     """Best-effort warm-start sidecars: gen-0 validation baseline, supervisor-vs-NN trajectory comparison, warm-start report PDF.
@@ -91,7 +90,7 @@ def _emit_warm_start_artifacts(
             cfg=config,
             base_mc_seed=base_mc_seed,
             warm_chromo=warm_chromo,
-            param_specs=param_specs,
+            param_specs=problem.param_specs,
         )
     except Exception as e:
         print(f"  [warm_start] WARNING: trajectory comparison failed: {type(e).__name__}: {e}")
