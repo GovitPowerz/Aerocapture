@@ -15,7 +15,7 @@ from pymoo.core.problem import Problem
 from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.cost import compute_cost
 from aerocapture.training.encoding import decode_normalized_array
-from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, route_param_path
+from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, check_chromosome_width, route_param_path
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 
 _MAX_CONSECUTIVE_EVAL_FAILURES = 5
@@ -89,11 +89,13 @@ class AerocaptureProblem(Problem):
     def param_specs(self) -> list[ParamSpec]:
         """The chromosome vocabulary (`PerSeedEvaluator`), read off the layout. Assigning a
         new list rebinds the layout: how the trainer hands over the warm-start / sidecar
-        bounds the population was encoded under (no holder aliases a mutable list)."""
+        bounds the population was encoded under (no holder aliases a mutable list). The
+        getter returns a fresh list: mutating it in place changes nothing; assign instead."""
         return self.layout.specs
 
     @param_specs.setter
     def param_specs(self, specs: list[ParamSpec]) -> None:
+        check_chromosome_width(len(specs), self.n_var, "rebinding param_specs must keep the problem's n_var")
         self.layout = ChromosomeLayout.from_specs(specs, self.scheme)
         self._integer_params = {s.name for s in specs if s.is_integer}
         # Joint reference optimization: a `ref_bank` gene means each individual

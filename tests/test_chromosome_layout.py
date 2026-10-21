@@ -62,6 +62,33 @@ class TestSidecar:
         assert init.with_sidecar(tmp_path) == init
 
 
+class TestFreshStartSplice:
+    def test_warm_start_rebinds_the_problem_to_the_chromosome_bounds(self, tmp_path: Path, toml_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fresh-start constructor: `_build_initial_population`'s warm-start branch hands the
+        problem the slab the warm-start chromosome was encoded under (it replaced an in-place
+        mutation every holder of the list relied on)."""
+        from aerocapture.training import initial_population, warm_start
+        from aerocapture.training.initial_population import _build_initial_population
+        from aerocapture.training.problem import AerocaptureProblem
+        from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
+
+        config, toml_data = build_training_config_from_toml(str(toml_path))
+        config.save_dir = str(tmp_path / "run")
+        config.warm_start.enabled = True
+        config.optimizer.n_pop = 8
+        init = ChromosomeLayout.from_specs(_setup_param_specs(config, toml_data, verbose=False), config.guidance_type)
+        problem = AerocaptureProblem(init.specs, str(toml_path), [0], {}, config.guidance_type, nn_config=config.network)
+        warm_specs = [ParamSpec(f"w_{i}", -7.0 - i, 7.0 + i, 0.0) for i in range(init.n_weights)]
+        warm_chromo = np.full(init.width, 0.5)
+        monkeypatch.setattr(warm_start, "build_warm_start_chromosome", lambda **_: (warm_chromo, warm_specs))
+        monkeypatch.setattr(initial_population, "_emit_warm_start_artifacts", lambda *_: None)
+
+        pop, _ = _build_initial_population(None, config, init, None, problem, None, 42, np.random.default_rng(0), False)
+
+        assert list(problem.layout.weights) == warm_specs and problem.layout.tail == init.tail
+        assert pop.shape == (8, init.width) and np.array_equal(pop[0], warm_chromo)
+
+
 class TestFromSpecs:
     def test_classical_scheme_has_no_slab(self) -> None:
         specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)]
@@ -133,7 +160,16 @@ class TestProblemReadsTheLayout:
     def test_rebinding_param_specs_rebuilds_the_layout(self) -> None:
         from aerocapture.training.problem import AerocaptureProblem
 
+        prob = AerocaptureProblem(
+            param_specs=[*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)], toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="ftc"
+        )
+        assert prob._joint_ref_bank is True
+        prob.param_specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 60.0, 70.0, 65.0)]
+        assert prob.layout.ref_bank == ParamSpec("ref_bank", 60.0, 70.0, 65.0)
+
+    def test_rebinding_to_another_width_is_refused(self) -> None:
+        from aerocapture.training.problem import AerocaptureProblem
+
         prob = AerocaptureProblem(param_specs=list(PARAM_SPACES["ftc"]), toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="ftc")
-        assert prob._joint_ref_bank is False
-        prob.param_specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)]
-        assert prob._joint_ref_bank is True and prob.layout.ref_bank is not None
+        with pytest.raises(ValueError, match="n_var"):
+            prob.param_specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)]

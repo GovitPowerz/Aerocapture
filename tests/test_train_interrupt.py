@@ -196,6 +196,70 @@ class TestResumeOverlaysWarmStartBounds:
 
         assert [(s.p_min, s.p_max) for s in problem.param_specs] == [(e["p_min"], e["p_max"]) for e in recorded]
 
+    def test_islands_resume_decodes_under_the_recorded_bounds_without_a_warm_start_rebuild(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The islands resume restores the populations in `__init__`: rebuilding the warm start
+        first would re-fly its artifacts and, on a cache miss, rewrite the sidecar."""
+        from aerocapture.training import warm_start
+        from aerocapture.training.island_model import IslandModel
+        from aerocapture.training.optimizer import IslandSettings
+        from aerocapture.training.trainer import IslandsTrainer
+        from aerocapture.training.training_config import _setup_param_specs
+        from pymoo.core.population import Population
+
+        save_dir = tmp_path / "training_output"
+        save_dir.mkdir()
+        cfg = TrainingConfig(
+            optimizer=OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=4, n_gen=1, validation_n_sims=0, islands=IslandSettings(k_top=1)),
+            guidance_type="neural_network",
+        )
+        cfg.save_dir = str(save_dir)
+        cfg.network.architecture = [{"type": "dense", "input_size": 3, "output_size": 2, "activation": "asinh"}]
+        cfg.warm_start.enabled = True
+        rebuilt = _setup_param_specs(cfg, {}, verbose=False)
+        recorded = [{"name": s.name, "p_min": 3.0 * s.p_min, "p_max": 3.0 * s.p_max, "default": s.default} for s in rebuilt]
+        (save_dir / "warm_start_bounds.json").write_text(json.dumps(recorded))
+
+        rng_ck = np.random.default_rng(0)
+        saved = IslandModel(
+            config=cfg.optimizer,
+            problem=FakeProblem(list(rebuilt), seeds=[42]),
+            n_params=len(rebuilt),
+            validation_seeds=[],
+            final_eval_seeds=[],
+            base_mc_seed=42,
+            rng=rng_ck,
+        )
+        for isl in saved.islands:
+            pop = Population.new("X", rng_ck.random((4, len(rebuilt))))
+            pop.set("F", np.arange(4.0).reshape(-1, 1))
+            isl.algorithm.pop = pop
+            isl.algorithm.is_initialized = True
+        saved.checkpoint(save_dir / "checkpoint_g00003.npz", generation=3)
+
+        def _no_rebuild(**_: object) -> None:
+            raise AssertionError("the islands resume rebuilt the warm start")
+
+        monkeypatch.setattr(warm_start, "build_warm_start_chromosome", _no_rebuild)
+        problem = FakeProblem(list(rebuilt), seeds=[42], toml_path="")
+        trainer = IslandsTrainer.from_config(
+            cfg,
+            problem,
+            save_dir,
+            toml={},
+            cwd=str(tmp_path),
+            rng=np.random.default_rng(1),
+            resume_dir=None,
+            from_scratch=False,
+            corridor_acc=None,
+            verbose=False,
+            checkpoint_interval=10,
+        )
+
+        assert [(s.p_min, s.p_max) for s in problem.param_specs] == [(e["p_min"], e["p_max"]) for e in recorded]
+        assert trainer.param_specs == problem.param_specs and trainer.start_gen == 4
+        for restored, original in zip(trainer.island_model.islands, saved.islands, strict=True):
+            assert np.array_equal(restored.algorithm.pop.get("X"), original.algorithm.pop.get("X"))
+
 
 class TestResumeGrowsPopulation:
     """End-to-end: resuming with a larger [optimizer] n_pop grows the population

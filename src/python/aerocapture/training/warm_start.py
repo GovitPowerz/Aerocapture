@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig
+from aerocapture.training.config import AdamConfig, NetworkConfig, TrainingConfig, WarmStartConfig
 from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.encoding import encode_to_normalized, nn_param_specs_from_v2
 from aerocapture.training.seeds import WARM_START_SEED_OFFSET, make_reserved_seeds
@@ -719,6 +719,19 @@ def _encode_and_persist(
     return chromo, weight_specs
 
 
+def _supervisor_params_path(ws: WarmStartConfig, scheme: str) -> Path:
+    override = ws.params_paths.get(scheme)
+    return Path(override) if override else Path(f"training_output/{scheme}/best_params.json")
+
+
+def warm_start_scaffolding_source(cfg: TrainingConfig) -> Path:
+    """The params file the warm-start chromosome's scaffolding tail is encoded from
+    (`scaffolding = "full"`): `warm_start_from`, else the first supervisor's params."""
+    if cfg.network.warm_start_from:
+        return Path(cfg.network.warm_start_from)
+    return _supervisor_params_path(cfg.warm_start, cfg.warm_start.supervisor_schemes[0])
+
+
 def build_warm_start_chromosome(
     cfg: TrainingConfig,
     base_mc_seed: int,
@@ -758,16 +771,14 @@ def build_warm_start_chromosome(
     # 1. Resolve supervisor paths
     resolved_paths: dict[str, Path] = {}
     for scheme in ws.supervisor_schemes:
-        override = ws.params_paths.get(scheme)
-        path = Path(override) if override else Path(f"training_output/{scheme}/best_params.json")
+        path = _supervisor_params_path(ws, scheme)
         if not path.exists():
             raise FileNotFoundError(
                 f"warm-start supervisor '{scheme}' params not found at '{path}'. Train {scheme} first or set [warm_start.params_paths].{scheme}."
             )
         resolved_paths[scheme] = path
 
-    # Scaffolding source (for the tail when scaffolding != "off")
-    scaffolding_source_path = Path(network.warm_start_from) if network.warm_start_from else resolved_paths[ws.supervisor_schemes[0]]
+    scaffolding_source_path = warm_start_scaffolding_source(cfg)
     if not scaffolding_source_path.exists():
         raise FileNotFoundError(f"scaffolding source params not found at '{scaffolding_source_path}'")
 

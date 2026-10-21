@@ -222,7 +222,8 @@ when `scaffolding` / `output_parameterization` / `input_mask` flipped between ru
 `cost_transform`:* persisted in both checkpoint formats (legacy checkpoints read back `None` =
 "assume changed"); single-algo re-validates its checkpointed best unconditionally, islands call
 `IslandModel.revalidate_each()` and reset each island's `stagnation_counter`. `IslandsTrainer`
-resume order: `from_checkpoint` -> curator seed push -> `resize_populations` ->
+resume order: (`from_config`: `_latest_islands_checkpoint`, the sidecar splice, a placeholder
+population instead of `_build_initial_population`) -> `from_checkpoint` -> curator seed push -> `resize_populations` ->
 `revalidate_each` -> transform notice. The checkpointed best is trusted VERBATIM (never swapped
 via a `<` comparison against the resumed population's cost; see the root `CLAUDE.md` lesson).
 Spec: `docs/design/2026-06-02-resume-enhancements-design.md`.
@@ -264,7 +265,7 @@ use `--sim-timeout` against NaN hangs).
   `DecodedChromosome(weights, params)` decode, `check_width` the one width check
   (`param_spaces.check_chromosome_width`, shared with `encoding.decode_normalized`). Three
   constructors of one run's layout: fresh start (`from_specs` on `_setup_param_specs`, then
-  `with_weight_bounds` after warm-start), resume (`with_sidecar`), offline
+  `with_weight_bounds` after warm-start), resume (`with_sidecar`, single-algo and islands), offline
   (`training_config.run_param_specs`). `AerocaptureProblem.param_specs` is a property over its
   layout: assigning a new list rebinds the layout, which is how the trainer hands over the
   warm-start / sidecar bounds (no holder aliases a mutable list). `warm_start` produces the
@@ -771,13 +772,17 @@ half-width), so encoding never clips; they persist to `<save_dir>/warm_start_bou
 (`warm_start.load_warm_start_bounds`) and `build_warm_start_chromosome` returns
 `(chromosome, weight_specs)`; `_build_initial_population` re-lays the slab under them
 (`ChromosomeLayout.with_weight_bounds`) and rebinds the problem so every optimizer decodes under
-the bounds the encoding used. A single-algo resume skips that branch and splices the sidecar
-itself (`ChromosomeLayout.with_sidecar` in `SingleAlgoTrainer.from_config`; before #203 it decoded
-the resumed population under the rebuilt bounds); the offline consumers get it through
+the bounds the encoding used. A resume skips that branch and splices the sidecar itself
+(`ChromosomeLayout.with_sidecar` in both adapters' `from_config`; before #203 the single-algo
+resume decoded the resumed population under the rebuilt bounds, and until #222 the islands resume
+rebuilt the warm start, re-flying its artifacts and, on a cache miss, rewriting the sidecar under
+the restored populations; it now builds no initial population at all); the offline consumers get it through
 `run_param_specs`. The warm-start eval callback and the chromosome's tail seed their scaffolding
-values from the same rule (`param_spaces.scaffolding_seed_params`), and
-`warm_start_compare` flies the warm-started network from a scratch cell written by
-`write_best_artifacts` (so under the config's `[network] normalization` table).
+values from the same rule and the same file (`param_spaces.scaffolding_seed_params` on
+`warm_start.warm_start_scaffolding_source`: `warm_start_from`, else the first supervisor's params),
+and `warm_start_compare` flies the warm-started network from a scratch cell written by
+`write_best_artifacts` (so under the config's `[network] normalization` table and with the
+chromosome's scaffolding tail).
 `adaptive_bounds = false` falls back to static Xavier × `bound_multiplier` bounds plus a >5%
 clip-rate guard. The cache key covers architecture + input_mask + output_param +
 supervisor_schemes + per-scheme mtime + scaffolding source path/mtime + bound_multiplier +

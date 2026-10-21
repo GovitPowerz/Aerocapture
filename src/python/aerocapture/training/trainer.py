@@ -364,6 +364,21 @@ def _override_cmaes_sigma0(config: TrainingConfig) -> None:
         config.optimizer.cma_es.sigma0 = config.warm_start.cmaes_sigma0
 
 
+def _latest_islands_checkpoint(save_dir: Path, verbose: bool) -> Path | None:
+    """The LATEST `checkpoint_g*.npz` in `save_dir` carrying the islands v2 marker, or None."""
+    ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
+    for cand in reversed(ckpt_files):
+        try:
+            with np.load(cand, allow_pickle=True) as probe:
+                if "version" in probe and int(probe["version"]) == 2:
+                    return cand
+        except Exception:
+            continue
+    if ckpt_files and verbose:
+        print(f"  Found {len(ckpt_files)} checkpoint_g*.npz in {save_dir} but none are islands v2 checkpoints; starting fresh.")
+    return None
+
+
 def _make_decode_fn(config: TrainingConfig, param_specs: list[ParamSpec]) -> Callable[[npt.NDArray[np.float64]], dict[str, float]] | None:
     """Logger decode (analytic schemes decode; NN bypasses)."""
     if config.guidance_type == "neural_network":
@@ -908,15 +923,26 @@ class IslandsTrainer:
         checkpoint_interval: int,
     ) -> IslandsTrainer:
         """Reserved seed pools and the initial population, then `__init__`
-        (islands resume from the latest v2 npz in `save_dir` there: `resume_dir`
+        (islands resume from the latest v2 npz in `save_dir`: `resume_dir`
         and `corridor_acc` are single-algo concerns, accepted for a uniform
         signature and ignored)."""
         seed_curator = _make_seed_curator(config, rng)
-        seed_weights = None if from_scratch else _load_seed_weights(config, cwd, verbose)
         base_mc_seed = base_mc_seed_from_toml(toml)
         val_seeds, excluded_seeds = _reserved_seed_pools(config, problem, base_mc_seed, seed_curator)
         layout = ChromosomeLayout.from_specs(problem.param_specs, config.guidance_type)
-        pop_array, pop_costs = _build_initial_population(None, config, layout, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
+        resume_ckpt = _latest_islands_checkpoint(save_dir, verbose)
+        if resume_ckpt is not None:
+            # `__init__` restores every island's population from the checkpoint, so no initial
+            # population is built: a warm-start rebuild would re-fly its artifacts and, on a cache
+            # miss, rewrite the sidecar the population was encoded under. The slab comes from the
+            # sidecar, as on the single-algo resume; the placeholder only seeds pymoo for the restore.
+            if config.guidance_type == "neural_network":
+                layout = layout.with_sidecar(save_dir)
+                problem.param_specs = layout.specs
+            pop_array, pop_costs = np.full((config.optimizer.n_pop, layout.width), 0.5), None
+        else:
+            seed_weights = None if from_scratch else _load_seed_weights(config, cwd, verbose)
+            pop_array, pop_costs = _build_initial_population(None, config, layout, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
         return cls(
             config=config,
             cwd=cwd,
@@ -934,6 +960,7 @@ class IslandsTrainer:
             start_gen=0,
             checkpoint_interval=checkpoint_interval,
             decode_fn=_make_decode_fn(config, problem.param_specs),
+            resume_ckpt=resume_ckpt,
         )
 
     def __init__(
@@ -955,6 +982,7 @@ class IslandsTrainer:
         start_gen: int,
         checkpoint_interval: int,
         decode_fn: Callable[[npt.NDArray[np.float64]], dict[str, float]] | None,
+        resume_ckpt: Path | None,
     ) -> None:
 
         self.config = config
@@ -992,23 +1020,6 @@ class IslandsTrainer:
             base_mc_seed=base_mc_seed,
             rng=rng,
         )
-
-        # Probe for a resumable islands checkpoint FIRST (skip the cold-start
-        # eval on resume). Pick the LATEST npz carrying the islands v2 marker.
-        ckpt_files = sorted(save_dir.glob("checkpoint_g*.npz"))
-        resume_ckpt: Path | None = None
-        for cand in reversed(ckpt_files):
-            try:
-                with np.load(cand, allow_pickle=True) as probe:
-                    if "version" in probe and int(probe["version"]) == 2:
-                        resume_ckpt = cand
-                        break
-            except Exception:
-                continue
-        if resume_ckpt is None and ckpt_files and verbose:
-            print(
-                f"  Found {len(ckpt_files)} checkpoint_g*.npz in {save_dir} but none are islands v2 checkpoints; starting fresh.",
-            )
 
         # Fan out the (possibly warm-started) initial population to all 3 islands.
         if pop_costs is None:
