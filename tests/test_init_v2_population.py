@@ -7,6 +7,7 @@ noise, and LSTM forget-bias-1 init (Jozefowicz et al 2015).
 from __future__ import annotations
 
 import numpy as np
+from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.config import _layer_n_params
 from aerocapture.training.initialization_v2 import init_v2_population
 
@@ -159,7 +160,7 @@ def test_build_initial_population_for_v2_normalizes_to_unit_cube() -> None:
         n_pop=64,
         bound_multiplier=2.0,
         rng=rng,
-        param_specs=param_specs,
+        layout=ChromosomeLayout.from_specs(param_specs, "neural_network"),
     )
     assert pop.shape == (64, len(param_specs))
     assert float(pop.min()) >= 0.0
@@ -210,7 +211,7 @@ def test_build_initial_population_for_v2_does_not_saturate_search_box() -> None:
         n_pop=64,
         bound_multiplier=2.0,
         rng=rng,
-        param_specs=param_specs,
+        layout=ChromosomeLayout.from_specs(param_specs, "neural_network"),
     )
 
     # Boundary saturation (values stuck at exactly 0.0 or 1.0) must be

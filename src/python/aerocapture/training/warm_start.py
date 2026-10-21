@@ -156,9 +156,9 @@ def load_warm_start_bounds(save_dir: Path) -> list | None:
 
     The sidecar records the EXACT weight-slab bounds the chromosome/population
     was encoded under (adaptive bounds). Any consumer decoding a checkpointed
-    population must overlay these specs (through `training_config.warm_start_weight_bounds`:
-    the resume and `run_param_specs`) -- decoding under rebuilt Xavier bounds
-    silently corrupts the weights.
+    population must overlay these specs (`ChromosomeLayout.with_sidecar`: the resume
+    and `run_param_specs`) -- decoding under rebuilt Xavier bounds silently corrupts
+    the weights.
     """
     bounds_path = save_dir / "warm_start_bounds.json"
     if not bounds_path.exists():
@@ -697,15 +697,10 @@ def _encode_and_persist(
 
     chromo = weight_chromo
     if network.scaffolding != "off":
-        from aerocapture.training.param_spaces import active_scaffolding_specs
+        from aerocapture.training.param_spaces import active_scaffolding_specs, scaffolding_seed_params
 
         pack = active_scaffolding_specs(network.scaffolding)
-        if network.scaffolding == "full":
-            with open(scaffolding_source_path) as f:
-                scaff_params = json.load(f)
-        else:  # live: seed the 3-param tail from defaults, no FTC source needed.
-            scaff_params = {s.name: s.default for s in pack}
-        scaff_chromo = encode_to_normalized(scaff_params, list(pack))
+        scaff_chromo = encode_to_normalized(scaffolding_seed_params(network.scaffolding, scaffolding_source_path), list(pack))
         chromo = np.concatenate([weight_chromo, scaff_chromo])
 
     np.save(save_dir / "warm_start_chromosome.npy", chromo)

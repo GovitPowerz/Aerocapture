@@ -7,7 +7,9 @@ log-scale encoding (useful for gains spanning orders of magnitude).
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,26 @@ def active_scaffolding_specs(scaffolding: str) -> list[ParamSpec]:
         "live": _NN_LIVE_PARAMS,
         "full": _NN_SCAFFOLDING_PARAMS,
     }[scaffolding]
+
+
+def scaffolding_seed_params(scaffolding: str, source_path: str | Path) -> dict[str, float]:
+    """The values the scaffolding tail is seeded with: the source params file (FTC's
+    `best_params.json`) for "full", the pack defaults for "live", nothing for "off".
+    The one rule behind the warm-start chromosome's tail and the warm-start eval
+    callback, so the callback flies the scaffolding the chromosome will carry."""
+    pack = active_scaffolding_specs(scaffolding)
+    if scaffolding == "full":
+        source = json.loads(Path(source_path).read_text())
+        return {s.name: float(source[s.name]) for s in pack}
+    return {s.name: float(s.default) for s in pack}
+
+
+def check_chromosome_width(n_actual: int, n_expected: int, context: str) -> None:
+    """The one chromosome-width check (#222): every decoder and resume path raises this
+    message, with `context` naming the likely cause (a checkpoint from another
+    PARAM_SPACES, a flipped TOML knob, the wrong TOML for a run dir)."""
+    if n_actual != n_expected:
+        raise ValueError(f"chromosome width {n_actual} != {n_expected} param specs (shape mismatch: {context})")
 
 
 # TOML section key matches the guidance type name used in [guidance] type field

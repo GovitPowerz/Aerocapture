@@ -16,6 +16,7 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
+from aerocapture.training.checkpoint import _check_resume_chromosome_shape
 from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
@@ -692,19 +693,9 @@ class IslandModel:
 
             if state["pop_X"] is not None:
                 # Fail loudly when the saved chromosome width disagrees with the
-                # current ParamSpec count — the islands analogue of
-                # `checkpoint._check_resume_chromosome_shape`. Catches the user
-                # flipping `scaffolding` / `output_parameterization` /
-                # `input_mask` (all change n_params) between runs; without it the
-                # old-width pop is restored and later mis-decoded into garbage.
-                saved_n_params = state["pop_X"].shape[1]
-                if saved_n_params != self.n_params:
-                    raise ValueError(
-                        f"checkpoint chromosome width {saved_n_params} != current {self.n_params}. "
-                        f"This usually means `scaffolding`, `output_parameterization`, "
-                        f"or `input_mask` changed since the checkpoint was saved. "
-                        f"Revert the TOML knob to resume, or pass --from-scratch.",
-                    )
+                # current ParamSpec count (the single-algo resume's check); without
+                # it the old-width pop is restored and later mis-decoded into garbage.
+                _check_resume_chromosome_shape(state["pop_X"], expected_n_params=self.n_params)
                 pop = Population.new("X", state["pop_X"])
                 pop.set("F", state["pop_F"])
 

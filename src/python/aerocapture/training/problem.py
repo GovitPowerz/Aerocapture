@@ -12,9 +12,10 @@ import numpy as np
 import numpy.typing as npt
 from pymoo.core.problem import Problem
 
+from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.cost import compute_cost
 from aerocapture.training.encoding import decode_normalized_array
-from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, active_scaffolding_specs, route_param_path
+from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, route_param_path
 from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 
 _MAX_CONSECUTIVE_EVAL_FAILURES = 5
@@ -73,28 +74,32 @@ class AerocaptureProblem(Problem):
         nn_config: object | None = None,
     ) -> None:
         super().__init__(n_var=len(param_specs), n_obj=1, xl=0.0, xu=1.0)
-        self.param_specs = param_specs
         self.toml_path = toml_path
         self.seeds = seeds
         self.cost_kwargs = cost_kwargs
         self.scheme = scheme
         self.sim_timeout = sim_timeout
         self.nn_config = nn_config
-        self._integer_params = {s.name for s in param_specs if s.is_integer}
         self._consecutive_eval_failures = 0
+        self._ref_table_dir: Path | None = None
+        self._ref_mc_config: dict | None = None
+        self.param_specs = param_specs
 
+    @property
+    def param_specs(self) -> list[ParamSpec]:
+        """The chromosome vocabulary (`PerSeedEvaluator`), read off the layout. Assigning a
+        new list rebinds the layout: how the trainer hands over the warm-start / sidecar
+        bounds the population was encoded under (no holder aliases a mutable list)."""
+        return self.layout.specs
+
+    @param_specs.setter
+    def param_specs(self, specs: list[ParamSpec]) -> None:
+        self.layout = ChromosomeLayout.from_specs(specs, self.scheme)
+        self._integer_params = {s.name for s in specs if s.is_integer}
         # Joint reference optimization: a `ref_bank` gene means each individual
         # gets its own constant-bank reference table, generated per evaluation
         # and injected as a per-individual data.reference_trajectory override.
-        self._joint_ref_bank = any(s.name == "ref_bank" for s in param_specs)
-        self._ref_table_dir: Path | None = None
-        self._ref_mc_config: dict | None = None
-
-        # NN scaffolding: chromosome layout is [NN weights..., scaffolding tail...].
-        # _n_nn_weight_specs caps the NN-weight slice so run_grid gets a weights
-        # matrix with exactly the right column count. Tail width = len(active scaffolding pack).
-        _scaffolding = getattr(nn_config, "scaffolding", "off") if nn_config is not None else "off"
-        self._n_nn_weight_specs = len(param_specs) - len(active_scaffolding_specs(_scaffolding))
+        self._joint_ref_bank = self.layout.ref_bank is not None
 
     def update_seeds(self, seeds: list[int]) -> None:
         self.seeds = seeds
@@ -155,12 +160,12 @@ class AerocaptureProblem(Problem):
         """
         assert _HAS_PYO3 and _aero_rs is not None
         if self.scheme == "neural_network" and self.nn_config is not None:
-            # Decode only the scaffolding tail: the [0, n_w) weight slice is
-            # re-decoded vectorized below and carried in-memory by run_grid --
+            # Decode only the tail: the [0, n_w) weight slab is decoded vectorized
+            # below under the layout's slab bounds and carried in-memory by run_grid --
             # building thousands of str-keyed weight entries per individual
             # only for _build_grid_overrides to skip them was pure overhead.
-            n_w = self._n_nn_weight_specs
-            param_dicts = decode_normalized_array(X_rows[:, n_w:], self.param_specs[n_w:])
+            n_w = self.layout.n_weights
+            param_dicts = decode_normalized_array(X_rows[:, n_w:], self.layout.tail)
         else:
             param_dicts = decode_normalized_array(X_rows, self.param_specs)
         overrides_list = [self._build_grid_overrides(p) for p in param_dicts]
@@ -181,9 +186,8 @@ class AerocaptureProblem(Problem):
 
             nn_cfg = self.nn_config
             assert isinstance(nn_cfg, NetworkConfig)
-            n_w = self._n_nn_weight_specs
-            lo = np.array([self.param_specs[j].p_min for j in range(n_w)], dtype=np.float64)
-            hi = np.array([self.param_specs[j].p_max for j in range(n_w)], dtype=np.float64)
+            n_w = self.layout.n_weights
+            lo, hi = self.layout.slab_bounds()
             weights = (lo + X_rows[:, :n_w] * (hi - lo)).astype(np.float64)
             architecture_json = json.dumps(build_v2_architecture(nn_cfg))
             input_mask = nn_cfg.input_mask

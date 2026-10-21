@@ -19,7 +19,7 @@ import numpy.typing as npt
 from aerocapture.training.artifacts import write_best_artifacts
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
-from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.param_spaces import ParamSpec, check_chromosome_width
 from aerocapture.training.seed_curator import SeedCurator
 
 
@@ -80,21 +80,17 @@ def _check_resume_chromosome_shape(
     saved_population: npt.NDArray[np.float64],
     expected_n_params: int,
 ) -> None:
-    """Fail loudly if a resumed checkpoint's chromosome width disagrees with current ParamSpec count.
-
-    Catches the user flipping `scaffolding` (or `output_parameterization`,
-    which changes last-layer width) between training runs.
+    """Fail loudly if a resumed checkpoint's chromosome width disagrees with the current
+    ParamSpec count (the one width check, `param_spaces.check_chromosome_width`, with the
+    resume hint). Catches the user flipping `scaffolding`, `output_parameterization` or
+    `input_mask` (all change n_params) between runs; shared with the islands restore.
     """
-    saved_n_params = saved_population.shape[1]
-    if saved_n_params != expected_n_params:
-        msg = (
-            f"checkpoint chromosome shape mismatch: saved {saved_n_params} params, "
-            f"current ParamSpec list has {expected_n_params}. This usually means "
-            f"`[guidance.neural_network] scaffolding` or "
-            f"`output_parameterization` was changed since the checkpoint was saved. "
-            f"To resume, revert the TOML knob; to start fresh, pass --from-scratch."
-        )
-        raise ValueError(msg)
+    check_chromosome_width(
+        saved_population.shape[1],
+        expected_n_params,
+        "`[guidance.neural_network] scaffolding`, `output_parameterization` or `input_mask` changed since the checkpoint was saved? "
+        "To resume, revert the TOML knob; to start fresh, pass --from-scratch",
+    )
 
 
 def save_checkpoint(

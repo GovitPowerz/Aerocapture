@@ -2,10 +2,10 @@
 
 The one TOML -> `TrainingConfig` chokepoint (`build_training_config_from_toml`,
 shared by the train CLI and the `final_select` CLI), `_setup_param_specs` (the
-optimizer's gene list), `run_param_specs` (the offline rebuild of a run's chromosome
-specs: animate, the final_select CLI, the deploy audit), and the small config
-readers the artifact writers and the CLI share. A leaf: imports no loop,
-checkpoint or artifact module.
+optimizer's gene list, which `chromosome_layout.ChromosomeLayout.from_specs` lays
+out), `run_param_specs` (the offline constructor of a run's layout: animate, the
+final_select CLI, the deploy audit), and the small config readers the artifact
+writers and the CLI share. A leaf: imports no loop, checkpoint or artifact module.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.config import TrainingConfig, WarmStartConfig
 from aerocapture.training.encoding import nn_param_specs_from_architecture, nn_param_specs_from_v2
 from aerocapture.training.evaluate import _aero_rs
@@ -138,7 +139,7 @@ def _setup_param_specs(config: TrainingConfig, _toml: dict, verbose: bool) -> li
             seg_width = (e_max - e_min) / n_segments if n_segments > 0 else float("nan")
             initial = pc.get("bank_angles")
             init_label = f"seeded from TOML bank_angles ({len(initial)} values)" if initial is not None else "GA-initialized (no TOML bank_angles)"
-            n_shaping = len(param_specs) - n_segments
+            n_shaping = sum(not s.name.startswith("bank_angle_") for s in param_specs)
             print(
                 f"piecewise_constant: {n_segments} segments over E in [{e_min:.2f}, {e_max:.2f}] MJ/kg "
                 f"(width {seg_width:.3f} MJ/kg), {init_label}; "
@@ -319,38 +320,15 @@ def build_training_config_from_toml(toml_path: str) -> tuple[TrainingConfig, dic
     return cfg, _toml_data
 
 
-def warm_start_weight_bounds(config: TrainingConfig, specs: list[ParamSpec], run_dir: Path) -> list[ParamSpec] | None:
-    """The EXACT weight-slab bounds `<run_dir>/warm_start_bounds.json` recorded (what a warm-start
-    run's population was encoded under; decoding under rebuilt Xavier bounds silently corrupts
-    the weights), or None without a sidecar. Raises SystemExit when they do not span `specs`'
-    weight slab, the invariant the fresh-start splice asserts (wrong TOML for this run).
-    """
-    from aerocapture.training.param_spaces import active_scaffolding_specs  # noqa: PLC0415
-    from aerocapture.training.warm_start import load_warm_start_bounds  # noqa: PLC0415
-
-    bounds = load_warm_start_bounds(run_dir)
-    if bounds is None:
-        return None
-    n_weights = len(specs) - len(active_scaffolding_specs(config.network.scaffolding))
-    if len(bounds) != n_weights:
-        raise SystemExit(f"ERROR: warm_start_bounds.json has {len(bounds)} specs but the config's weight slab has {n_weights} params")
-    return bounds
-
-
 def run_param_specs(toml_path: str | Path, run_dir: Path, announce_overlay: bool = False) -> tuple[TrainingConfig, dict, list[ParamSpec]]:
     """A run's config, resolved TOML and chromosome specs, as the trainer encoded them.
 
-    The one rebuild for the offline consumers of a checkpointed population (animate,
-    the final_select CLI, the deploy audit; the trainer's own resume overlays the same
-    `warm_start_weight_bounds` in place in `SingleAlgoTrainer.from_config`):
+    The offline constructor of a run's `ChromosomeLayout` (#222), for the consumers of a
+    checkpointed population (animate, the final_select CLI, the deploy audit):
     `build_training_config_from_toml` + `_setup_param_specs`, with the run's
-    `warm_start_bounds.json` overlaid when present.
+    `warm_start_bounds.json` spliced in by `ChromosomeLayout.with_sidecar` (the resume
+    path's constructor, in `SingleAlgoTrainer.from_config`).
     """
     config, toml_data = build_training_config_from_toml(str(toml_path))
-    specs = _setup_param_specs(config, toml_data, verbose=False)
-    bounds = warm_start_weight_bounds(config, specs, run_dir)
-    if bounds is not None:
-        specs = [*bounds, *specs[len(bounds) :]]
-        if announce_overlay:
-            print(f"  Overlaid {len(bounds)} weight-spec bounds from warm_start_bounds.json")
-    return config, toml_data, specs
+    layout = ChromosomeLayout.from_specs(_setup_param_specs(config, toml_data, verbose=False), config.guidance_type)
+    return config, toml_data, layout.with_sidecar(run_dir, announce=announce_overlay).specs

@@ -14,7 +14,7 @@ import numpy.typing as npt
 
 from aerocapture.training.initialization import compute_layer_bound
 from aerocapture.training.layer_schema import layer_schema
-from aerocapture.training.param_spaces import ParamSpec
+from aerocapture.training.param_spaces import ParamSpec, check_chromosome_width
 from aerocapture.training.torch_mirror.schemas import (
     CfcSpec,
     DenseSpec,
@@ -45,8 +45,7 @@ def decode_normalized(x: npt.NDArray[np.float64], specs: list[ParamSpec]) -> dic
     trained under an older PARAM_SPACES (e.g. FTC before #128, 26 genes vs 23)
     would otherwise decode positionally shifted with no error.
     """
-    if len(x) != len(specs):
-        raise ValueError(f"chromosome width {len(x)} != {len(specs)} param specs (checkpoint trained under a different PARAM_SPACES?)")
+    check_chromosome_width(len(x), len(specs), "checkpoint trained under a different PARAM_SPACES?")
     result: dict[str, float] = {}
     for i, s in enumerate(specs):
         xi = float(x[i])

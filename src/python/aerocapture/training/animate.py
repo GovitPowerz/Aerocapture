@@ -300,10 +300,7 @@ def _write_nn_frame_cell(best_individual: npt.NDArray, config: TrainingConfig, s
     deployed winner would. The TOML's `[data] neural_network` is never written."""
     from aerocapture.training.artifacts import write_best_artifacts
 
-    x = best_individual.astype(np.float64)
-    if x.shape[0] != len(specs):
-        raise ValueError(f"chromosome width {x.shape[0]} != {len(specs)} params under {config.sim.toml_config}")
-    write_best_artifacts(x, config, specs, frame_dir, cwd=Path.cwd())
+    write_best_artifacts(best_individual.astype(np.float64), config, specs, frame_dir, cwd=Path.cwd())
 
 
 def _decode_and_build_overrides(best_individual: npt.NDArray, guidance_type: str, specs: list[ParamSpec], n_sims: int) -> dict[str, object]:
@@ -376,12 +373,13 @@ def generate_animation(
     g_load_limit: float | None = constraints.get("max_load_factor")
     heat_load_limit: float | None = constraints.get("max_heat_load")
 
+    from aerocapture.training.chromosome_layout import ChromosomeLayout
     from aerocapture.training.training_config import run_param_specs
 
     # The trainer's own rebuild: `[[network.architecture]]`, the scaffolding tail, a warm-start run's recorded
     # weight bounds, a piecewise run's segment count.
     config, _, specs = run_param_specs(toml_path, training_dir)
-    if any(s.name == "ref_bank" for s in specs):
+    if ChromosomeLayout.from_specs(specs, config.guidance_type).ref_bank is not None:
         raise NotImplementedError("a joint-reference run flies a per-individual reference table that animate does not regenerate")
     nn_frame = (config, specs) if guidance_type == "neural_network" else None
 

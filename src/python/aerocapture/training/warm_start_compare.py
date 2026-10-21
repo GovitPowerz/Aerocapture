@@ -34,9 +34,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.artifacts import write_best_artifacts
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.evaluate import write_nn_json
+from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.report import _read_constraint_limits
 from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET, VALIDATION_SEED_OFFSET, WARM_START_SEED_OFFSET, make_reserved_seeds
 
@@ -108,33 +109,11 @@ def _render_pool_panels(
     charts.chart_heat_flux_time(trajectories, traj_class, out_dir / f"{prefix}_heat_flux_time.svg", limit_kw_m2=heat_flux_limit)
 
 
-def _decode_warm_start_weights(
-    warm_chromo: npt.NDArray[np.float64],
-    weight_specs: list,
-) -> npt.NDArray[np.float64]:
-    """Decode the NN-weight slab of a warm-start chromosome into physical weights.
-
-    The warm-start chromosome is `[NN-weights | scaffolding-tail (optional)]`,
-    laid out as normalized [0, 1] values per ParamSpec. The scaffolding tail
-    must be excluded -- only the NN weights go into the JSON. Caller is
-    responsible for passing only the NN-weight slab (and matching ParamSpec
-    slab) here.
-    """
-    if len(warm_chromo) != len(weight_specs):
-        raise ValueError(
-            f"chromosome length ({len(warm_chromo)}) must match weight_specs length ({len(weight_specs)}); did you forget to drop the scaffolding tail?"
-        )
-    weights = np.empty(len(weight_specs), dtype=np.float64)
-    for j, s in enumerate(weight_specs):
-        weights[j] = s.p_min + float(warm_chromo[j]) * (s.p_max - s.p_min)
-    return weights
-
-
 def render_trajectory_comparison(
     cfg: TrainingConfig,
     base_mc_seed: int,
     warm_chromo: npt.NDArray[np.float64],
-    nn_weight_specs: list,
+    param_specs: list[ParamSpec],
 ) -> dict[str, Any]:
     """Orchestrate the four (pool, side) batches and render 20 comparison panels.
 
@@ -174,8 +153,6 @@ def render_trajectory_comparison(
     val_n = int(cfg.optimizer.validation_n_sims)
     val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, val_n)
 
-    # Write the warm-start NN to a temp JSON so the runtime can load it.
-    # Cleanup happens unconditionally in the finally block.
     heat_flux_limit, _, _ = _read_constraint_limits(Path(toml_config))
     panels = ["corridor_pdyn", "corridor_inclination", "corridor_bank", "altitude_time", "heat_flux_time"]
 
@@ -186,22 +163,12 @@ def render_trajectory_comparison(
         "side_labels": {**_FALLBACK_SIDE_LABELS, "supervisor": f"Supervisor ({primary_scheme})"},
     }
 
-    import os
-
-    fd, nn_tmp_str = tempfile.mkstemp(suffix=".json", prefix="warm_start_nn_")
-    os.close(fd)
-    nn_tmp_path = Path(nn_tmp_str)
-    try:
-        # Decode the NN-weight slab and write the temp JSON. The chromosome may
-        # have a scaffolding tail; nn_weight_specs covers only the NN weights.
-        weights = _decode_warm_start_weights(warm_chromo[: len(nn_weight_specs)], nn_weight_specs)
-        write_nn_json(
-            weights,
-            cfg.network,
-            nn_tmp_path,
-            input_mask=cfg.network.input_mask,
-            output_param=cfg.network.output_parameterization,
-        )
+    # The warm-started NN flies from a scratch cell written by the trainer's own
+    # artifact writer (the chromosome's layout, the config's normalization table),
+    # never the TOML's deploy path.
+    with tempfile.TemporaryDirectory(prefix="warm_start_nn_") as scratch:
+        write_best_artifacts(warm_chromo, cfg, param_specs, Path(scratch), cwd=None)
+        nn_tmp_path = Path(scratch) / "best_model.json"
 
         pools: list[tuple[str, list[int], int]] = [
             ("train", train_seeds, ws.n_warm_seeds),
@@ -254,8 +221,6 @@ def render_trajectory_comparison(
                     pool_entry["sides"][side] = {"error": f"{type(e).__name__}: {e}"}
                     print(f"  [warm_start_compare] WARNING: {side}/{pool_name} failed: {type(e).__name__}: {e}")
             manifest["pools"][pool_name] = pool_entry
-    finally:
-        nn_tmp_path.unlink(missing_ok=True)
 
     # Persist manifest so warm_start_report.py and any CLI re-run can pick it up.
     (report_dir / "compare_manifest.json").write_text(json.dumps(manifest, indent=2))

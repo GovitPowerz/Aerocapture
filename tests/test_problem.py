@@ -204,8 +204,8 @@ class TestBuildOverrides:
         assert overrides["monte_carlo.seed"] == 99
 
 
-def test_problem_n_nn_weight_specs_live_pack() -> None:
-    """A live-scaffolding NN problem caps weights at len(param_specs) - 3."""
+def test_problem_layout_live_pack() -> None:
+    """A live-scaffolding NN problem lays out the three live genes as the tail, the rest as weights."""
     from aerocapture.training.config import NetworkConfig
 
     arch = [{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}]
@@ -224,11 +224,11 @@ def test_problem_n_nn_weight_specs_live_pack() -> None:
         scheme="neural_network",
         nn_config=net,
     )
-    assert prob._n_nn_weight_specs == 3
+    assert prob.layout.n_weights == 3
 
 
-def test_problem_n_nn_weight_specs_off_and_full() -> None:
-    """off subtracts 0; full subtracts 17."""
+def test_problem_layout_off_and_full() -> None:
+    """off: every gene is a weight; full: the 17-gene pack is the tail."""
     from aerocapture.training.config import NetworkConfig
     from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS
 
@@ -237,12 +237,12 @@ def test_problem_n_nn_weight_specs_off_and_full() -> None:
 
     net_off = NetworkConfig(architecture=arch, scaffolding="off")
     prob_off = AerocaptureProblem(param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_off)
-    assert prob_off._n_nn_weight_specs == 5
+    assert prob_off.layout.n_weights == 5
 
     net_full = NetworkConfig(architecture=arch, scaffolding="full")
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
     prob_full = AerocaptureProblem(param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full)
-    assert prob_full._n_nn_weight_specs == len(base_specs)
+    assert prob_full.layout.n_weights == len(base_specs)
 
 
 def test_evaluate_aborts_after_consecutive_failures(monkeypatch) -> None:  # type: ignore[no-untyped-def]

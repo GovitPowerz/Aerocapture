@@ -39,6 +39,7 @@ from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.artifacts import owned_deploy_path, write_best_artifacts
 from aerocapture.training.checkpoint import _prune_old_checkpoints, _restore_seed_curator, load_checkpoint, save_checkpoint
+from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.corridor import _accumulate_corridor
 from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
 from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
@@ -57,7 +58,6 @@ from aerocapture.training.seeds import (
     base_mc_seed_from_toml,
     make_reserved_seeds,
 )
-from aerocapture.training.training_config import warm_start_weight_bounds
 from aerocapture.training.weight_stats import compute_weight_stats
 
 if TYPE_CHECKING:
@@ -415,12 +415,12 @@ class SingleAlgoTrainer:
                 # n_iter is not checkpointed: alpha re-anneals from alpha_start
                 # over the stretched schedule, re-expanding a converged swarm.
                 print("  NOTE: QPSO resume restarts the alpha anneal at alpha_start (paper runs are single-shot --from-scratch)")
+        layout = ChromosomeLayout.from_specs(problem.param_specs, config.guidance_type)
         if resumed is not None and resume_dir is not None and config.guidance_type == "neural_network":
-            # The checkpointed population was encoded under the warm-start bounds, not the rebuilt
-            # ones: overlay in place, as the fresh-start splice does (the problem decodes through this list).
-            bounds = warm_start_weight_bounds(config, problem.param_specs, Path(resume_dir))
-            if bounds is not None:
-                problem.param_specs[: len(bounds)] = bounds
+            # The checkpointed population was encoded under the warm-start bounds, not the
+            # rebuilt ones: the resume constructor of the layout, handed to the problem.
+            layout = layout.with_sidecar(Path(resume_dir))
+            problem.param_specs = layout.specs
         seed_weights = _load_seed_weights(config, cwd, verbose) if resumed is None and not from_scratch else None
         if resumed is not None and verbose:
             # The checkpointed best is re-validated unconditionally in `prologue`
@@ -434,7 +434,7 @@ class SingleAlgoTrainer:
                 print(f"  cost_transform changed {saved_transform!r} -> {current_transform!r}{suffix}")
         base_mc_seed = base_mc_seed_from_toml(toml)
         val_seeds, excluded_seeds = _reserved_seed_pools(config, problem, base_mc_seed, seed_curator)
-        pop_array, pop_costs = _build_initial_population(resumed, config, problem.param_specs, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
+        pop_array, pop_costs = _build_initial_population(resumed, config, layout, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
         _override_cmaes_sigma0(config)
         return cls(
             config=config,
@@ -915,7 +915,8 @@ class IslandsTrainer:
         seed_weights = None if from_scratch else _load_seed_weights(config, cwd, verbose)
         base_mc_seed = base_mc_seed_from_toml(toml)
         val_seeds, excluded_seeds = _reserved_seed_pools(config, problem, base_mc_seed, seed_curator)
-        pop_array, pop_costs = _build_initial_population(None, config, problem.param_specs, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
+        layout = ChromosomeLayout.from_specs(problem.param_specs, config.guidance_type)
+        pop_array, pop_costs = _build_initial_population(None, config, layout, seed_weights, problem, val_seeds, base_mc_seed, rng, verbose)
         return cls(
             config=config,
             cwd=cwd,

@@ -175,10 +175,10 @@ describes a winner the artifacts don't have. Cost: <= n_candidates x validation_
 once (~5% of a 2000-gen budget at paper scale). Retro CLI: `python -m
 aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoint-patch]
 [--sim-timeout S]` rebuilds the config and chromosome via `training_config.run_param_specs`
-(`warm_start_bounds.json` weight-spec bounds overlaid when present: decoding under rebuilt Xavier
+(`warm_start_bounds.json` weight-spec bounds spliced in when present: decoding under rebuilt Xavier
 bounds would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
-the TOML), validates the chromosome width, errors when `validation_n_sims = 0`, then re-runs the
-rule and rewrites artifacts + checkpoint, then the sidecar (last, as in `finalize`: a campaign
+the TOML), validates the chromosome width through the layout, errors when `validation_n_sims = 0`,
+then re-runs the rule and rewrites artifacts + checkpoint (`artifacts.deploy_winner`), then the sidecar (last, as in `finalize`: a campaign
 runner reads a sidecar newer than the latest checkpoint as a finished selection;
 `load_selection_state` reads BOTH checkpoint
 formats into a `SelectionState`; `patch_checkpoint` atomically rewrites ONLY the best fields,
@@ -254,10 +254,26 @@ use `--sim-timeout` against NaN hangs).
   `cost.build_cost_kwargs`, `[corridor]` / `[reference]` / `[checkpoints]` in
   `build_training_config_from_toml`, `[warm_start]` / `[warm_start.adam]` in
   `WarmStartConfig.from_dict`).
+- `chromosome_layout.py` - `ChromosomeLayout`, the chromosome `[weight slab | params tail |
+  ref_bank]` as one value per run (#222): `from_specs(specs, scheme)` partitions a spec list by
+  gene name (for `neural_network` the `SCAFFOLDING_PREFIXES` genes are the tail, every other gene a
+  weight; a classical scheme has no slab and its table is the tail), `with_weight_bounds` is the
+  only splice of warm-start bounds into the slab (exits when they do not span it),
+  `with_sidecar(run_dir)` the resume constructor (`warm_start_bounds.json`), `slab_bounds()` the
+  (lo, hi) arrays `run_grid` decodes under, `decode(x, context)` the one chromosome ->
+  `DecodedChromosome(weights, params)` decode, `check_width` the one width check
+  (`param_spaces.check_chromosome_width`, shared with `encoding.decode_normalized`). Three
+  constructors of one run's layout: fresh start (`from_specs` on `_setup_param_specs`, then
+  `with_weight_bounds` after warm-start), resume (`with_sidecar`), offline
+  (`training_config.run_param_specs`). `AerocaptureProblem.param_specs` is a property over its
+  layout: assigning a new list rebinds the layout, which is how the trainer hands over the
+  warm-start / sidecar bounds (no holder aliases a mutable list). `warm_start` produces the
+  sidecar and does not consume the layout.
 - `param_spaces.py` — Per-scheme parameter bounds (`ParamSpec`, optional log-scale), the
   prefix groups `_NAV_PARAMS` / `_LATERAL_PARAMS` / `_EXIT_PARAMS` / `_THERMAL_LIMITER_PARAMS` /
   `_SHAPING_PARAMS`, `_NN_LIVE_PARAMS` (3) / `_NN_SCAFFOLDING_PARAMS` (17),
-  `active_scaffolding_specs(scaffolding)`, `make_piecewise_constant_specs(N)`,
+  `active_scaffolding_specs(scaffolding)`, `scaffolding_seed_params(scaffolding, source_path)`,
+  `check_chromosome_width`, `make_piecewise_constant_specs(N)`,
   `JOINT_REF_BANK_SCHEMES`, `route_param_path` (the prefix -> TOML dot-path rule: `nav.` ->
   `navigation.*`, `lateral.` -> `guidance.lateral.*`, `exit.` -> `guidance.ftc.*`, `thermal.` ->
   `guidance.thermal_limiter.*`, `shaping.` -> `guidance.command_shaping.*`, unprefixed ->
@@ -317,15 +333,18 @@ use `--sim-timeout` against NaN hangs).
   with `from_config`), the loop's `_apply_seed_strategy` / `_maybe_curate`,
   `_build_validation_payload`, `_persist_islands_promotion`.
 - `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`, `run_param_specs`
-  (the offline rebuild of a run's chromosome specs with its `warm_start_bounds.json` overlaid, shared
-  by `animate`, the `final_select` CLI and `experiments/paper/audit_deployed_models.py`, #203),
-  `warm_start_weight_bounds` (the sidecar's weight-slab specs, checked to span the config's weight
-  slab; also overlaid in place by `SingleAlgoTrainer.from_config` on resume, where the fresh-start
-  splice in `initial_population.py` does not run), `check_ref_trajectory_wiring`,
+  (the offline constructor of a run's `ChromosomeLayout`: the config's specs with the run's
+  `warm_start_bounds.json` spliced in, shared by `animate`, the `final_select` CLI and
+  `experiments/paper/audit_deployed_models.py`, #203), `check_ref_trajectory_wiring`,
   `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
+- `chromosome_layout.py` - `ChromosomeLayout` (see "Config and chromosome").
 - `checkpoint.py` - `save_checkpoint` / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
-  `_restore_seed_curator`, `_check_resume_chromosome_shape`.
-- `artifacts.py` - `write_best_artifacts`, `deploy_optimized_artifacts`, `_emit_warm_start_artifacts`.
+  `_restore_seed_curator`, `_check_resume_chromosome_shape` (the one width check with the resume
+  hint; the islands restore calls it too).
+- `artifacts.py` - `write_best_artifacts` (decodes through the layout, returns the
+  `DecodedChromosome`), `deploy_winner` (the one decode-and-deploy: `write_best_artifacts` + the
+  classical optimized TOML / joint-reference table, shared by the end of training and the
+  `final_select` CLI), `deploy_optimized_artifacts`, `_emit_warm_start_artifacts`.
 - `initial_population.py` - `_build_initial_population` (resume / v1 / v2 / warm-start),
   `_seed_initial_population`, `build_initial_population_for_v2`, the scaffolding slabs, the
   warm-start eval callback.
@@ -750,11 +769,15 @@ With `adaptive_bounds = true` (default) the NN-weight ParamSpec bounds are deriv
 each layer slab's max-abs value with a 2x margin (floored at the Xavier × `bound_multiplier`
 half-width), so encoding never clips; they persist to `<save_dir>/warm_start_bounds.json`
 (`warm_start.load_warm_start_bounds`) and `build_warm_start_chromosome` returns
-`(chromosome, weight_specs)` whose specs replace `param_specs[0..n_weights)` so every optimizer
-decodes under the bounds the encoding used. A single-algo resume skips that branch and overlays the
-sidecar itself (`training_config.warm_start_weight_bounds` in `SingleAlgoTrainer.from_config`;
-before #203 it decoded the resumed population under the rebuilt bounds); the offline consumers get
-it through `run_param_specs`.
+`(chromosome, weight_specs)`; `_build_initial_population` re-lays the slab under them
+(`ChromosomeLayout.with_weight_bounds`) and rebinds the problem so every optimizer decodes under
+the bounds the encoding used. A single-algo resume skips that branch and splices the sidecar
+itself (`ChromosomeLayout.with_sidecar` in `SingleAlgoTrainer.from_config`; before #203 it decoded
+the resumed population under the rebuilt bounds); the offline consumers get it through
+`run_param_specs`. The warm-start eval callback and the chromosome's tail seed their scaffolding
+values from the same rule (`param_spaces.scaffolding_seed_params`), and
+`warm_start_compare` flies the warm-started network from a scratch cell written by
+`write_best_artifacts` (so under the config's `[network] normalization` table).
 `adaptive_bounds = false` falls back to static Xavier × `bound_multiplier` bounds plus a >5%
 clip-rate guard. The cache key covers architecture + input_mask + output_param +
 supervisor_schemes + per-scheme mtime + scaffolding source path/mtime + bound_multiplier +
