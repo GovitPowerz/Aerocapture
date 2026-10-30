@@ -19,9 +19,10 @@
 - [ ] Two-phase regime curriculum (#229; off-nominal robustness recovery, paper Section 7.3
       follow-up; design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`, promotion
       rule ADR-0009): fine-tune the three centered high-regime anchors under the medium regime with
-      the deployed stacked objective behind a regime guard, judged at two-pool parity. Step 0 first:
-      score the anchors on the medium 10^6 pool; the TODO's premise that the centered recipe gives
-      up the nominal sizing tail was never measured. The annealed exponent, the medium-to-high
+      the deployed cost transform and curation bucket behind a regime guard, judged at two-pool
+      parity. Step 0 first: score the anchors on the medium 10^6 pool; whether these high-trained
+      anchors give up the nominal sizing tail was never measured (`centered_depth_v4.json` scores
+      them on the stress pool only). The annealed exponent, the medium-to-high
       widening curriculum and the stratified batch under `cubed` are rejected in the design.
 - [ ] On-line adaptation of the deployed policy (the paper's third forward direction): the
       deployed policy is a fixed forward pass and all adaptation happens on the ground. Investigate

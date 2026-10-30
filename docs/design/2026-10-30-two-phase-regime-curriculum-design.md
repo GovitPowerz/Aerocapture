@@ -22,23 +22,28 @@ open question, not a finding.
 
 One Mamba_962 policy at **two-pool parity**:
 
-- **Medium (deployment) pool**: the frozen 10 x 100,000 confirmatory pool (`confirmatory_eval.py`),
-  CVaR99.9 paired delta against the three `hl_mamba_p962` champion seeds with a 95% CI that
-  includes zero, and capture parity.
+- **Medium (deployment) pool**: the frozen 10 x 100,000 confirmatory pool under `per_draw`
+  (`experiments/ou_marginal/confirmatory_marginal.py`, whose file holds the champion rows),
+  CVaR99.9 paired delta (curriculum minus champion) against the three `hl_mamba_p962` champion
+  seeds with a 95% CI that does not lie above zero (no significant loss), and capture parity.
 - **High (stress) pool**: the 9M stress pool at n = 10,000 (`centered_depth_eval.py`), capture
-  within 0.5 pt of the anchors and a CVaR95 paired delta whose CI does not exclude a loss.
+  within 0.5 pt of the anchors and a CVaR95 paired delta (curriculum minus anchor) whose 95% CI
+  does not lie above zero.
 
 Constraint exceedances are reported beside every number. The strict feasibility gate is not a
 criterion on the high side: no high-regime cell of either family passes it (TODO, #177).
 
 ## 3. Step 0: measure the anchors on the medium pool (gates everything)
 
-Score `mamba_centered_s{1,2,3}` with `confirmatory_eval.py` on the frozen medium pool, the four
-high levels overridden back to medium via `--extra-override` (`monte_carlo.atmosphere.level`,
-`monte_carlo.density_perturbation.level`, `monte_carlo.navigation.level`,
-`monte_carlo.nav_filter.level`), into a separate data file
-`articles/paper/data/curriculum_eval.json` (the paper's `confirmatory_eval.json` and its
-`SHA256SUMS` stay untouched until a number is quoted). ~15 min per seed.
+Score `mamba_centered_s{1,2,3}` with `experiments/ou_marginal/confirmatory_marginal.py --cells`
+on the frozen medium pool (`confirmatory_eval.py` defaults to the legacy noise path and pairs only
+its hardcoded cells), the four high levels overridden back to the deployment presets of
+`configs/training/common.toml` via `--extra-override`: `monte_carlo.atmosphere.level`,
+`monte_carlo.navigation.level` and `monte_carlo.nav_filter.level` to `"medium"`,
+`monte_carlo.density_perturbation.level` to `"low"`. The rows land in
+`experiments/ou_marginal/confirmatory_marginal.json` next to the `hl_mamba_p962` rows they pair
+with; the paper's extract keeps only its manifests' cells, so `articles/paper/data/` and its
+`SHA256SUMS` stay untouched until a number is quoted. ~15 min per seed.
 
 If the anchors already hold the medium tail, the campaign stops here: Section 7.3 gets the
 two-pool table and the TODO item closes without a schedule.
@@ -49,7 +54,7 @@ The three mechanisms the TODO listed were rejected on the facts:
 
 | mechanism | why not |
 |---|---|
-| annealed cost-transform exponent, scheduled on population capture | the trigger "capture saturates" never fires on the high regime (~5% of draws are catastrophic under any law, Section 7.3); a per-generation exponent makes `Champion.train_cost`, the gate's `val_rms` and `best_val_rms_within_transform_only` non-stationary, the same incomparability the resume lesson already cost us |
+| annealed cost-transform exponent, scheduled on population capture | the trigger "capture saturates" never fires on the high regime (~5% of draws are catastrophic under any law, Section 7.3); a per-generation exponent makes `Champion.train_cost`, the gate's `val_rms` and the checkpointed `best_val_cost` non-stationary, the same incomparability the resume lesson already cost us |
 | stratified curation batch (one `middle` seed + `max` seeds, n = 3-4) under `cubed` | a middle seed at ~150 m/s is 3.4e6 cubed next to a max seed at ~3000 virtual DV, 2.7e10: the anchor seed is invisible; only coherent with a linear transform, which makes it "centered with a harder seed mix" |
 | medium-to-high widening curriculum with the stacked objective | its end state is the stacked-on-high objective; exp-13 (the deployed Mamba retrained on high, i.e. the same curriculum at its coarsest step) already stalled there at 96% |
 
@@ -60,12 +65,15 @@ high-regime robustness (the anchors'):
 - **Phase 1** is each anchor itself, finished: the `checkpoint_g04000` of
   `training_output/ou_marginal/centered/mamba_centered_sN/`.
 - **Phase 2** fine-tunes from that checkpoint under the **medium regime** with the **deployed
-  shaping**, at the #192 fine-tune recipe (`jobs_heat_load.txt`): GA 60 x 10, 2000 generations,
+  transform and bucket**, at the #192 fine-tune recipe (`jobs_heat_load.txt`): GA 60 x 10 (ten
+  scenarios per individual, not the stacked objective's two), 2000 generations,
   `cost_transform = "cubed"`, `curation_bucket_selection = "max"`, adaptive seeds,
   `max_violation_rate = 0.0` on the medium validation pool. ~25 min per job before the guard.
 - **Trigger**: fixed, at g04000. Nothing is scheduled within a phase. `campaign.sh` hardcodes the
-  source checkpoint generation (`SEED_GEN=20000`); it becomes `SEED_GEN=${SEED_GEN:-20000}` and the
-  curriculum jobs file is run with `SEED_GEN=4000`.
+  source checkpoint generation (`SEED_GEN=20000`) and splices it unpadded into
+  `checkpoint_g${SEED_GEN}`, which matches the trainer's five-digit names only at 20000: it becomes
+  `SEED_GEN=${SEED_GEN:-20000}` with every checkpoint name formatted through
+  `printf 'checkpoint_g%05d'`, and the curriculum jobs file is run with `SEED_GEN=4000`.
 
 What existing machinery already does at the switch: `_restore_seed_curator` drops the 16-wide
 checkpointed seed list (width != `training_n_sims`) and re-curates; `resize_population` shrinks
@@ -75,49 +83,67 @@ under the new transform (the `cost_transform changed` notice); `campaign.sh` str
 
 ## 5. Regime guard (ADR-0009)
 
-Fine-tuning on medium with the stacked objective can forget the high regime one promotion at a
-time. The guard makes that visible and refuses it:
+Fine-tuning on medium with the stacked transform and bucket can forget the high regime one
+promotion at a time. The guard makes that visible and refuses it:
 
-- **Config**: `[optimizer.regime_guard]`, section-level `deny_unknown_fields` like every other
-  section (ADR-0008): `n_sims = 4000`, `tolerance = 0.05`, `cost_transform = "linear"`, and an
-  `overrides` table of dot paths (the four high levels). Absent section: nothing changes.
-- **Seeds**: a new reserved stream `REGIME_GUARD_SEED_OFFSET = 11_000_000` in `training/seeds.py`,
-  disjoint from the 9M stress pool whose first 10,000 seeds are the final high score. 4000 seeds
-  resolve ~0.6 capture points; RMS of the linear cost includes crashes through the virtual DV, so
-  a capture loss shows up in the one number.
+- **Config**: `[optimizer.regime_guard]`, built in `OptimizerConfig.from_dict` like
+  `[optimizer.ga]`, whose dataclass kwargs reject an unknown key (Rust passes `[optimizer]`
+  through as a Python-owned table, ADR-0008): `n_sims = 4000`, `tolerance = 0.05`,
+  `cost_transform = "linear"`, and an `overrides` table of dot paths (the four high levels).
+  Absent section: nothing changes. The guard needs the single-algorithm loop and a validation
+  pool: with `algorithm = "islands"` or `validation_n_sims = 0` the section is a config error.
+- **Seeds**: a new reserved stream `REGIME_GUARD_SEED_OFFSET = 12_000_000` in `training/seeds.py`
+  (11M is the world-model stream), drawn through `_draw_disjoint_seeds` with the 9M stress pool's
+  first 10,000 seeds (the final high score) excluded: independent streams are disjoint only
+  probabilistically, ~2% odds of a shared scenario at these sizes. 4000 seeds resolve ~0.6
+  capture points; RMS of the linear cost includes crashes through the virtual DV, so a capture
+  loss shows up in the one number.
 - **Bar**: the starting champion's (the anchor's) guard-pool RMS, computed once at prologue and
   checkpointed; a resume reads it and never re-flies it. The anchors' high validation RMS under
   linear sits at ~4076-4079 on their own 1000-seed pool, so the guard bar will be of that order.
 - **Rule**, lexicographic after ADR-0005: feasible on the medium pool, then guard RMS <= bar x
   1.05, then strictly lower medium (cubed) val RMS promotes. Applied at the validation gate, the
-  pre-loop champion validation and final selection.
-- **Refusal**: a new `GateStatus.REFUSED_GUARD`, distinct from infeasible so ADR-0005's
+  pre-loop champion validation and final selection. The guard is flown only for a candidate the
+  first and third conditions would promote: the decision is the same conjunction, and final
+  selection flies it in medium-RMS order, stopping at the first candidate that passes.
+- **Refusal**: the verdict rides on the `VALIDATED` gate result as `GateResult` fields
+  (`guard_rms`, `guard_bar`, `guard_pass`) next to `feasible`, not as a new `GateStatus`:
+  `Champion.consider` and the trainer's validation log act on `VALIDATED` only, so a new status
+  would skip the last-validated update and the record. Kept apart from `feasible`, ADR-0005's
   feasibility accounting is untouched. The refused candidate becomes last-validated (not
-  re-flown), the champion stays. Every validation record in the per-gen JSONL carries
-  `guard_rms`, `guard_bar` and the verdict, so a walk-off is a column, not a guess.
-- **Cost**: one more MC pass of 4000 sims per validation; validations fire on argmin change only,
-  so the phase-2 job grows from ~25 min to at most ~45 min.
+  re-flown), the champion stays. Every validation record in the per-gen JSONL carries the three
+  columns (null where the guard was not flown), so a walk-off is a column, not a guess.
+- **Cost**: one more MC pass of 4000 sims per would-promote candidate. The gate validates on most
+  generations (1583 of 2000 in `hs_mamba_p962_q25`, the #192 run this recipe copies) but promotes
+  a handful of times, so the phase-2 job stays at ~25-30 min; a guard flown on every validation
+  would add ~6.3M sims, about an hour per job.
 
 ## 6. Cells, jobs and scoring
 
-- `configs/training/ou_marginal/centered/mamba_curriculum_s{1,2,3}.toml`, base =
-  `mamba_centered_sN.toml`: the four levels back to `"medium"`, `n_pop = 60`,
-  `training_n_sims = 10`, `curation_bucket_selection = "max"`, `cost_transform = "cubed"`, the
-  `[optimizer.regime_guard]` section, and a run-local `[data] neural_network`
-  (`training_output/ou_marginal/centered/mamba_curriculum_sN/best_model.json`, #170).
+- `configs/training/ou_marginal/curriculum/mamba_curriculum_s{1,2,3}.toml`, in their own
+  directory (`tests/test_centering_campaign_configs.py` pins the `centered/` file set to the #177
+  cells), base = `../centered/mamba_centered_sN.toml`: atmosphere, navigation and nav_filter back
+  to `"medium"` and density_perturbation back to `"low"` (the deployment presets),
+  `n_pop = 60`, `training_n_sims = 10`, `curation_bucket_selection = "max"`,
+  `cost_transform = "cubed"`, the `[optimizer.regime_guard]` section, and a run-local
+  `[data] neural_network` (`training_output/ou_marginal/curriculum/mamba_curriculum_sN/best_model.json`, #170).
 - `experiments/ou_marginal/jobs_curriculum.txt`:
-  `centered/mamba_curriculum_sN|6000|N|training_output/ou_marginal/centered/mamba_centered_sN`,
+  `curriculum/mamba_curriculum_sN|6000|N|training_output/ou_marginal/centered/mamba_centered_sN`,
   run as `SEED_GEN=4000 caffeinate -i experiments/ou_marginal/campaign.sh <jobs>` from a Terminal
   tab.
 - Three runs, one per anchor, **no new baselines**: the anchors are the high-pool control
-  (`centered_depth_v4.json`), the champion seeds the medium-pool control (`confirmatory_eval.json`).
-- **Scoring**: medium side as in Step 0 (same script, same file, the curriculum seeds appended);
+  (`centered_depth_v4.json`), the champion seeds the medium-pool control (their `per_draw` rows in
+  `experiments/ou_marginal/confirmatory_marginal.json`).
+- **Scoring**: medium side as in Step 0 (same script, same file, the curriculum seeds appended
+  through `--cells` with no `--extra-override`: their TOML is already the deployment regime);
   high side via `centered_depth_eval.py --v5`, a cell list of the three curriculum seeds paired
   on scenario against the anchors at n = 10,000, under `per_draw`.
 - Gates to keep green: `tests/test_pyo3.py`, `tests/test_run_grid.py`,
   `tests/test_thread_invariance.py` (the guard adds an evaluation path, not a physics change);
-  `every_committed_config_parses_and_validates` for the new section; a unit test that a guarded
-  gate refuses a candidate above the bar and logs the three columns.
+  `tests/test_seed_offsets.py` with the new offset; a Python test that an unknown
+  `[optimizer.regime_guard]` key raises (`every_committed_config_parses_and_validates` does not
+  see inside `[optimizer]`); a unit test that a guarded gate refuses a candidate above the bar,
+  keeps it as last-validated and logs the three columns.
 
 ## 7. Compute budget (approved)
 
@@ -126,14 +152,14 @@ Sequential, one Terminal tab, `caffeinate -i`, `python -u`:
 | step | cost |
 |---|---|
 | Step 0: anchors on the medium pool | 3 x ~15 min |
-| Phase 2: three fine-tunes with the guard | 3 x 25-45 min |
+| Phase 2: three fine-tunes with the guard | 3 x ~25-30 min |
 | Final scoring: medium 10 x 100k, high n = 10,000 | 3 x ~15 min + ~10 min |
 
-About 5-6 h wall. Step 0 gates the rest.
+About 3-3.5 h wall. Step 0 gates the rest.
 
 ## 8. Risks
 
-- **The guard refuses everything.** Then the stacked objective cannot improve the medium tail
+- **The guard refuses everything.** Then the stacked transform and bucket cannot improve the medium tail
   without spending high-regime robustness at this tolerance: a finding, reported with the refusal
   counts from the JSONL. The tolerance is the one knob; the fallback mechanism is the stratified
   batch with a linear transform (Section 4, row 2), not a looser guard.

@@ -119,7 +119,7 @@ _Avoid_: best, winner (until final selection), infeasible champion (say untruste
 The end-of-training re-ranking of the last generation plus the champion on the validation pool; infeasible candidates cannot win; decides the deployed winner.
 
 **Regime**:
-A named set of dispersion levels the simulator draws scenarios from: *medium* is the deployment regime every headline number is quoted on; *high* (atmosphere, density perturbation, navigation and navigation filter at their high presets) is the stress probe of the training method, not an operating point.
+A named set of dispersion levels the simulator draws scenarios from: *medium* is the deployment regime every headline number is quoted on (the training-common presets: density perturbation and wind low, every other domain medium); *high* (atmosphere, density perturbation, navigation and navigation filter at their high presets) is the stress probe of the training method, not an operating point.
 _Avoid_: noise regime for this sense (that names the noise seeding, ADR-0006); envelope
 
 **Stacked Objective**:
@@ -135,7 +135,7 @@ A finished centered high-regime run whose final checkpoint starts a curriculum's
 A second promotion bar in the validation gate and final selection: the candidate's RMS on a reserved pool flown under another regime must stay within a tolerance of the anchor's (ADR-0009). A candidate it stops is *refused*, not infeasible.
 
 **Two-Phase Curriculum**:
-Training a policy on the high regime under the centered objective, then fine-tuning it on the medium regime under the stacked objective behind a regime guard; judged at two-pool parity.
+Training a policy on the high regime under the centered objective, then fine-tuning it on the medium regime under the stacked objective's transform and bucket (at ten scenarios per individual, not two) behind a regime guard; judged at two-pool parity.
 _Avoid_: objective schedule, annealing (nothing changes within a phase)
 
 **Final Eval**:
