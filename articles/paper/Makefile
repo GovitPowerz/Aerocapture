@@ -91,7 +91,7 @@ results:
 # ---------------------------------------------------------------------------
 # confirmatory_marginal.json <- the 10^6 per-scenario confirmatory (issues #137, #174)
 # ---------------------------------------------------------------------------
-# Every cell of the scorer's manifests (experiments/ou_marginal/confirmatory_cells*.txt and controls_cells_v4.txt) and the fields
+# Every cell of the scorer's manifests (experiments/ou_marginal/confirmatory_cells*.txt, controls_cells_v4.txt and centered_cells_v4.txt) and the fields
 # the paper quotes, extracted from experiments/ou_marginal/confirmatory_marginal.json (written by
 # confirmatory_marginal.py there: hours per cell, never a make recipe; `mc-confirmatory-v4` below). Pure stdlib.
 confirmatory-marginal:

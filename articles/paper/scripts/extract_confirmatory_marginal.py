@@ -4,9 +4,11 @@ The per-scenario-noise (per_draw) 10^6 confirmatory the paper's performance tabl
 results.typ (issues #137, #174). Its source, experiments/ou_marginal/confirmatory_marginal.json, is
 written by confirmatory_marginal.py next to it (hours per cell); this extract keeps every cell of
 the scorer's manifests (confirmatory_cells.txt, the arxiv-v3 rows; confirmatory_cells_v4.txt, every
-v4 row: issue #179; controls_cells_v4.txt, the #176 mechanism controls Section 6.3 reads) and only
-the fields the paper quotes (plus the survival subsample of the
-cells fig_survival.py draws, issue #180), so the bundle carries them under data/SHA256SUMS and
+v4 row: issue #179; controls_cells_v4.txt, the #176 mechanism controls Section 6.3 reads;
+centered_cells_v4.txt, the #229 centered anchors Section 7.3 reads on the medium pool) and only
+the fields the paper quotes, plus the extra_overrides a row was flown under (null for a plain
+flight; the oldest rows recorded the per_draw regime itself) and the survival subsample of the
+cells fig_survival.py draws (issue #180), so the bundle carries them under data/SHA256SUMS and
 the provenance digest. The manifests are the one cell list: a cell added to a
 manifest is scored, extracted and quotable from the same line. `make check` runs `--check`, which
 fails when the committed extract is not what the source yields. Pure stdlib.
@@ -27,6 +29,7 @@ MANIFEST_REL = (
     "experiments/ou_marginal/confirmatory_cells.txt",
     "experiments/ou_marginal/confirmatory_cells_v4.txt",
     "experiments/ou_marginal/controls_cells_v4.txt",
+    "experiments/ou_marginal/centered_cells_v4.txt",
 )
 MANIFESTS = tuple(REPO / m for m in MANIFEST_REL)
 POOLED = ("n", "n_captured", "cvar95", "cvar999", "max", "viol_pct")
@@ -62,7 +65,8 @@ def build() -> dict:
         sys.exit(
             f"{SRC.relative_to(REPO)} lacks the quoted cell(s) {', '.join(missing)}: "
             "score them with experiments/ou_marginal/confirmatory_marginal.py --manifest <the manifest listing them> "
-            "(controls_cells_v4.txt's reset-state row needs its --extra-override: experiments/paper/15_state_controls.sh v4)"
+            "(controls_cells_v4.txt's reset-state row needs its --extra-override: experiments/paper/15_state_controls.sh v4; "
+            "centered_cells_v4.txt's rows need the --cells command in its header, with the four level overrides)"
         )
     return {
         "source": str(SRC.relative_to(REPO)),
@@ -78,6 +82,7 @@ def build() -> dict:
                 "label": label,
                 "toml": by_label[label]["toml"],
                 "eval_commit": by_label[label].get("eval_commit"),
+                "extra_overrides": by_label[label].get("extra_overrides"),
                 "pooled": {**{k: by_label[label]["pooled"][k] for k in POOLED}, VIOL_N: by_label[label]["pooled"].get(VIOL_N)},
                 "replicate_stats": {"cvar999": {"se": by_label[label]["replicate_stats"]["cvar999"]["se"]}},
                 **({"survival_sample": by_label[label]["survival_sample"]} if label in SURVIVAL_CELLS else {}),

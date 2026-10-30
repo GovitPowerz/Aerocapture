@@ -885,10 +885,11 @@ validation_n_sims` sims each).
   commit time, `--input git_head=<short sha>[-dirty]` for the colophon; `PDF=/tmp/x.pdf` leaves
   the committed PDF alone); `confirmatory-marginal` writes `data/confirmatory_marginal.json`,
   every cell of the scorer's manifests (`experiments/ou_marginal/confirmatory_cells.txt` +
-  `confirmatory_cells_v4.txt`, the one cell list: scored, extracted and quotable from the same
-  line) and the quoted fields of the per_draw 10^6 confirmatory
-  `experiments/ou_marginal/confirmatory_marginal.json` (`extract_confirmatory_marginal.py`, issues
-  #137, #174, #179); `quote-marginal` writes `data/quote_marginal.json`, every cell and the quoted
+  `confirmatory_cells_v4.txt` + `controls_cells_v4.txt` + `centered_cells_v4.txt`, the one cell
+  list: scored, extracted and quotable from the same line) and the quoted fields of the per_draw
+  10^6 confirmatory `experiments/ou_marginal/confirmatory_marginal.json`, each row with the
+  `extra_overrides` it was flown under (`extract_confirmatory_marginal.py`, issues #137, #174,
+  #179, #229); `quote-marginal` writes `data/quote_marginal.json`, every cell and the quoted
   fields of the paired n = 1000 both-regime scoring `experiments/ou_marginal/quote_results.json`
   (`extract_quote_marginal.py`, issues #157, #175); `heat-load-slope` copies
   `experiments/ou_marginal/heat_load_slope.json` to `data/heat_load_slope.json` verbatim

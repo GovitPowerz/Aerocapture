@@ -3,17 +3,23 @@
  "manifests": [
   "experiments/ou_marginal/confirmatory_cells.txt",
   "experiments/ou_marginal/confirmatory_cells_v4.txt",
-  "experiments/ou_marginal/controls_cells_v4.txt"
+  "experiments/ou_marginal/controls_cells_v4.txt",
+  "experiments/ou_marginal/centered_cells_v4.txt"
  ],
  "noise_seeding": "per_draw",
  "freeze_commit": "738d612fb7f739b857bc9de51a725f0d73093677",
  "n_replicates": 10,
  "n_per_replicate": 100000,
+ "pool": "CONFIRMATORY [2^31, 2^32)",
+ "estimator": "mean of the worst max(1, round((1 - level) * n_captured)) captured-DV samples; agg = t-CI over replicates (df=9)",
  "cells": [
   {
    "label": "ou_marginal/ft_dense_p515",
    "toml": "configs/training/ou_marginal/dense_p515.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -33,6 +39,9 @@
    "label": "ou_marginal/ft_mamba_p962",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 999995,
@@ -52,6 +61,9 @@
    "label": "ou_marginal/ft_mamba_p962_s2",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 999970,
@@ -71,6 +83,9 @@
    "label": "ou_marginal/ft_mamba_p962_s3",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 999920,
@@ -90,6 +105,9 @@
    "label": "mamba_p962_long",
    "toml": "configs/training/sweep/mamba_p962.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 979330,
@@ -109,6 +127,9 @@
    "label": "fnpag",
    "toml": "configs/training/msr_aller_fnpag_train.toml",
    "eval_commit": null,
+   "extra_overrides": {
+    "monte_carlo.noise_seeding": "per_draw"
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 993679,
@@ -128,6 +149,7 @@
    "label": "paper/rl/dense_p515_ppo_scratch",
    "toml": "configs/training/paper/rl/dense_p515_ppo_scratch.toml",
    "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999690,
@@ -147,6 +169,7 @@
    "label": "paper/rl/dense_p515_ppo_warm",
    "toml": "configs/training/paper/rl/dense_p515_ppo_warm.toml",
    "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -166,6 +189,7 @@
    "label": "paper/rl/gru_p1014_ppo_scratch",
    "toml": "configs/training/paper/rl/gru_p1014_ppo_scratch.toml",
    "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999886,
@@ -185,6 +209,7 @@
    "label": "paper/rl/gru_p1014_ppo_warm",
    "toml": "configs/training/paper/rl/gru_p1014_ppo_warm.toml",
    "eval_commit": "fdfb9652538bf84945637a5367be299fa415462e",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999545,
@@ -204,6 +229,7 @@
    "label": "ou_marginal/ft_gru_p1014",
    "toml": "configs/training/ou_marginal/gru_p1014.toml",
    "eval_commit": null,
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999288,
@@ -223,6 +249,7 @@
    "label": "ou_marginal/hl_mamba_p962",
    "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -10244,6 +10271,7 @@
    "label": "ou_marginal/hl_mamba_p962_s2",
    "toml": "configs/training/ou_marginal/hl_mamba_p962_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999996,
@@ -10263,6 +10291,7 @@
    "label": "ou_marginal/hl_mamba_p962_s3",
    "toml": "configs/training/ou_marginal/hl_mamba_p962_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -10282,6 +10311,7 @@
    "label": "ou_marginal/hl_dense_p515",
    "toml": "configs/training/ou_marginal/hl_dense_p515.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -20303,6 +20333,7 @@
    "label": "ou_marginal/hl_dense_p515_s2",
    "toml": "configs/training/ou_marginal/hl_dense_p515_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999999,
@@ -20322,6 +20353,7 @@
    "label": "ou_marginal/hl_dense_p515_s3",
    "toml": "configs/training/ou_marginal/hl_dense_p515_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999929,
@@ -20341,6 +20373,7 @@
    "label": "ou_marginal/ft_dense_p515_s2",
    "toml": "configs/training/ou_marginal/ft_dense_p515_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -20360,6 +20393,7 @@
    "label": "ou_marginal/ft_dense_p515_s3",
    "toml": "configs/training/ou_marginal/ft_dense_p515_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -20379,6 +20413,7 @@
    "label": "ou_marginal/hl_lstm_p1082",
    "toml": "configs/training/ou_marginal/hl_lstm_p1082.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30400,6 +30435,7 @@
    "label": "ou_marginal/hl_gru_p1014",
    "toml": "configs/training/ou_marginal/hl_gru_p1014.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30419,6 +30455,7 @@
    "label": "ou_marginal/hl_dense_p972",
    "toml": "configs/training/ou_marginal/hl_dense_p972.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999999,
@@ -30438,6 +30475,7 @@
    "label": "ou_marginal/ft_dense_p972",
    "toml": "configs/training/ou_marginal/ft_dense_p972.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999992,
@@ -30457,6 +30495,7 @@
    "label": "ou_marginal/ft_lstm_p1082",
    "toml": "configs/training/ou_marginal/ft_lstm_p1082.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999860,
@@ -30476,6 +30515,7 @@
    "label": "ou_marginal/mamba_p962",
    "toml": "configs/training/ou_marginal/mamba_p962.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30495,6 +30535,7 @@
    "label": "ou_marginal/mamba_p962_s2",
    "toml": "configs/training/ou_marginal/mamba_p962_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999896,
@@ -30514,6 +30555,7 @@
    "label": "ou_marginal/mamba_p962_s3",
    "toml": "configs/training/ou_marginal/mamba_p962_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30533,6 +30575,7 @@
    "label": "ou_marginal/dense_p515",
    "toml": "configs/training/ou_marginal/dense_p515.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999992,
@@ -30552,6 +30595,7 @@
    "label": "ou_marginal/dense_p515_s2",
    "toml": "configs/training/ou_marginal/dense_p515_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999969,
@@ -30571,6 +30615,7 @@
    "label": "ou_marginal/dense_p515_s3",
    "toml": "configs/training/ou_marginal/dense_p515_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999907,
@@ -30590,6 +30635,7 @@
    "label": "ou_marginal/lstm_p1082",
    "toml": "configs/training/ou_marginal/lstm_p1082.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30609,6 +30655,7 @@
    "label": "ou_marginal/lstm_p1082_s2",
    "toml": "configs/training/ou_marginal/lstm_p1082_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30628,6 +30675,7 @@
    "label": "ou_marginal/lstm_p1082_s3",
    "toml": "configs/training/ou_marginal/lstm_p1082_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999990,
@@ -30647,6 +30695,7 @@
    "label": "ou_marginal/gru_p1014",
    "toml": "configs/training/ou_marginal/gru_p1014.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999978,
@@ -30666,6 +30715,7 @@
    "label": "ou_marginal/gru_p1014_s2",
    "toml": "configs/training/ou_marginal/gru_p1014_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999989,
@@ -30685,6 +30735,7 @@
    "label": "ou_marginal/gru_p1014_s3",
    "toml": "configs/training/ou_marginal/gru_p1014_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30704,6 +30755,7 @@
    "label": "ou_marginal/dense_p972",
    "toml": "configs/training/ou_marginal/dense_p972.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999104,
@@ -30723,6 +30775,7 @@
    "label": "ou_marginal/dense_p972_s2",
    "toml": "configs/training/ou_marginal/dense_p972_s2.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999998,
@@ -30742,6 +30795,7 @@
    "label": "ou_marginal/dense_p972_s3",
    "toml": "configs/training/ou_marginal/dense_p972_s3.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999997,
@@ -30761,6 +30815,7 @@
    "label": "paper/rl/hl_dense_p515_ppo_scratch",
    "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999999,
@@ -30780,6 +30835,7 @@
    "label": "paper/rl/hl_dense_p515_ppo_warm",
    "toml": "configs/training/paper/rl/hl_dense_p515_ppo_warm.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30799,6 +30855,7 @@
    "label": "paper/rl/hl_gru_p1014_ppo_scratch",
    "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30818,6 +30875,7 @@
    "label": "paper/rl/hl_gru_p1014_ppo_warm",
    "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_warm.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -30837,6 +30895,7 @@
    "label": "paper/rl/hl_dense_p515_ppo_scratch_s2",
    "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch_s2.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999341,
@@ -30856,6 +30915,7 @@
    "label": "paper/rl/hl_dense_p515_ppo_scratch_s3",
    "toml": "configs/training/paper/rl/hl_dense_p515_ppo_scratch_s3.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999513,
@@ -30875,6 +30935,7 @@
    "label": "paper/rl/hl_gru_p1014_ppo_scratch_s2",
    "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s2.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999953,
@@ -30894,6 +30955,7 @@
    "label": "paper/rl/hl_gru_p1014_ppo_scratch_s3",
    "toml": "configs/training/paper/rl/hl_gru_p1014_ppo_scratch_s3.toml",
    "eval_commit": "c3433c52316c3ff8cb65ea21255527a05343eb67",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999952,
@@ -30913,6 +30975,7 @@
    "label": "ou_marginal/classical/ftc",
    "toml": "configs/training/ou_marginal/classical/ftc.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999992,
@@ -30932,6 +30995,7 @@
    "label": "ou_marginal/classical/energy_controller",
    "toml": "configs/training/ou_marginal/classical/energy_controller.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 997564,
@@ -30951,6 +31015,7 @@
    "label": "ou_marginal/classical/pred_guid",
    "toml": "configs/training/ou_marginal/classical/pred_guid.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 998880,
@@ -30970,6 +31035,7 @@
    "label": "ou_marginal/classical/ftc_joint",
    "toml": "configs/training/ou_marginal/classical/ftc_joint.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -40991,6 +41057,7 @@
    "label": "ou_marginal/classical/energy_controller_joint",
    "toml": "configs/training/ou_marginal/classical/energy_controller_joint.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999820,
@@ -41010,6 +41077,7 @@
    "label": "ou_marginal/classical/pred_guid_joint",
    "toml": "configs/training/ou_marginal/classical/pred_guid_joint.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999955,
@@ -41029,6 +41097,7 @@
    "label": "ou_marginal/classical_ungated/piecewise_constant",
    "toml": "configs/training/ou_marginal/classical_ungated/piecewise_constant.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999183,
@@ -41048,6 +41117,7 @@
    "label": "ou_marginal/classical_ungated/equilibrium_glide",
    "toml": "configs/training/ou_marginal/classical_ungated/equilibrium_glide.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 997936,
@@ -41067,6 +41137,7 @@
    "label": "ou_marginal/classical/fnpag",
    "toml": "configs/training/ou_marginal/classical/fnpag.toml",
    "eval_commit": "76162cd1f75d7ce80f71e744ff8becebb6677877",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999762,
@@ -51187,6 +51258,9 @@
    "label": "ou_marginal/v4_reset_state",
    "toml": "configs/training/ou_marginal/hl_mamba_p962.toml",
    "eval_commit": "f3ee140694ea4305d12f4c5d7ac6f740034f5639",
+   "extra_overrides": {
+    "guidance.neural_network.reset_state_every_tick": true
+   },
    "pooled": {
     "n": 1000000,
     "n_captured": 999899,
@@ -51206,6 +51280,7 @@
    "label": "ou_marginal/ctrl_window_p970",
    "toml": "configs/training/ou_marginal/ctrl_window_p970.toml",
    "eval_commit": "3c6fe51de2631c52952ec0b427cfdf84e6c8b1c9",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -51225,6 +51300,7 @@
    "label": "ou_marginal/ctrl_window_p970_s2",
    "toml": "configs/training/ou_marginal/ctrl_window_p970_s2.toml",
    "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999999,
@@ -51244,6 +51320,7 @@
    "label": "ou_marginal/ctrl_window_p970_s3",
    "toml": "configs/training/ou_marginal/ctrl_window_p970_s3.toml",
    "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -51263,6 +51340,7 @@
    "label": "ou_marginal/ctrl_mamba_p962_nodv",
    "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv.toml",
    "eval_commit": "3c6fe51de2631c52952ec0b427cfdf84e6c8b1c9",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -51282,6 +51360,7 @@
    "label": "ou_marginal/ctrl_mamba_p962_nodv_s2",
    "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv_s2.toml",
    "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 999972,
@@ -51301,6 +51380,7 @@
    "label": "ou_marginal/ctrl_mamba_p962_nodv_s3",
    "toml": "configs/training/ou_marginal/ctrl_mamba_p962_nodv_s3.toml",
    "eval_commit": "2479d4916dd4c06a1c114cd026321e10e6993cdf",
+   "extra_overrides": null,
    "pooled": {
     "n": 1000000,
     "n_captured": 1000000,
@@ -51313,6 +51393,81 @@
    "replicate_stats": {
     "cvar999": {
      "se": 0.46
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/centered/mamba_centered_s1",
+   "toml": "configs/training/ou_marginal/centered/mamba_centered_s1.toml",
+   "eval_commit": "4746bc49cc2a90e0001e0c16c39baaf848cdf609",
+   "extra_overrides": {
+    "monte_carlo.atmosphere.level": "medium",
+    "monte_carlo.navigation.level": "medium",
+    "monte_carlo.nav_filter.level": "medium",
+    "monte_carlo.density_perturbation.level": "low"
+   },
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 149.65,
+    "cvar999": 170.25,
+    "max": 189.35,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 9
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.17
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/centered/mamba_centered_s2",
+   "toml": "configs/training/ou_marginal/centered/mamba_centered_s2.toml",
+   "eval_commit": "4746bc49cc2a90e0001e0c16c39baaf848cdf609",
+   "extra_overrides": {
+    "monte_carlo.atmosphere.level": "medium",
+    "monte_carlo.navigation.level": "medium",
+    "monte_carlo.nav_filter.level": "medium",
+    "monte_carlo.density_perturbation.level": "low"
+   },
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 146.14,
+    "cvar999": 159.09,
+    "max": 177.89,
+    "viol_pct": 0.0,
+    "heat_load_viol_n": 18
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.11
+    }
+   }
+  },
+  {
+   "label": "ou_marginal/centered/mamba_centered_s3",
+   "toml": "configs/training/ou_marginal/centered/mamba_centered_s3.toml",
+   "eval_commit": "4746bc49cc2a90e0001e0c16c39baaf848cdf609",
+   "extra_overrides": {
+    "monte_carlo.atmosphere.level": "medium",
+    "monte_carlo.navigation.level": "medium",
+    "monte_carlo.nav_filter.level": "medium",
+    "monte_carlo.density_perturbation.level": "low"
+   },
+   "pooled": {
+    "n": 1000000,
+    "n_captured": 1000000,
+    "cvar95": 143.24,
+    "cvar999": 177.45,
+    "max": 308.76,
+    "viol_pct": 0.02,
+    "heat_load_viol_n": 208
+   },
+   "replicate_stats": {
+    "cvar999": {
+     "se": 0.59
     }
    }
   }

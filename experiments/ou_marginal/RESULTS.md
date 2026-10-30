@@ -28,7 +28,9 @@ over `jobs_headline.txt`, `jobs_controls.txt`, `jobs_centering.txt`,
 `hl` modes; the scorers are `confirmatory_marginal.py` over
 `confirmatory_cells_v4.txt` (`make -C articles/paper mc-confirmatory-v4`),
 `controls_cells_v4.txt` (run by `15_state_controls.sh v4`: the reset-state row
-needs its `--extra-override`) and `quant_cells_v4.txt` (run by
+needs its `--extra-override`), `centered_cells_v4.txt` (#229 Step 0: the three
+centered anchors on the medium pool, `--cells` with the four level overrides in
+the manifest's header) and `quant_cells_v4.txt` (run by
 `17_quantization.sh v4 finalists`), `quote_marginal.py` (plus `--manifest
 classical_cells.txt`; `mc-quote-marginal`) and `heat_load_slope.py`
 (`mc-heat-load-slope`). Every
@@ -900,3 +902,23 @@ fine-tune 1019, scratch 505. The intervals condition on this champion, the worst
 tail of the three fp seeds (CVaR99.9 142.3 / 159.3 / 173.9), and both QAT rows
 sit inside that range: a 4-bit proj_only head is tail-equivalent to the fp
 family at sizing depth, by fine-tune or from scratch, not better than it.
+
+## v4 centered anchors on the medium pool (#229 Step 0)
+
+The three #177 centered anchors (`centered_cells_v4.txt`) scored 2026-10-30 on the
+10 x 100k per-scenario pool with the four dispersion levels overridden back to the
+deployment presets (the `--cells` command in the manifest's header; eval commit
+4746bc49, 18m52s for the three), against the three `hl_mamba_p962` seeds. DV in m/s
+over captured scenarios (`--table`):
+
+| cell | capture | non-captures | viol % any (flux / g / heat load) | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|---|
+| ou_marginal/hl_mamba_p962 | 100.0000% | 0 | 0.1148 (0.0000 / 0.0000 / 0.1148) | 120.1 | 173.9 +- 2.2 | 300 |
+| ou_marginal/hl_mamba_p962_s2 | 99.9996% | 4: 4 crash | 0.0437 (0.0000 / 0.0000 / 0.0437) | 131.7 | 159.3 +- 0.6 | 621 |
+| ou_marginal/hl_mamba_p962_s3 | 100.0000% | 0 | 0.0567 (0.0000 / 0.0000 / 0.0567) | 122.9 | 142.3 +- 0.5 | 266 |
+| ou_marginal/centered/mamba_centered_s1 | 100.0000% | 0 | 0.0009 (0.0000 / 0.0000 / 0.0009) | 149.7 | 170.2 +- 0.2 | 189 |
+| ou_marginal/centered/mamba_centered_s2 | 100.0000% | 0 | 0.0018 (0.0000 / 0.0000 / 0.0018) | 146.1 | 159.1 +- 0.1 | 178 |
+| ou_marginal/centered/mamba_centered_s3 | 100.0000% | 0 | 0.0208 (0.0000 / 0.0000 / 0.0208) | 143.2 | 177.4 +- 0.6 | 309 |
+
+Reading: `docs/design/2026-10-30-two-phase-regime-curriculum-design.md` Section 10 (the
+paired deltas and the criterion), paper Section 7.3 (`tbl-centered-medium`).

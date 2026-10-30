@@ -1554,6 +1554,61 @@ not fixed once -- and the constraint exceedance is part of what the match has to
   of either family is feasible under the strict gate.],
 ) <tbl-centered>
 
+// The other side of the regime trade (issue #229, Step 0): the same three centered seeds flown on the
+// medium 10^6 confirmatory pool of @tbl-arch (data/confirmatory_marginal.json, the four dispersion
+// levels overridden back to the deployment presets at flight), read against the champion seeds.
+#let cm_seeds = ("ou_marginal/centered/mamba_centered_s1", "ou_marginal/centered/mamba_centered_s2", "ou_marginal/centered/mamba_centered_s3").map(R.marg)
+#let cm_mean = R.mean_sd(cm_seeds.map(c => c.cvar999))
+#let champ_mean = R.mean_sd(mamba_seeds.map(c => c.cvar999))
+#assert(cm_seeds.all(c => c.lost == 0), message: "the prose states every centered seed captures every medium scenario")
+#assert(cm_seeds.filter(c => c.cvar999 < champ.cvar999).len() == 2, message: "the prose states two of the three centered seeds beat the deployed seed's CVaR99.9")
+#assert(calc.abs(cm_mean.mean - champ_mean.mean) < champ_mean.sd, message: "the prose states the centered three-seed mean lies inside the champion's seed spread")
+#assert(calc.min(..cm_seeds.map(c => c.cvar95)) > calc.max(..mamba_seeds.map(c => c.cvar95)), message: "the prose states every centered seed pays at CVaR95 against every champion seed")
+#assert(calc.max(..cm_seeds.map(c => c.hl_viol_n)) < calc.min(..mamba_seeds.map(c => c.hl_viol_n)), message: "the prose states every centered seed exceeds the heat-load ceiling less often than every champion seed")
+
+The other side of the trade was unmeasured until now: a policy selected on the high regime alone
+might have given up the nominal sizing tail it was never scored on. Flown on the medium $10^6$
+confirmatory pool of @tbl-arch -- the four dispersion levels set back to the deployment presets,
+everything else as trained -- the three centered seeds keep it (@tbl-centered-medium). Every seed
+captures every scenario; two of the three sit below the deployed seed's $"CVaR"_(99.9)$ of
+$#R.fixed(champ.cvar999)$ m/s, the third $#R.fixed(calc.max(..cm_seeds.map(c => c.cvar999)) - champ.cvar999)$ m/s above it
+($#R.fixed(calc.max(..cm_seeds.map(c => c.cvar999)) - champ_mean.mean, d: 0)$ m/s above the champion mean), and the three-seed mean,
+$#R.fixed(cm_mean.mean) plus.minus #R.fixed(cm_mean.sd)$, lies inside the champion's
+$#R.fixed(champ_mean.mean) plus.minus #R.fixed(champ_mean.sd)$. What the centered objective pays is
+the shallow tail, a $"CVaR"_95$ of #R.span(cm_seeds.map(c => c.cvar95)) m/s
+against the champion seeds' #R.span(mamba_seeds.map(c => c.cvar95)), and what it buys is the ceiling,
+#R.span(cm_seeds.map(c => c.hl_viol_n)) heat-load exceedances per $10^6$ scenarios against the
+champion seeds' #R.span(mamba_seeds.map(c => c.hl_viol_n)). A second training phase under the
+deployed objective, designed to recover a medium-tail deficit these seeds turn out not to have, was
+therefore not run: seeds 1 and 2 as trained are policies at parity on both pools, seed 1 the one
+the deployment rule fixes.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto, auto, auto),
+    align: (left, center, center, center, center, center),
+    table.hline(stroke: 0.7pt),
+    table.header([*Cell*], [*Capture %*], [*Heat load $>$ limit (per $10^6$)*], [$bold("CVaR"_95)$], [$bold("CVaR"_(99.9) plus.minus "s.e.")$], [*Max*]),
+    table.hline(stroke: 0.35pt),
+    ..arch_row([Centered Mamba $962$, seed 1], cm_seeds.at(0)),
+    ..arch_row([Centered Mamba $962$, seed 2], cm_seeds.at(1)),
+    ..arch_row([Centered Mamba $962$, seed 3], cm_seeds.at(2)),
+    ..arch_mean_row([_Centered, three-seed mean $plus.minus$ sd_], cm_seeds),
+    table.hline(stroke: 0.35pt),
+    ..arch_row([Mamba $962$, seed 1 (deployed)], champ),
+    ..arch_row([Mamba $962$, seed 2], mamba_seeds.at(1)),
+    ..arch_row([Mamba $962$, seed 3], mamba_seeds.at(2)),
+    ..arch_mean_row([_Deployed objective, three-seed mean $plus.minus$ sd_], mamba_seeds),
+    table.hline(stroke: 0.7pt),
+  ),
+  caption: [The centered high-regime seeds of @tbl-centered on the medium confirmatory pool of
+  @tbl-arch ($10 times 100\,000$ scenarios per cell, per-scenario noise, the four dispersion levels
+  set back to the deployment presets at flight), against the three seeds trained under the deployed
+  objective: correction $Delta v$ in m/s over captured scenarios, $"CVaR"_(99.9)$ with its standard
+  error over the ten replicates, the sample maximum as a descriptive bound. The centered seeds hold
+  the sizing tail and the ceiling and pay in the shallow tail.],
+) <tbl-centered-medium>
+
 #fig("fig_objective_centering.svg", [Objective centering under the high-dispersion stress probe
 (9M pool, per-scenario noise), three panels over the same ten cells: capture (top), conditional
 $"CVaR"_95$ (middle), and the heat-flux (solid) and heat-load (hatched) exceedance shares (bottom).
@@ -1603,8 +1658,10 @@ regime. @sec-objcenter traces that gap to the training objective rather than to 
 at sizing depth the centered retrain beats the medium-deployed joint-FTC on the conditional tail
 at capture parity, across three seeds, but it buys part of that tail with heat-flux exceedance,
 no high-regime policy of either family is feasible under the strict gate, and the stress regime is
-one a real mission would design away. What remains open is a centered retrain whose constraint
-exceedance matches the analytic law's.
+one a real mission would design away. The centered seeds keep the nominal sizing tail they were
+never selected on (@tbl-centered-medium), so the gap is closed at the objective, not traded against
+the deployment regime; what remains open is a centered retrain whose constraint exceedance under
+stress matches the analytic law's.
 
 The second limitation is the one the per-scenario campaign measured on our own earlier claim. The
 networks beat the classical schemes at sizing depth by a margin the seed spread does not erase, but
