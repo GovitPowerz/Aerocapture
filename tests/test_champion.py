@@ -99,6 +99,13 @@ class TestReanchor:
         c = Champion(individual=X)
         assert c.reanchor(10.0, {"heat_load": 0.1}, ceiling=0.1) is True
 
+    def test_non_finite_rms_never_anchors(self) -> None:
+        """A NaN anchor would block every later promotion (`x < nan` is False)."""
+        c = Champion(individual=X, val_rms=42.0)
+        assert c.reanchor(float("nan"), None, ceiling=0.0) is True  # the verdict is feasibility
+        assert c.val_rms == float("inf") and not c.trusted
+        assert c.consider(_validated(np.array([0.1, 0.2]), 50.0, feasible=True, champion_rms=c.val_rms)) is True
+
 
 class TestAdoptUnvalidated:
     def test_untrusted_champion(self) -> None:
@@ -157,7 +164,8 @@ class TestWireFormat:
         no_val_key = Champion.from_single({"best_cost": 1.0}, X)  # pre-validation-gate json
         assert no_val_key.train_cost == 1.0 and not no_val_key.trusted
         empty = Champion.from_single({"best_cost": 1.0, "best_val_cost": 2.5}, None)  # no best_individual array
-        assert empty == Champion()
+        assert empty.individual is None and empty.last_validated is None and not empty.trusted
+        assert empty.single_meta()["best_cost"] == 1.0  # a write-back (patch_checkpoint) keeps the stored training cost
 
     def test_islands_round_trip_keeps_key_order(self) -> None:
         last = np.array([0.9, 0.9])
@@ -177,8 +185,8 @@ class TestWireFormat:
 class TestRevalidate:
     def test_feasible_anchors_and_returns_the_arrays(self, capsys: pytest.CaptureFixture[str]) -> None:
         c = Champion(individual=X, train_cost=9.0)
-        costs, records = revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10)), list(range(10)), COST_KWARGS, 0.0, verbose=True)
-        assert c.val_rms == 50.0 and c.trusted and c.train_cost == 9.0
+        costs, records, feasible = revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10)), list(range(10)), COST_KWARGS, 0.0, verbose=True)
+        assert feasible and c.val_rms == 50.0 and c.trusted and c.train_cost == 9.0
         assert c.violation_rates == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.0}
         assert np.array_equal(costs, np.full(10, 50.0)) and records.shape == (10, 52)
         assert c.last_validated is not None and np.array_equal(c.last_validated, X)
@@ -186,8 +194,9 @@ class TestRevalidate:
 
     def test_infeasible_is_untrusted_and_announced(self, capsys: pytest.CaptureFixture[str]) -> None:
         c = Champion(individual=X, val_rms=0.1)
-        revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1)), list(range(10)), COST_KWARGS, 0.0, verbose=True, label="pso:")
-        assert c.val_rms == float("inf") and not c.trusted
+        problem = _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1))
+        _, _, feasible = revalidate(c, problem, list(range(10)), COST_KWARGS, 0.0, verbose=True, label="pso:")
+        assert not feasible and c.val_rms == float("inf") and not c.trusted
         assert c.violation_rates == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.1}
         assert c.last_validated is not None and np.array_equal(c.last_validated, X)
         out = capsys.readouterr().out

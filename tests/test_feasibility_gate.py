@@ -169,6 +169,57 @@ class TestIsFeasible:
         assert not is_feasible({"heat_flux": 0.0, "g_load": 0.02}, 0.01)  # any constraint
 
 
+class TestPrologueFeasibility:
+    """The pre-loop initial-champion validation (fresh gen-0 champion or resumed one)
+    re-anchors the trainer's record and logs the verdict it reached."""
+
+    def _trainer(self, records: np.ndarray):  # type: ignore[no-untyped-def]
+        import types
+
+        from aerocapture.training.optimizer import OptimizerConfig
+        from aerocapture.training.trainer import SingleAlgoTrainer
+
+        problem = _FakeProblem(np.full(10, 50.0), records)
+        problem.cost_kwargs = COST_KWARGS  # type: ignore[attr-defined]
+        t = SingleAlgoTrainer.__new__(SingleAlgoTrainer)  # bypass __init__ (pymoo setup)
+        t.problem = problem  # type: ignore[assignment]
+        t.config = types.SimpleNamespace(optimizer=OptimizerConfig(seed_strategy="fixed"))  # type: ignore[assignment]
+        t.val_seeds = list(range(10))
+        t.champion = Champion(individual=np.array([0.3, 0.7]), train_cost=100.0)
+        t.X = np.array([[0.3, 0.7]])
+        t._initial_pop_costs = np.array([100.0])
+        t.decode_fn = None
+        t.start_gen = 0
+        t.verbose = False
+        return t
+
+    @staticmethod
+    def _sinks():  # type: ignore[no-untyped-def]
+        import types
+
+        logged: list[dict] = []
+        logger = types.SimpleNamespace(log_generation=lambda *a, **kw: logged.append(kw))
+        display = types.SimpleNamespace(update=lambda *a, **kw: None)
+        return logger, display, logged
+
+    def test_feasible_initial_champion_is_trusted(self) -> None:
+        t = self._trainer(_records(10))
+        logger, display, logged = self._sinks()
+        t.prologue(logger, display)
+        assert t.champion.trusted and t.champion.val_rms == 50.0 and t.champion.train_cost == 100.0
+        assert logged[0]["validation"]["feasible"] is True and logged[0]["improved"] is True
+        assert logged[0]["validation"]["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.0}
+
+    def test_infeasible_initial_champion_is_untrusted(self) -> None:
+        t = self._trainer(_records(10, n_hl_viol=1))
+        logger, display, logged = self._sinks()
+        t.prologue(logger, display)
+        assert not t.champion.trusted and t.champion.val_rms == float("inf")
+        assert t.champion.last_validated is not None and np.array_equal(t.champion.last_validated, np.array([0.3, 0.7]))
+        assert logged[0]["validation"]["feasible"] is False and logged[0]["improved"] is False
+        assert logged[0]["validation"]["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.1}
+
+
 class TestOptimizerConfigKnob:
     def test_parses_and_validates(self) -> None:
         from aerocapture.training.optimizer import OptimizerConfig

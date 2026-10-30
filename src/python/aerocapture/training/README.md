@@ -141,8 +141,8 @@ the last-validated individual (the gate's identity trigger) and, in memory only,
 rates. `trusted` is derived (`isfinite(val_rms)`). Five transitions, each written once:
 `consider(gate)` applies a `GateResult` (displace on feasible and strictly lower RMS; ties and
 infeasible candidates keep the incumbent, ADR-0002 / ADR-0005); `reanchor(val_rms, rates,
-ceiling)` re-anchors under the current cost kwargs and ceiling (feasible anchors `val_rms`,
-infeasible sets inf; the individual becomes last-validated) and its flight is
+ceiling)` re-anchors under the current cost kwargs and ceiling (feasible anchors a finite `val_rms`,
+infeasible or a non-finite RMS sets inf; the individual becomes last-validated) and its flight is
 `champion.revalidate(champion, problem, val_seeds, cost_kwargs, ceiling, verbose)`, used by the
 single-algo `prologue`, the islands `revalidate_each` and the retro CLI; `adopt_unvalidated`
 (the no-validation fallback and the fresh-start gen-0 argmin; `val_rms` inf);
@@ -154,7 +154,7 @@ one as a candidate row with the `champion[infeasible]` provenance). The record o
 maps and nothing new is on disk: single `best_cost` / `best_val_cost` (json) + `best_individual`
 (npz), islands `best_overall_individual` / `best_overall_cost` / `best_val_cost` /
 `last_validated_individual`; every pre-record checkpoint loads (a finite `best_val_cost` as
-trusted, inf as untrusted, no `best_individual` as an empty record). `save_checkpoint` takes
+trusted, inf as untrusted, no `best_individual` as an empty record that keeps `best_cost`). `save_checkpoint` takes
 the record; `final_select.patch_checkpoint` loads it, applies `adopt_selection`, writes it back.
 
 **Validation gate** (identity-triggered). If the current gen's argmin differs from the
@@ -457,7 +457,7 @@ use `--sim-timeout` against NaN hangs).
   `revalidate_each` back the resume features above. Spec:
   `docs/design/2026-05-28-island-model-pso-ga-de-design.md`.
 - `seed_curator.py` — `SeedCurator` (above).
-- `final_select.py` — `select_final_individual`, `SelectionResult`, `KnownCandidate` (re-exported
+- `final_select.py` - `select_final_individual`, `SelectionResult`, `KnownCandidate` (re-exported
   from `champion.py`), `load_selection_state` / `SelectionState` / `patch_checkpoint`, the CLI (above).
 
 ### Evaluation

@@ -420,7 +420,7 @@ def test_island_model_final_eval_skips_islands_without_best() -> None:
         rng=np.random.default_rng(0),
     )
     model.islands[0].champion.individual = np.array([0.1, 0.2, 0.3, 0.4])
-    # ga and de have no champion — they should be skipped.
+    # ga and de have no champion - they should be skipped.
     results = model.final_eval()
     assert len(results) == 1
     assert results[0]["island"] == "pso"

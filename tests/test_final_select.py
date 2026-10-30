@@ -394,6 +394,72 @@ class TestRunFinalSelect:
         # sidecar present
         assert (tmp_path / "final_selection.json").exists()
 
+    def test_infeasible_checkpoint_champion_is_not_trusted(self, tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+        """A checkpoint champion that violates a constraint on the validation pool
+        loses its trusted status: a feasible fresh candidate can win even against a
+        lower stored champion RMS."""
+        from aerocapture.training import charts
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        class _InfeasibleChampionProblem(_MockProblem):
+            cost_kwargs = {"heat_load_limit": 25000.0}
+
+            def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+                costs, records = super().evaluate_population_records_per_seed(X, seeds)
+                for i, x in enumerate(X):
+                    if np.allclose(x, 0.9):  # the checkpoint champion violates heat load on every draw
+                        records[i, :, charts._FR_INTEGRATED_FLUX] = 26.0
+                return costs, records
+
+        self._setup_dir(tmp_path)
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        meta["best_val_cost"] = 0.1  # lower than any fresh row's rms: trusted, it would win
+        (tmp_path / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+
+        sel = run_final_select(
+            training_dir=tmp_path, config=cfg, param_specs=specs, problem=_InfeasibleChampionProblem(), val_seeds=[1000001, 1000002], patch=True
+        )
+        assert "INFEASIBLE on the validation pool" in capsys.readouterr().out
+        assert sel.promoted and sel.provenance == "last_gen[0]" and sel.winner_feasible
+        assert sel.incumbent_val_rms is None  # no trusted champion remained
+        assert any(r["provenance"] == "champion[infeasible]" and r["feasible"] is False for r in sel.candidate_rms)
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], np.full(2, 0.2))
+        assert json.loads((tmp_path / "checkpoint_g00007.json").read_text())["best_cost"] == 1.5  # recorded training cost kept
+
+    def test_untrusted_checkpoint_champion_is_revalidated_and_trusted(self, tmp_path: Path) -> None:
+        """A champion stored untrusted (inf) that is feasible now re-anchors on the
+        fresh validation RMS and competes as the pre-scored incumbent; a stored finite
+        RMS is likewise replaced by the fresh one."""
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        self._setup_dir(tmp_path)
+        np.savez(
+            tmp_path / "checkpoint_g00007.npz",
+            population=np.vstack([np.full(2, 0.2), np.full(2, 0.8)]),
+            costs=np.array([1.0, 2.0]),
+            best_individual=np.full(2, 0.1),  # beats every last_gen row
+        )
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        meta["best_val_cost"] = float("inf")
+        (tmp_path / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+        val_seeds = [1000001, 1000002]
+
+        sel = run_final_select(training_dir=tmp_path, config=cfg, param_specs=specs, problem=_MockProblem(), val_seeds=val_seeds, patch=True)
+        assert not sel.promoted and sel.provenance == "champion"
+        assert sel.val_rms == sel.incumbent_val_rms == _rms(np.full(2, 0.1), val_seeds)
+        assert json.loads((tmp_path / "checkpoint_g00007.json").read_text())["best_val_cost"] == _rms(np.full(2, 0.1), val_seeds)
+
     def test_no_patch_leaves_checkpoint(self, tmp_path: Path) -> None:
         from aerocapture.training.config import TrainingConfig
         from aerocapture.training.final_select import run_final_select

@@ -213,11 +213,15 @@ class SelectionState:
     population: npt.NDArray[np.float64]  # candidate rows (union across islands for "islands")
     provenances: list[str]
     champions: dict[str, Champion]  # island name -> its champion record ("" for single); only islands holding one
-    known: list[KnownCandidate]  # the trusted champions as stored (`Champion.known`); the CLI re-validates before trusting
     base_mc_seed: int | None  # islands npz records it; single-algo derives from TOML
     json_path: Path | None  # single-algo meta path
     npz_path: Path
     island_of_row: list[str] | None  # islands: island name per candidate row
+
+    @property
+    def known(self) -> list[KnownCandidate]:
+        """The trusted champions (`Champion.known`), derived from `champions`; the CLI re-validates before trusting."""
+        return [k for name, champ in self.champions.items() if (k := champ.known(f"{name}:" if name else "")) is not None]
 
 
 def _latest_islands_npz(save_dir: Path) -> Path | None:
@@ -270,7 +274,6 @@ def load_selection_state(save_dir: Path) -> SelectionState:
             population=np.vstack(rows),
             provenances=provs,
             champions=champions,
-            known=[trusted for name, champ in champions.items() if (trusted := champ.known(f"{name}:")) is not None],
             base_mc_seed=base_mc_seed,
             json_path=None,
             npz_path=islands_npz,
@@ -294,7 +297,6 @@ def load_selection_state(save_dir: Path) -> SelectionState:
         population=population,
         provenances=[f"last_gen[{i}]" for i in range(population.shape[0])],
         champions=champions,
-        known=[trusted] if (trusted := champ.known()) is not None else [],
         base_mc_seed=None,
         json_path=single_json,
         npz_path=npz_path,

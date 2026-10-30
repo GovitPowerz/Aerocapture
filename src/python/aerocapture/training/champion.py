@@ -2,8 +2,9 @@
 promotion state, with every transition written once (#221).
 
 A `Champion` is *trusted* when its validation RMS is finite (validated feasible under
-the current ceiling) and *untrusted* otherwise: after a ceiling or cost-metric change,
-or without a validation pool. The decision rules stay where they are
+the current ceiling) and *untrusted* otherwise: re-validation found it infeasible (e.g.
+after a ceiling or limit change) or its RMS non-finite, it is the fresh-start gen-0
+argmin not yet validated, or there is no validation pool. The decision rules stay where they are
 (`evaluate.run_validation_gate`, `final_select.select_final_individual`, ADR-0002 /
 ADR-0005); this module applies their results. Feasibility and violation rates are
 in-memory only: every resume with a validation pool re-validates (`revalidate`).
@@ -75,12 +76,12 @@ class Champion:
         return True
 
     def reanchor(self, val_rms: float, violation_rates: dict[str, float] | None, ceiling: float) -> bool:
-        """Re-anchor under the current cost kwargs and ceiling: feasible anchors `val_rms`,
-        infeasible sets it to inf; the individual becomes last-validated either way.
-        Returns the feasibility verdict."""
+        """Re-anchor under the current cost kwargs and ceiling: feasible anchors a finite
+        `val_rms`, infeasible (or a non-finite RMS, which no `<` could ever beat) sets it to
+        inf; the individual becomes last-validated either way. Returns the feasibility verdict."""
         assert self.individual is not None
         feasible = is_feasible(violation_rates, ceiling)
-        self.val_rms = val_rms if feasible else float("inf")
+        self.val_rms = val_rms if feasible and np.isfinite(val_rms) else float("inf")
         self.violation_rates = violation_rates
         self.last_validated = self.individual.copy()
         return feasible
@@ -120,9 +121,10 @@ class Champion:
     def from_single(cls, meta: Mapping[str, Any], individual: npt.NDArray[np.float64] | None) -> Champion:
         """Single-algo checkpoint: `best_cost` / `best_val_cost` from the json meta (or the
         `load_checkpoint` dict), `best_individual` from the npz. The single format does not
-        persist the last-validated individual; the prologue re-validates on resume."""
+        persist the last-validated individual; the prologue re-validates on resume. Without
+        an individual the record is empty but keeps `best_cost`, so a write-back preserves it."""
         if individual is None:
-            return cls()
+            return cls(train_cost=float(meta.get("best_cost", float("inf"))))
         return cls(
             individual=individual,
             train_cost=float(meta.get("best_cost", float("inf"))),
@@ -160,18 +162,20 @@ def revalidate(
     ceiling: float,
     verbose: bool,
     label: str = "",
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], bool]:
     """Fly the champion on the validation pool and `reanchor` it (the prologue /
-    `revalidate_each` / retro CLI block). Returns the per-seed costs and records so the
-    caller can build the run-log payload. An infeasible champion is announced when
-    `verbose`; it stays last-validated but no longer anchors the promotion bar."""
+    `revalidate_each` / retro CLI block). Returns the per-seed costs and records (the
+    caller builds the run-log payload from them) and the feasibility verdict. An
+    infeasible champion is announced when `verbose`; it stays last-validated but no
+    longer anchors the promotion bar."""
     assert champion.individual is not None
     val_costs, val_records = problem.evaluate_individual_records_per_seed(champion.individual, val_seeds)
     rms = float(np.sqrt(np.mean(val_costs**2)))
     rates = constraint_violation_rates(val_records, cost_kwargs)
-    if not champion.reanchor(rms, rates, ceiling) and verbose:
+    feasible = champion.reanchor(rms, rates, ceiling)
+    if not feasible and verbose:
         print(
             f"  {label}champion re-validated: INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%}); "
             f"untrusted, competes as a candidate (rms was {rms:.4g})"
         )
-    return val_costs, val_records
+    return val_costs, val_records, feasible

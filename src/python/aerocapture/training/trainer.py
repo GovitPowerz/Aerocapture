@@ -43,7 +43,7 @@ from aerocapture.training.checkpoint import _prune_old_checkpoints, _restore_see
 from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.corridor import _accumulate_corridor
 from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
-from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, format_violation_rates, is_feasible, run_validation_gate
+from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, format_violation_rates, run_validation_gate
 from aerocapture.training.final_select import SelectionResult, format_selection_summary, select_final_individual, write_final_selection_json
 from aerocapture.training.initial_population import _build_initial_population
 from aerocapture.training.island_model import IslandModel, compute_migration_origin_stats, summarize_latest_migration, val_generalization_gap
@@ -600,9 +600,9 @@ class SingleAlgoTrainer:
         if self.val_seeds is None or self.champion.individual is None:
             return
         ceiling = self.config.optimizer.max_violation_rate
-        init_val_costs, init_val_records = revalidate(self.champion, self.problem, self.val_seeds, self.problem.cost_kwargs, ceiling, self.verbose)
-        init_rms = float(np.sqrt(np.mean(init_val_costs**2)))
-        init_feasible = is_feasible(self.champion.violation_rates, ceiling)
+        init_val_costs, init_val_records, init_feasible = revalidate(
+            self.champion, self.problem, self.val_seeds, self.problem.cost_kwargs, ceiling, self.verbose
+        )
         init_val_metrics, init_val_summary = _build_validation_payload(
             init_val_costs,
             init_val_records,
@@ -624,7 +624,7 @@ class SingleAlgoTrainer:
         display.update(logger, current_run=0)
         if self.verbose:
             label = f"Gen {self.start_gen}" if self.start_gen > 0 else "Gen 0"
-            print(f"  {label} validation: mean={init_rms:.4e} cap={init_val_metrics['capture_rate']:.0%}")
+            print(f"  {label} validation: mean={init_val_metrics['rms_cost']:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
     def re_evaluate(self) -> None:
         """Pre-next re-eval after a seed-list change (skipped for CMA-ES)."""
