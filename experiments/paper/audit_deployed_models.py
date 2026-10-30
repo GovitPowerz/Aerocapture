@@ -83,13 +83,8 @@ def winner_chromosome(run: Path) -> npt.NDArray[np.float64]:
     champion means the sidecar describes another checkpoint (StaleSidecar)."""
     prov = json.loads((run / "final_selection.json").read_text())["winner"]["provenance"].removesuffix("[infeasible]")
     state = load_selection_state(run)
-    island, _, name = prov.rpartition(":")
-    champion: npt.NDArray[np.float64] | None
-    if state.kind == "single":
-        with np.load(state.npz_path) as data:
-            champion = np.asarray(data["best_individual"], dtype=np.float64) if "best_individual" in data else None
-    else:
-        champion = np.asarray(state.champions[island].individual, dtype=np.float64) if island in state.champions else None
+    island, _, name = prov.rpartition(":")  # single provenances carry no island: `state.champions[""]`
+    champion = np.asarray(state.champions[island].individual, dtype=np.float64) if island in state.champions else None
     if name == "champion":
         x = champion
     elif prov in state.provenances:

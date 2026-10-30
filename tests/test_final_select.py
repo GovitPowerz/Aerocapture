@@ -261,9 +261,10 @@ class TestCheckpointIO:
         state = load_selection_state(tmp_path)
         assert state.kind == "single"
         assert state.population.shape == (4, 3)
-        assert len(state.known) == 1
-        assert state.known[0].provenance == "champion"
-        assert state.known[0].val_rms == 2.5
+        assert list(state.champions) == [""]
+        champ = state.champions[""]
+        assert champ.trusted and champ.val_rms == 2.5 and champ.train_cost == 1.5
+        assert champ.individual is not None and np.array_equal(champ.individual, np.full(3, 0.9))
 
     def test_patch_single_algo(self, tmp_path: Path) -> None:
         from aerocapture.training.final_select import load_selection_state, patch_checkpoint
@@ -278,6 +279,21 @@ class TestCheckpointIO:
         meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
         assert meta["best_val_cost"] == 1.25
         assert meta["generation"] == 7  # untouched
+
+    def test_patch_single_algo_infeasible_fallback_is_stored_untrusted(self, tmp_path: Path) -> None:
+        """The all-infeasible fallback winner deploys but lands with an inf `best_val_cost`
+        (never a promotion bar on resume); the recorded training cost is kept."""
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_single_algo_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.1)
+        patch_checkpoint(state, new_best, new_val_rms=1.25, feasible=False)
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], new_best)
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        assert meta["best_val_cost"] == float("inf") and meta["best_cost"] == 1.5
+        assert not load_selection_state(tmp_path).champions[""].trusted
 
     def _make_islands_ckpt(self, d: Path) -> None:
         import pickle
@@ -314,7 +330,8 @@ class TestCheckpointIO:
         state = load_selection_state(tmp_path)
         assert state.kind == "islands"
         assert state.population.shape == (6, 3)  # union of both pops
-        assert {k.provenance for k in state.known} == {"pso:champion", "ga:champion"}
+        assert {name: champ.val_rms for name, champ in state.champions.items()} == {"pso": 3.0, "ga": 2.0}
+        assert all(champ.trusted for champ in state.champions.values())
         assert state.base_mc_seed == 42
 
     def test_patch_islands_winning_island(self, tmp_path: Path) -> None:
@@ -334,6 +351,26 @@ class TestCheckpointIO:
         assert ga["best_val_cost"] == 0.5
         assert pso["best_val_cost"] == 3.0  # untouched
         assert np.array_equal(pso["pop_X"], np.full((3, 3), 0.4))  # untouched
+
+    def test_patch_islands_infeasible_fallback_is_stored_untrusted(self, tmp_path: Path) -> None:
+        """Islands write-back of the all-infeasible fallback: inf `best_val_cost` in the
+        winning island's pickled state, the pre-record keys it lacked filled from the record."""
+        import pickle
+
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_islands_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.2)
+        patch_checkpoint(state, new_best, new_val_rms=0.5, island_name="ga", feasible=False)
+        data = np.load(tmp_path / "checkpoint_g00005.npz", allow_pickle=True)
+        states = pickle.loads(data["island_states"].item())
+        ga = next(s for s in states if s["name"] == "ga")
+        assert np.array_equal(ga["best_overall_individual"], new_best)
+        assert ga["best_val_cost"] == float("inf")
+        assert ga["best_overall_cost"] == float("inf") and ga["last_validated_individual"] is None  # absent before, record defaults
+        assert not load_selection_state(tmp_path).champions["ga"].trusted
+        assert load_selection_state(tmp_path).champions["pso"].trusted  # untouched
 
     def test_no_checkpoint_raises(self, tmp_path: Path) -> None:
         from aerocapture.training.final_select import load_selection_state

@@ -209,8 +209,9 @@ re-validates every checkpoint champion (`champion.revalidate`; an untrusted one 
 candidate), then re-runs the rule and rewrites artifacts + checkpoint (`artifacts.deploy_winner`), then the sidecar (last, as in `finalize`: a campaign
 runner reads a sidecar newer than the latest checkpoint as a finished selection;
 `load_selection_state` reads BOTH checkpoint
-formats into a `SelectionState` (`champions` per island, the derived `known` view
-`experiments/paper/audit_deployed_models.py` reads); `patch_checkpoint` atomically rewrites ONLY the champion record,
+formats into a `SelectionState` (`champions`: the stored `Champion` record per island, `""` for
+single; `experiments/paper/audit_deployed_models.py` reads it too, trusted or not, since the
+all-infeasible fallback winner is stored untrusted); `patch_checkpoint` atomically rewrites ONLY the champion record,
 temp files `.tmp_`-prefixed so a crashed patch never shadows the real checkpoint in the
 `checkpoint_g*` resume globs); non-NN winners also get `optimized_<scheme>.toml` rewritten and,
 for joint-ref runs, the reference table regenerated via `deploy_optimized_artifacts`. Writes are

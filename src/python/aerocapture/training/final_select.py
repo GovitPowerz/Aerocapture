@@ -216,11 +216,6 @@ class SelectionState:
     npz_path: Path
     island_of_row: list[str] | None  # islands: island name per candidate row
 
-    @property
-    def known(self) -> list[KnownCandidate]:
-        """The trusted champions (`Champion.known`), derived from `champions`; the CLI re-validates before trusting."""
-        return [k for name, champ in self.champions.items() if (k := champ.known(f"{name}:" if name else "")) is not None]
-
 
 def _latest_islands_npz(save_dir: Path) -> Path | None:
     """Latest checkpoint_g*.npz that carries the islands v2 marker."""

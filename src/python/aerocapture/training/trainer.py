@@ -595,7 +595,8 @@ class SingleAlgoTrainer:
     def prologue(self, logger: TrainingLogger, display: DisplayProtocol) -> None:
         """Validate the starting champion: gen-0 individual on fresh starts, the
         checkpointed one on resume (keeps "Best val" + stagnation honest). An
-        infeasible one is re-anchored as untrusted (`champion.revalidate`, ADR-0005)."""
+        infeasible one is re-anchored as untrusted (`champion.revalidate`, ADR-0005);
+        the record's `improvement` flag is its trust, not the feasibility verdict alone."""
 
         if self.val_seeds is None or self.champion.individual is None:
             return
@@ -619,7 +620,7 @@ class SingleAlgoTrainer:
             self.decode_fn,
             validation=init_val_metrics,
             validation_summary=init_val_summary,
-            improved=init_feasible,
+            improved=self.champion.trusted,
         )
         display.update(logger, current_run=0)
         if self.verbose:

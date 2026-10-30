@@ -211,6 +211,16 @@ class TestRevalidate:
         assert "pso:champion" in out and "INFEASIBLE" in out and "heat_load=10.000%" in out
         assert c.untrusted_row("pso:") is not None
 
+    def test_non_finite_rms_is_untrusted_and_announced(self, capsys: pytest.CaptureFixture[str]) -> None:
+        """Feasible rates but a NaN RMS: the verdict is feasible, the record untrusted, and it says so."""
+        c = Champion(individual=X, val_rms=0.1)
+        costs = np.full(10, 50.0)
+        costs[3] = np.nan
+        _, _, feasible = revalidate(c, _FakeProblem(costs, _records(10)), list(range(10)), COST_KWARGS, 0.0, verbose=True, label="ga:")
+        assert feasible and c.val_rms == float("inf") and not c.trusted
+        out = capsys.readouterr().out
+        assert "ga:champion" in out and "non-finite validation RMS" in out and "INFEASIBLE" not in out
+
     def test_quiet_without_verbose(self, capsys: pytest.CaptureFixture[str]) -> None:
         revalidate(Champion(individual=X), _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1)), list(range(10)), COST_KWARGS, 0.0, verbose=False)
         assert capsys.readouterr().out == ""

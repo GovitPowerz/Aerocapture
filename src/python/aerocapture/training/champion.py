@@ -169,17 +169,15 @@ def revalidate(
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], bool]:
     """Fly the champion on the validation pool and `reanchor` it (the prologue /
     `revalidate_each` / retro CLI block). Returns the per-seed costs and records (the
-    caller builds the run-log payload from them) and the feasibility verdict. An
-    infeasible champion is announced when `verbose`; it stays last-validated but no
-    longer anchors the promotion bar."""
+    caller builds the run-log payload from them) and the feasibility verdict. A
+    champion that ends untrusted (infeasible, or a non-finite RMS) is announced when
+    `verbose`; it stays last-validated but no longer anchors the promotion bar."""
     assert champion.individual is not None
     val_costs, val_records = problem.evaluate_individual_records_per_seed(champion.individual, val_seeds)
     rms = float(np.sqrt(np.mean(val_costs**2)))
     rates = constraint_violation_rates(val_records, cost_kwargs)
     feasible = champion.reanchor(rms, rates, ceiling)
-    if not feasible and verbose:
-        print(
-            f"  {label}champion re-validated: INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%}); "
-            f"untrusted, competes as a candidate (rms was {rms:.4g})"
-        )
+    if verbose and not champion.trusted:
+        why = f"INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%})" if not feasible else "non-finite validation RMS"
+        print(f"  {label}champion re-validated: {why}; untrusted, competes as a candidate (rms was {rms:.4g})")
     return val_costs, val_records, feasible

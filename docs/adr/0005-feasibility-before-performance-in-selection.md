@@ -31,8 +31,9 @@ The check runs at every promotion site: the validation gate, the islands per-isl
 pre-loop initial / resumed champion validation, the islands resume re-validation, and final
 selection (fresh candidates evaluated once via `evaluate_population_records_per_seed`, so the
 records that carry the constraint columns cost no second MC pass). An infeasible fresh candidate
-never displaces a champion. A resumed champion that fails the check is kept as
-`last_validated_individual` but its RMS does not anchor `best_val_cost` (reset to `inf`); at final
+never displaces a champion. A resumed champion that fails the check stays the record's
+last-validated individual but its RMS does not anchor the promotion bar (`Champion.val_rms` reset to
+`inf`: the champion is untrusted); at final
 selection it competes as an ordinary candidate rather than as a trusted champion. With no trusted
 champion and no feasible candidate, final selection deploys the best-RMS infeasible candidate
 (that resumed champion included) with a loud warning and `winner_feasible = false` in
