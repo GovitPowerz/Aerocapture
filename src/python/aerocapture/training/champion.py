@@ -93,10 +93,14 @@ class Champion:
         self.val_rms = float("inf")
         self.violation_rates = None
 
-    def adopt_selection(self, individual: npt.NDArray[np.float64], val_rms: float, train_cost: float | None) -> None:
-        """The final-selection write-back; `None` keeps the recorded training cost."""
+    def adopt_selection(self, individual: npt.NDArray[np.float64], val_rms: float, train_cost: float | None, *, feasible: bool) -> None:
+        """The final-selection write-back; `None` keeps the recorded training cost. The
+        no-champion all-infeasible fallback (`SelectionResult.winner_feasible` False) is
+        adopted untrusted: deployed, but never a promotion bar. The selection carries no
+        per-constraint rates, so none are kept."""
         self.individual = individual.copy()
-        self.val_rms = float(val_rms)
+        self.val_rms = float(val_rms) if feasible else float("inf")
+        self.violation_rates = None
         if train_cost is not None:
             self.train_cost = train_cost
 

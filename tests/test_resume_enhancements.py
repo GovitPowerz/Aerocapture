@@ -82,6 +82,44 @@ def test_islands_checkpoint_npz_schema_has_cost_transform(tmp_path: Path) -> Non
         assert str(data["cost_transform"]) == "log"
 
 
+def test_revalidate_each_wiring(capsys) -> None:  # type: ignore[no-untyped-def]
+    """`revalidate_each` re-anchors only the islands holding a champion, under the
+    config ceiling, announcing with the island label; without validation seeds it is a no-op."""
+    from aerocapture.training import charts
+    from aerocapture.training.island_model import Island, IslandModel
+
+    class _Problem:
+        cost_kwargs = {"cost_transform": "linear", "heat_load_limit": 25000.0}
+
+        def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
+            records = np.zeros((len(seeds), 52))
+            records[0, charts._FR_INTEGRATED_FLUX] = 26.0  # MJ/m^2 -> 26000 kJ > limit on one draw of three
+            return np.full(len(seeds), 3.5), records
+
+    model = IslandModel.__new__(IslandModel)  # bypass __init__
+    model.islands = [Island("pso", algorithm=None, champion=Champion(individual=np.array([0.1, 0.2]), val_rms=999.0)), Island("ga", algorithm=None)]
+    model.problem = _Problem()  # type: ignore[assignment]
+    model.validation_seeds = [1, 2, 3]
+    model.config = OptimizerConfig(seed_strategy="fixed", max_violation_rate=0.5)
+
+    model.revalidate_each()
+    pso = model.islands[0].champion
+    assert pso.trusted and pso.val_rms == 3.5
+    assert pso.last_validated is not None and np.array_equal(pso.last_validated, [0.1, 0.2])
+    assert model.islands[1].champion.individual is None and model.islands[1].champion.last_validated is None  # no champion: skipped
+    assert capsys.readouterr().out == ""
+
+    model.config = OptimizerConfig(seed_strategy="fixed")  # ceiling 0.0: the same flight is now infeasible
+    model.revalidate_each()
+    assert not pso.trusted and pso.val_rms == float("inf")
+    assert "pso:champion" in capsys.readouterr().out
+
+    model.validation_seeds = []
+    pso.val_rms = 999.0
+    model.revalidate_each()
+    assert pso.val_rms == 999.0  # no pool: untouched
+
+
 def test_resize_populations_grows_each_island() -> None:
     from aerocapture.training.island_model import IslandModel
     from pymoo.core.population import Population

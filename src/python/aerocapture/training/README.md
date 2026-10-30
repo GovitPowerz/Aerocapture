@@ -146,7 +146,8 @@ infeasible or a non-finite RMS sets inf; the individual becomes last-validated) 
 `champion.revalidate(champion, problem, val_seeds, cost_kwargs, ceiling, verbose)`, used by the
 single-algo `prologue`, the islands `revalidate_each` and the retro CLI; `adopt_unvalidated`
 (the no-validation fallback and the fresh-start gen-0 argmin; `val_rms` inf);
-`adopt_selection(individual, val_rms, train_cost | None)` (the final-selection write-back;
+`adopt_selection(individual, val_rms, train_cost | None, feasible=)` (the final-selection write-back, untrusted
+when the winner is the no-champion all-infeasible fallback, `SelectionResult.winner_feasible`;
 `None` keeps the recorded training cost: the islands persist and the retro CLI pass `None`, the
 single-algo path passes the winning population row's cost); and the presentation
 `known(label)` (a trusted champion as a `KnownCandidate`) / `untrusted_row(label)` (an untrusted

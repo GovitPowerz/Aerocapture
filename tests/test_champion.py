@@ -120,14 +120,22 @@ class TestAdoptSelection:
     def test_with_train_cost(self) -> None:
         c = Champion(individual=X, train_cost=99.0, val_rms=60.0, last_validated=X)
         cand = np.array([0.1, 0.2])
-        c.adopt_selection(cand, 40.0, 7.0)
+        c.adopt_selection(cand, 40.0, 7.0, feasible=True)
         assert c.individual is not None and np.array_equal(c.individual, cand) and c.individual is not cand
         assert c.val_rms == 40.0 and c.train_cost == 7.0 and c.last_validated is X
 
     def test_none_keeps_recorded_train_cost(self) -> None:
         c = Champion(individual=X, train_cost=99.0, val_rms=60.0)
-        c.adopt_selection(np.array([0.1, 0.2]), 40.0, None)
+        c.adopt_selection(np.array([0.1, 0.2]), 40.0, None, feasible=True)
         assert c.train_cost == 99.0 and c.val_rms == 40.0
+
+    def test_infeasible_fallback_is_untrusted(self) -> None:
+        """The no-champion all-infeasible fallback deploys but must not become a trusted bar."""
+        c = Champion(individual=X, train_cost=99.0, val_rms=60.0, violation_rates={"heat_load": 0.0})
+        c.adopt_selection(np.array([0.1, 0.2]), 40.0, 7.0, feasible=False)
+        assert c.individual is not None and np.array_equal(c.individual, [0.1, 0.2]) and c.train_cost == 7.0
+        assert c.val_rms == float("inf") and not c.trusted and c.violation_rates is None
+        assert c.single_meta()["best_val_cost"] == float("inf")
 
 
 class TestPresentation:

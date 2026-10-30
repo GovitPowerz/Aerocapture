@@ -89,7 +89,7 @@ def winner_chromosome(run: Path) -> npt.NDArray[np.float64]:
         with np.load(state.npz_path) as data:
             champion = np.asarray(data["best_individual"], dtype=np.float64) if "best_individual" in data else None
     else:
-        champion = next((k.x for k in state.known if k.provenance == f"{island}:champion"), None)
+        champion = np.asarray(state.champions[island].individual, dtype=np.float64) if island in state.champions else None
     if name == "champion":
         x = champion
     elif prov in state.provenances:

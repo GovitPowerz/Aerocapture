@@ -181,7 +181,7 @@ def _persist_islands_promotion(
     win_name = selection.provenance.split(":", 1)[0]
     for isl in island_model.islands:
         if isl.name == win_name:
-            isl.champion.adopt_selection(selection.individual, selection.val_rms, None)
+            isl.champion.adopt_selection(selection.individual, selection.val_rms, None, feasible=selection.winner_feasible)
             break
     island_model.checkpoint(
         save_dir / f"checkpoint_g{gen:05d}.npz",
@@ -807,7 +807,7 @@ class SingleAlgoTrainer:
                     # Training-cost-at-promotion semantics (resume-incomparability rule);
                     # the appended champion row keeps its own recorded cost.
                     train_cost = float(self.costs[sel.winner_index]) if sel.winner_index < self.X.shape[0] else None
-                    self.champion.adopt_selection(sel.individual, sel.val_rms, train_cost)
+                    self.champion.adopt_selection(sel.individual, sel.val_rms, train_cost, feasible=sel.winner_feasible)
                     selection_promoted = True
 
         # Always save a final checkpoint labeled with the last gen that ran.
