@@ -16,22 +16,18 @@
       capture/exit phase machinery to a skip-exit-reentry sequence, add success criteria and
       reference data, benchmark the stateful policies against a classical skip-entry
       predictor-corrector.
-- [ ] Regime-matched objective schedule (off-nominal robustness recovery; paper conclusion +
-      section 7.3): the medium-trained network loses off-nominal robustness to the analytic
-      joint-FTC, and the objective-centering experiment pinned the gap on the training objective
-      (worst-case shaping collapses the GA gradient once failures dominate). Three mechanisms to
-      bridge the medium and high regimes without giving up the nominal sizing tail: an annealed
-      tail-weighting (schedule the cost-transform exponent on the population's capture rate,
-      near-linear while capture is low, cubed once it saturates); a dispersion-envelope curriculum
-      (start on medium with the deployed cubed/max-bucket objective and widen the bounds toward the
-      high-stress profile every k generations); a stratified curation batch (n=3-4 per individual,
-      mixing a `bucket_middle` seed that anchors the gradient with `bucket_max` seeds that pull the
-      tail). The centered-retrain result says the ceiling is reachable.
+- [ ] Two-phase regime curriculum (#229; off-nominal robustness recovery, paper Section 7.3
+      follow-up; design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`, promotion
+      rule ADR-0009): fine-tune the three centered high-regime anchors under the medium regime with
+      the deployed stacked objective behind a regime guard, judged at two-pool parity. Step 0 first:
+      score the anchors on the medium 10^6 pool; the TODO's premise that the centered recipe gives
+      up the nominal sizing tail was never measured. The annealed exponent, the medium-to-high
+      widening curriculum and the stratified batch under `cubed` are rejected in the design.
 - [ ] On-line adaptation of the deployed policy (the paper's third forward direction): the
       deployed policy is a fixed forward pass and all adaptation happens on the ground. Investigate
       lightweight in-flight adaptation, e.g. adapting only the calibrated input normalization or
       the three co-optimized actuator-side parameters against the navigation-estimated density
-      history, weights frozen; complements the training-side regime-matched schedule above.
+      history, weights frozen; complements the training-side two-phase curriculum above.
 - [x] Centered retrain under per-scenario seeding: done as #177 (outcome A, paper Section 7.3,
       `centered_depth_v4.json`). Retrained under `per_draw` (GA 256 x 16, 4000 gens, three seeds),
       every centered seed beats both per-scenario-retuned joint-FTC baselines on the 9M stress pool
