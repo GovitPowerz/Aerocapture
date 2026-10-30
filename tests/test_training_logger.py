@@ -152,6 +152,25 @@ class TestTrainingLogger:
         assert logger.buffer[0]["validation"] == val
         logger.close()
 
+    def test_validation_payload_has_one_shape_for_both_adapters(self, logger: TrainingLogger) -> None:
+        """`trainer._build_validation_payload` is the only emitter of the run log's
+        validation sub-record: the islands path (logged with `island_name`) carries
+        the same keys as the single-algo path (#221)."""
+        from aerocapture.training.trainer import _build_validation_payload
+
+        costs = np.array([10.0, 20.0, 30.0, 40.0])
+        metrics, summary = _build_validation_payload(costs, None, 4, {"cost_transform": "linear"}, feasible=True, violation_rates={"heat_load": 0.0})
+        assert summary is None  # no final records
+        expected_keys = ["rms_cost", "mean_cost", "median_cost", "std_cost", "p95_cost", "worst_cost", "capture_rate", "n_sims", "feasible", "violation_rates"]
+        assert list(metrics) == expected_keys
+        assert metrics["rms_cost"] == float(np.sqrt(np.mean(costs**2))) and metrics["n_sims"] == 4 and metrics["feasible"] is True
+        logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn, validation=metrics)
+        logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn, validation=metrics, island_name="ga")
+        single, island = logger.buffer
+        assert island["island_name"] == "ga"
+        assert list(single["validation"]) == list(island["validation"]) == expected_keys
+        logger.close()
+
     def test_validation_absent_by_default(self, logger: TrainingLogger) -> None:
         logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn)
         assert "validation" not in logger.buffer[0]

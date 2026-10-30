@@ -17,6 +17,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.artifacts import write_best_artifacts
+from aerocapture.training.champion import Champion
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
 from aerocapture.training.param_spaces import ParamSpec, check_chromosome_width
@@ -98,8 +99,7 @@ def save_checkpoint(
     generation: int,
     population: npt.NDArray[np.float64],
     costs: npt.NDArray[np.float64],
-    best_cost: float,
-    best_individual: npt.NDArray[np.float64] | None,
+    champion: Champion,
     cost_history: list[float],
     rng: np.random.Generator,
     config: TrainingConfig,
@@ -107,12 +107,13 @@ def save_checkpoint(
     param_specs: list[ParamSpec],
     seed_curator: SeedCurator | None = None,
     corridor_acc: CorridorAccumulator | None = None,
-    best_val_cost: float = np.inf,
     cost_transform: str = "linear",
 ) -> None:
     """Save full training state for later resumption, then the best artifacts.
 
-    best_model.json / best_params.json always go to save_dir. The NN model is
+    The champion record is written under its single-format keys (`best_cost` /
+    `best_val_cost` in the json, `best_individual` in the npz; `Champion.from_single`
+    reads them back). best_model.json / best_params.json always go to save_dir. The NN model is
     also deployed to the TOML's `[data] neural_network` path only when that path
     lies in save_dir (`artifacts.owned_deploy_path`); another run's path is never written.
     """
@@ -128,8 +129,7 @@ def save_checkpoint(
     }
     meta = {
         "generation": generation,
-        "best_cost": best_cost,
-        "best_val_cost": best_val_cost,
+        **champion.single_meta(),
         "cost_transform": cost_transform,
         "cost_history": [float(c) for c in cost_history],
         "rng_state": rng_state_json,
@@ -140,8 +140,8 @@ def save_checkpoint(
     arrays: dict[str, npt.NDArray] = {}
     arrays["population"] = population
     arrays["costs"] = costs
-    if best_individual is not None:
-        arrays["best_individual"] = best_individual
+    if champion.individual is not None:
+        arrays["best_individual"] = champion.individual
     if corridor_acc is not None:
         for ck, cv in corridor_acc.to_checkpoint().items():
             arrays[ck] = cv
@@ -161,8 +161,8 @@ def save_checkpoint(
     json_tmp.replace(save_dir / f"{prefix}.json")
 
     # Save best model/params (immediately usable by Rust)
-    if best_individual is not None:
-        write_best_artifacts(best_individual, config, param_specs, save_dir, cwd=cwd, deploy_to_cwd=True)
+    if champion.individual is not None:
+        write_best_artifacts(champion.individual, config, param_specs, save_dir, cwd=cwd, deploy_to_cwd=True)
 
     # Auto-prune older checkpoints when retention is configured.
     _prune_old_checkpoints(save_dir, config.checkpoints.keep_last)
@@ -173,8 +173,9 @@ def load_checkpoint(
 ) -> dict | None:
     """Find and load the latest checkpoint from save_dir.
 
-    Returns dict with: generation, population, costs, best_cost,
-    best_individual, cost_history, rng_state, cost_transform. Or None if no checkpoint found.
+    Returns dict with: generation, population, costs, best_cost, best_val_cost,
+    best_individual (the champion's wire keys, `Champion.from_single` reads them),
+    cost_history, rng_state, cost_transform. Or None if no checkpoint found.
     """
     # Support both new (checkpoint_g*.json) and old (checkpoint_r*_g*.json) naming
     json_files = sorted(save_dir.glob("checkpoint_g*.json"))

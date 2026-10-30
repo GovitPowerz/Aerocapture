@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from aerocapture.training.champion import Champion
 from aerocapture.training.checkpoint import save_checkpoint
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.optimizer import OptimizerConfig
@@ -64,14 +65,12 @@ class TestZeroGenerationResumeInterrupt:
             generation=10,
             population=population,
             costs=np.array([100.0, 200.0, 300.0, 400.0]),
-            best_cost=100.0,
-            best_individual=population[0].copy(),
+            champion=Champion(individual=population[0].copy(), train_cost=100.0, val_rms=100.0),
             cost_history=[100.0] * 10,
             rng=rng_ck,
             config=cfg,
             cwd=None,
             param_specs=param_specs,
-            best_val_cost=100.0,
         )
         problem = FakeProblem(list(param_specs), seeds=[42], interrupt_after=interrupt_after)
         _, result = run_trainer(cfg, problem, cwd=str(save_dir.parent), resume_dir=save_dir)
@@ -123,14 +122,12 @@ class TestResumePreservesCheckpointedBest:
             generation=10,
             population=population,
             costs=costs,
-            best_cost=checkpointed_best_cost,
-            best_individual=checkpointed_best_individual,
+            champion=Champion(individual=checkpointed_best_individual, train_cost=checkpointed_best_cost, val_rms=150.0),
             cost_history=[float(c) for c in costs],
             rng=rng_ck,
             config=cfg,
             cwd=None,
             param_specs=param_specs,
-            best_val_cost=150.0,
         )
 
         # No validation pool (toml_path ""), so the first evaluation is gen 0's
@@ -170,8 +167,7 @@ class TestResumeOverlaysWarmStartBounds:
             generation=3,
             population=rng_ck.random((4, len(rebuilt))),
             costs=np.full(4, 100.0),
-            best_cost=100.0,
-            best_individual=None,
+            champion=Champion(train_cost=100.0),
             cost_history=[100.0] * 3,
             rng=rng_ck,
             config=cfg,
@@ -287,14 +283,12 @@ class TestResumeGrowsPopulation:
             generation=2,
             population=small_pop,
             costs=costs,
-            best_cost=100.0,
-            best_individual=checkpointed_best,
+            champion=Champion(individual=checkpointed_best, train_cost=100.0, val_rms=100.0),
             cost_history=[float(c) for c in costs],
             rng=rng_ck,
             config=cfg,
             cwd=None,
             param_specs=param_specs,
-            best_val_cost=100.0,
         )
 
         # Constant costs: the grown pop (8) and the small pop (4) both score 1000.
@@ -338,8 +332,7 @@ class TestResumeSeedListWidth:
             generation=2,
             population=population,
             costs=np.full(4, 42.0),
-            best_cost=42.0,
-            best_individual=population[0].copy(),
+            champion=Champion(individual=population[0].copy(), train_cost=42.0),
             cost_history=[42.0],
             rng=rng_ck,
             config=cfg,
@@ -397,8 +390,7 @@ class TestCheckpointAtomicity:
             generation=generation,
             population=population,
             costs=np.full(cfg.optimizer.n_pop, 42.0),
-            best_cost=42.0,
-            best_individual=population[0].copy(),
+            champion=Champion(individual=population[0].copy(), train_cost=42.0),
             cost_history=[42.0],
             rng=rng,
             config=cfg,

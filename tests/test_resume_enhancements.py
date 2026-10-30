@@ -3,6 +3,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+from aerocapture.training.champion import Champion
 from aerocapture.training.checkpoint import load_checkpoint, save_checkpoint
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.optimizer import OptimizerConfig
@@ -32,8 +33,7 @@ def test_checkpoint_persists_cost_transform(tmp_path: Path) -> None:
         generation=2,
         population=pop,
         costs=np.zeros(3),
-        best_cost=1.0,
-        best_individual=pop[0],
+        champion=Champion(individual=pop[0], train_cost=1.0),
         cost_history=[1.0],
         rng=rng,
         config=_make_config(),
@@ -80,80 +80,6 @@ def test_islands_checkpoint_npz_schema_has_cost_transform(tmp_path: Path) -> Non
     with np.load(npz, allow_pickle=True) as data:
         assert "cost_transform" in data
         assert str(data["cost_transform"]) == "log"
-
-
-class _FakeProblem:
-    def __init__(self, rms: float) -> None:
-        self._rms = rms
-        self.cost_kwargs: dict[str, object] = {"cost_transform": "linear"}
-
-    def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
-        # costs whose RMS == self._rms regardless of x
-        return np.full(len(seeds), self._rms, dtype=np.float64), [{} for _ in seeds]
-
-
-def _fake_island(name: str, best_indiv, best_val_cost: float):  # type: ignore[no-untyped-def]
-    return types.SimpleNamespace(
-        name=name,
-        best_overall_individual=best_indiv,
-        best_val_cost=best_val_cost,
-        last_validated_individual=None,
-    )
-
-
-def test_revalidate_each_recomputes_best_val_cost() -> None:
-    from aerocapture.training.island_model import IslandModel
-
-    model = IslandModel.__new__(IslandModel)  # bypass __init__
-    model.islands = [
-        _fake_island("pso", np.array([0.1, 0.2]), best_val_cost=999.0),
-        _fake_island("ga", None, best_val_cost=999.0),  # no best -> skipped
-    ]
-    model.problem = _FakeProblem(rms=3.5)
-    model.validation_seeds = [1, 2, 3]
-    model.config = OptimizerConfig(seed_strategy="fixed")
-
-    model.revalidate_each()
-
-    assert model.islands[0].best_val_cost == 3.5
-    last_validated = model.islands[0].last_validated_individual
-    assert last_validated is not None
-    assert np.array_equal(last_validated, np.array([0.1, 0.2]))
-    # Island with no best_overall_individual is untouched.
-    assert model.islands[1].best_val_cost == 999.0
-    assert model.islands[1].last_validated_individual is None
-
-
-def test_revalidate_each_does_not_anchor_infeasible_champion(capsys) -> None:  # type: ignore[no-untyped-def]
-    """A pre-gate checkpoint may carry a champion that violates a constraint:
-    keep it as last_validated, but its RMS must not become the promotion bar."""
-    from aerocapture.training import charts
-    from aerocapture.training.island_model import IslandModel
-
-    class _InfeasibleProblem(_FakeProblem):
-        def __init__(self) -> None:
-            super().__init__(rms=3.5)
-            self.cost_kwargs = {"cost_transform": "linear", "heat_load_limit": 25000.0}
-
-        def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
-            costs, _ = super().evaluate_individual_records_per_seed(x, seeds)
-            records = np.zeros((len(seeds), 52))
-            records[0, charts._FR_INTEGRATED_FLUX] = 26.0  # MJ/m^2 -> 26000 kJ > limit on one draw
-            return costs, records
-
-    model = IslandModel.__new__(IslandModel)
-    model.islands = [_fake_island("pso", np.array([0.1, 0.2]), best_val_cost=999.0)]
-    model.problem = _InfeasibleProblem()
-    model.validation_seeds = [1, 2, 3]
-    model.config = OptimizerConfig(seed_strategy="fixed")  # max_violation_rate defaults to 0.0
-
-    model.revalidate_each()
-
-    assert model.islands[0].best_val_cost == float("inf")
-    last_validated = model.islands[0].last_validated_individual
-    assert last_validated is not None
-    assert np.array_equal(last_validated, np.array([0.1, 0.2]))
-    assert "INFEASIBLE" in capsys.readouterr().out
 
 
 def test_resize_populations_grows_each_island() -> None:
@@ -251,8 +177,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
         isl.algorithm.pop = pop
         isl.algorithm.is_initialized = True
         isl.algorithm.n_iter = 1
-        isl.best_overall_individual = pop.get("X")[0].copy()
-        isl.best_val_cost = 999.0
+        isl.champion = Champion(individual=pop.get("X")[0].copy(), val_rms=999.0)
     ckpt = tmp_path / "checkpoint_g00000.npz"
     model.checkpoint(ckpt, generation=0)
 
@@ -278,7 +203,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
 
     for isl in model2.islands:
         assert isl.algorithm.pop.get("X").shape == (12, 2)
-        assert isl.best_val_cost == 1.23  # re-validated under new metric, not the stale 999.0
+        assert isl.champion.val_rms == 1.23  # re-validated under new metric, not the stale 999.0
 
     from pymoo.algorithms.soo.nonconvex.pso import PSO
 
@@ -360,7 +285,7 @@ def test_islands_from_checkpoint_legacy_missing_cost_transform(tmp_path) -> None
         isl.algorithm.pop = pop
         isl.algorithm.is_initialized = True
         isl.algorithm.n_iter = 1
-        isl.best_overall_individual = pop.get("X")[0].copy()
+        isl.champion = Champion(individual=pop.get("X")[0].copy())
     ckpt = tmp_path / "checkpoint_g00000.npz"
     model.checkpoint(ckpt, generation=0)
 

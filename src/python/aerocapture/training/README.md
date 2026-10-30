@@ -134,18 +134,43 @@ entirely. `fixed` and `rotating` have no class (inline in `trainer.py`); `adapti
 difference between the two adapters is the `top_k_provider` (single-algo: this gen's argmin
 slice; islands: `IslandModel.pool_top_k_X`, the union across the 3 populations).
 
-**Validation gate** (identity-triggered). If the current gen's argmin differs from
-`last_validated_individual` (`np.array_equal`), the candidate is scored on the reserved
-validation pool (`validation_n_sims`, default 1000) by `evaluate.run_validation_gate`
-(`GateStatus` / `GateResult`). Cost-based new-best detection is unreliable under
-non-stationary seeds, hence the identity trigger. Records carry `rms_cost` (the promotion
-metric), mean, p95, worst, capture rate, `feasible` and `violation_rates`.
-`best_overall_individual` is promoted only when the candidate is FEASIBLE (every configured
-constraint's validation-pool violation rate <= `[optimizer] max_violation_rate`, default 0.0
-strict; `evaluate.constraint_violation_rates`, ADR-0005; the single-algo loop prints REJECTED for
-an RMS-better infeasible candidate) AND `val_rms < best_val_cost`. The same check gates the
-pre-loop initial/resumed champion and the islands `revalidate_each` on resume (an infeasible
-resumed champion stays `last_validated` but its RMS does not anchor `best_val_cost`). The
+**The champion record** (`champion.Champion`, #221). `SingleAlgoTrainer` holds one, each
+`Island` one: the individual, its training cost at promotion (`train_cost`, the
+resume-incomparability rule's quantity), its validation RMS (`val_rms`, inf when untrusted),
+the last-validated individual (the gate's identity trigger) and, in memory only, its violation
+rates. `trusted` is derived (`isfinite(val_rms)`). Five transitions, each written once:
+`consider(gate)` applies a `GateResult` (displace on feasible and strictly lower RMS; ties and
+infeasible candidates keep the incumbent, ADR-0002 / ADR-0005); `reanchor(val_rms, rates,
+ceiling)` re-anchors under the current cost kwargs and ceiling (feasible anchors `val_rms`,
+infeasible sets inf; the individual becomes last-validated) and its flight is
+`champion.revalidate(champion, problem, val_seeds, cost_kwargs, ceiling, verbose)`, used by the
+single-algo `prologue`, the islands `revalidate_each` and the retro CLI; `adopt_unvalidated`
+(the no-validation fallback and the fresh-start gen-0 argmin; `val_rms` inf);
+`adopt_selection(individual, val_rms, train_cost | None)` (the final-selection write-back;
+`None` keeps the recorded training cost: the islands persist and the retro CLI pass `None`, the
+single-algo path passes the winning population row's cost); and the presentation
+`known(label)` (a trusted champion as a `KnownCandidate`) / `untrusted_row(label)` (an untrusted
+one as a candidate row with the `champion[infeasible]` provenance). The record owns both wire
+maps and nothing new is on disk: single `best_cost` / `best_val_cost` (json) + `best_individual`
+(npz), islands `best_overall_individual` / `best_overall_cost` / `best_val_cost` /
+`last_validated_individual`; every pre-record checkpoint loads (a finite `best_val_cost` as
+trusted, inf as untrusted, no `best_individual` as an empty record). `save_checkpoint` takes
+the record; `final_select.patch_checkpoint` loads it, applies `adopt_selection`, writes it back.
+
+**Validation gate** (identity-triggered). If the current gen's argmin differs from the
+champion's last-validated individual (`np.array_equal`), the candidate is scored on the reserved
+validation pool (`validation_n_sims`, default 1000) by `evaluate.run_validation_gate(X, F,
+champion, ...)` (`GateStatus` / `GateResult`; the record applies the result via `consider`).
+Cost-based new-best detection is unreliable under non-stationary seeds, hence the identity
+trigger. Records carry `rms_cost` (the promotion metric), mean, median, std, p95, worst, capture
+rate, `feasible` and `violation_rates`, one shape for both adapters
+(`trainer._build_validation_payload` is the only emitter). The champion is promoted only when the
+candidate is FEASIBLE (every configured constraint's validation-pool violation rate <=
+`[optimizer] max_violation_rate`, default 0.0 strict; `evaluate.constraint_violation_rates`,
+ADR-0005; the single-algo loop prints REJECTED for an RMS-better infeasible candidate) AND
+`val_rms < champion.val_rms`. The same check re-anchors the pre-loop initial/resumed champion
+and the islands `revalidate_each` on resume (`champion.revalidate`: an infeasible resumed
+champion stays last-validated but becomes untrusted and competes as a candidate). The
 `improvement` flag in logger records reflects validation promotions, keeping the TUI's "Stagnant
 for N gens" counter honest. The gate also feeds the full `(n_seeds, 52)` final-records matrix
 through `compute_eval_summary` and stores the dashboard payload (DV / apoapsis / periapsis /
@@ -157,7 +182,8 @@ mirroring the end-of-training "Final evaluation (...)" stats block 1-for-1.
 on Ctrl+C and when `validation_n_sims = 0`). `final_select.select_final_individual(problem,
 candidates, provenances, known, val_seeds)` re-ranks the last generation (plus, for islands, the
 union of all 3 islands' last-gen pops + champions) against `known: list[KnownCandidate]`
-(pre-scored champions, NEVER re-simulated; incumbent = lowest val RMS) on the VALIDATION pool.
+(trusted champions, `Champion.known`, NEVER re-simulated; incumbent = lowest val RMS; an
+untrusted champion joins the candidates via `Champion.untrusted_row`) on the VALIDATION pool.
 Fresh rows byte-identical to a known row or an earlier fresh row are deduplicated (for PSO/QPSO
 pbest pops the champion row dedups automatically); fresh candidates are scored in ONE batched
 `problem.evaluate_population_records_per_seed` call so the feasibility check reads the same
@@ -178,10 +204,12 @@ aerocapture.training.final_select <training_dir> --toml <config> [--no-checkpoin
 (`warm_start_bounds.json` weight-spec bounds spliced in when present: decoding under rebuilt Xavier
 bounds would corrupt NN weights), reconciles `base_mc_seed` (islands npz value cross-checked against
 the TOML), validates the chromosome width through the layout, errors when `validation_n_sims = 0`,
-then re-runs the rule and rewrites artifacts + checkpoint (`artifacts.deploy_winner`), then the sidecar (last, as in `finalize`: a campaign
+re-validates every checkpoint champion (`champion.revalidate`; an untrusted one competes as a
+candidate), then re-runs the rule and rewrites artifacts + checkpoint (`artifacts.deploy_winner`), then the sidecar (last, as in `finalize`: a campaign
 runner reads a sidecar newer than the latest checkpoint as a finished selection;
 `load_selection_state` reads BOTH checkpoint
-formats into a `SelectionState`; `patch_checkpoint` atomically rewrites ONLY the best fields,
+formats into a `SelectionState` (`champions` per island, the derived `known` view
+`experiments/paper/audit_deployed_models.py` reads); `patch_checkpoint` atomically rewrites ONLY the champion record,
 temp files `.tmp_`-prefixed so a crashed patch never shadows the real checkpoint in the
 `checkpoint_g*` resume globs); non-NN winners also get `optimized_<scheme>.toml` rewritten and,
 for joint-ref runs, the reference table regenerated via `deploy_optimized_artifacts`. Writes are
@@ -191,12 +219,12 @@ UNCONDITIONAL even on champion-kept, so legacy dirs are rewritten to the validat
 `training_output/<scheme>/` via the shared `write_best_artifacts` (when an NN scheme is trained
 with `scaffolding = "full"` / `"live"`, both files are written: the weights and the co-tuned
 scaffolding values, 17 or 3; `compare_guidance` and `report.py` pick both up). For islands, a
-selection-PROMOTED winner is persisted into the winning island's `best_overall_*` and the npz
+selection-PROMOTED winner is persisted into the winning island's champion record and the npz
 checkpoint re-saved (`_persist_islands_promotion`, after `final_eval` so the report keeps the
 pre-selection champions, before the artifact write); when no island promotes a validated best
 the run's `best_model.json` (and the deploy path, when the run owns it) is removed so
 `compare_guidance` cannot consume a stale one.
-`final_eval` (islands) re-evaluates each island's `best_overall_individual` on the disjoint
+`final_eval` (islands) re-evaluates each island's champion on the disjoint
 final-eval pool for REPORTING only; a promoted fresh winner gets one single-candidate final-eval
 run. Then `report.py` renders the PDF unless `--skip-report`.
 
@@ -220,12 +248,14 @@ force one re-eval before `warm_start_algorithm`, islands call
 WIDTH is guarded (`_check_resume_chromosome_shape` -> ValueError pointing at `--from-scratch`
 when `scaffolding` / `output_parameterization` / `input_mask` flipped between runs). *Changed
 `cost_transform`:* persisted in both checkpoint formats (legacy checkpoints read back `None` =
-"assume changed"); single-algo re-validates its checkpointed best unconditionally, islands call
-`IslandModel.revalidate_each()` and reset each island's `stagnation_counter`. `IslandsTrainer`
+"assume changed"); single-algo re-validates its checkpointed champion unconditionally
+(`champion.revalidate` in `prologue`), islands call `IslandModel.revalidate_each()` and reset
+each island's `stagnation_counter`. `IslandsTrainer`
 resume order: (`from_config`: `_latest_islands_checkpoint`, the sidecar splice, a placeholder
 population instead of `_build_initial_population`) -> `from_checkpoint` -> curator seed push -> `resize_populations` ->
-`revalidate_each` -> transform notice. The checkpointed best is trusted VERBATIM (never swapped
-via a `<` comparison against the resumed population's cost; see the root `CLAUDE.md` lesson).
+`revalidate_each` -> transform notice. The checkpointed champion record is restored VERBATIM
+(never swapped via a `<` comparison against the resumed population's cost; see the root
+`CLAUDE.md` lesson).
 Spec: `docs/design/2026-06-02-resume-enhancements-design.md`.
 
 **Interrupts and headless runs.** Ctrl+C saves a checkpoint and returns cleanly with
@@ -353,14 +383,16 @@ use `--sim-timeout` against NaN hangs).
   library.
 - `trainer.py` - the `Trainer` Protocol, `run_loop`, `SingleAlgoTrainer`, `IslandsTrainer` (each
   with `from_config`), the loop's `_apply_seed_strategy` / `_maybe_curate`,
-  `_build_validation_payload`, `_persist_islands_promotion`.
+  `_build_validation_payload` (the one validation sub-record shape), `_persist_islands_promotion`.
+- `champion.py` - `Champion` (the record above: five transitions, both wire maps, `known` /
+  `untrusted_row`), `KnownCandidate`, `revalidate`. A leaf like `checkpoint.py`.
 - `training_config.py` - `build_training_config_from_toml`, `_setup_param_specs`, `run_param_specs`
   (the offline constructor of a run's `ChromosomeLayout`: the config's specs with the run's
   `warm_start_bounds.json` spliced in, shared by `animate`, the `final_select` CLI and
   `experiments/paper/audit_deployed_models.py`, #203), `check_ref_trajectory_wiring`,
   `_resolve_piecewise_n_segments`, `_resolve_config_normalization`.
 - `chromosome_layout.py` - `ChromosomeLayout` (see "Config and chromosome").
-- `checkpoint.py` - `save_checkpoint` / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
+- `checkpoint.py` - `save_checkpoint` (takes the `Champion` record) / `load_checkpoint` (paired json+npz), `_prune_old_checkpoints`,
   `_restore_seed_curator`, `_check_resume_chromosome_shape` (the one width check with the resume
   hint; the islands restore calls it too).
 - `artifacts.py` - `write_best_artifacts` (decodes through the layout, returns the
@@ -415,18 +447,18 @@ use `--sim-timeout` against NaN hangs).
   `particles_F` / `particles_V`. Deliberately NOT saved: `pop.get("V")` / `.get("pbest")` (pymoo's
   `Population.get` returns an object ndarray of `None` entries when the attribute was never set,
   so an `is not None` guard would persist junk). `from_checkpoint` raises `ValueError` on version /
-  `base_mc_seed` / island-name / chromosome-width mismatch, restores `best_overall_*` VERBATIM,
+  `base_mc_seed` / island-name / chromosome-width mismatch, restores each island's champion record VERBATIM,
   rebuilds `algorithm.particles` for PSO, sets `is_initialized = True` and `n_iter = saved + 1`,
   stamps `start_time`, calls `_set_optimum()`, re-runs `FitnessSurvival().do(...)` on non-PSO
   islands to re-stamp `rank` (DE's `_infill` picks its target via `pop.get("rank") == 0`), and
   returns `(generation, seed_curator_state, saved_cost_transform)`. When `validation_n_sims = 0`
-  each island promotes its finite training argmin into `best_overall_*`, and `IslandsTrainer`
+  each island adopts its finite training argmin as an untrusted champion, and `IslandsTrainer`
   unions the reserved pools into `excluded_seeds` unconditionally (the curator shares that set). `resize_populations` /
   `revalidate_each` back the resume features above. Spec:
   `docs/design/2026-05-28-island-model-pso-ga-de-design.md`.
 - `seed_curator.py` — `SeedCurator` (above).
-- `final_select.py` — `select_final_individual`, `KnownCandidate`, `SelectionResult`,
-  `load_selection_state` / `SelectionState` / `patch_checkpoint`, the CLI (above).
+- `final_select.py` — `select_final_individual`, `SelectionResult`, `KnownCandidate` (re-exported
+  from `champion.py`), `load_selection_state` / `SelectionState` / `patch_checkpoint`, the CLI (above).
 
 ### Evaluation
 
@@ -449,7 +481,7 @@ use `--sim-timeout` against NaN hangs).
 - `evaluate.py` — `write_nn_json` (chromosome -> model JSON via
   `aerocapture_rs.flat_weights_to_json`, QAT rounding applied), `build_v2_architecture`,
   `write_guidance_toml` (base TOML + `deploy_overrides.overrides_from_params` -> `toml_utils.write_toml`),
-  `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_violation_rates` (the means of
+  `run_validation_gate` (takes the `Champion`) / `GateStatus` / `GateResult`, `constraint_violation_rates` (the means of
   `sizing_tail.constraint_exceedances`, the ONE violation rule),
   `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
   `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
