@@ -51,9 +51,10 @@ transcribed.
   (the four dispersion levels set back to the deployment presets at flight; a fourth scorer
   manifest, `experiments/ou_marginal/centered_cells_v4.txt`, and three rows of
   `data/confirmatory_marginal.json`, whose cells now record the `extra_overrides` a row was flown
-  under, null for a plain flight). Every seed captures every scenario, two of three sit below the
-  deployed seed's CVaR99.9, the three-seed mean lies inside the champion's seed spread, at
-  15-30 m/s more CVaR95 and 5-100x fewer heat-load exceedances; the two-phase curriculum that
+  under, null for a plain flight, the per_draw regime itself on the oldest rows). Every seed
+  captures every scenario, two of three sit below the deployed seed's CVaR99.9, the three-seed mean
+  lies inside the champion's seed spread, at 12-30 m/s more CVaR95 and 2-130x fewer heat-load
+  exceedances; the two-phase curriculum that
   would have fine-tuned them under the deployed objective was not run. Section 9's open question
   is narrowed accordingly. No other number moves; figures unchanged. Provenance digest and PDF
   colophon recompiled.

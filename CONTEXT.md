@@ -132,10 +132,10 @@ The gradient-recovering shaping: linear cost transform, middle curation bucket, 
 A finished centered high-regime run whose final checkpoint starts a curriculum's second phase and whose guard-pool RMS sets that run's bar.
 
 **Regime Guard**:
-A second promotion bar in the validation gate and final selection: the candidate's RMS on a reserved pool flown under another regime must stay within a tolerance of the anchor's (ADR-0009). A candidate it stops is *refused*, not infeasible.
+A second promotion bar in the validation gate and final selection: the candidate's RMS on a reserved pool flown under another regime must stay within a tolerance of the anchor's (ADR-0009). A candidate it stops is *refused*, not infeasible. Designed, not implemented: #229 closed at its Step 0.
 
 **Two-Phase Curriculum**:
-Training a policy on the high regime under the centered objective, then fine-tuning it on the medium regime under the stacked objective's transform and bucket (at ten scenarios per individual, not two) behind a regime guard; judged at two-pool parity.
+Training a policy on the high regime under the centered objective, then fine-tuning it on the medium regime under the stacked objective's transform and bucket (at ten scenarios per individual, not two) behind a regime guard; judged at two-pool parity. Never run: the anchors already held the medium tail (#229, Step 0).
 _Avoid_: objective schedule, annealing (nothing changes within a phase)
 
 **Final Eval**:

@@ -1571,15 +1571,17 @@ might have given up the nominal sizing tail it was never scored on. Flown on the
 confirmatory pool of @tbl-arch -- the four dispersion levels set back to the deployment presets,
 everything else as trained -- the three centered seeds keep it (@tbl-centered-medium). Every seed
 captures every scenario; two of the three sit below the deployed seed's $"CVaR"_(99.9)$ of
-$#R.fixed(champ.cvar999)$ m/s, the third $#R.fixed(calc.max(..cm_seeds.map(c => c.cvar999)) - champ_mean.mean, d: 0)$ m/s above the
-champion mean, and the three-seed mean, $#R.fixed(cm_mean.mean) plus.minus #R.fixed(cm_mean.sd)$, lies
-inside the champion's $#R.fixed(champ_mean.mean) plus.minus #R.fixed(champ_mean.sd)$. What the
-centered objective pays is the body of the distribution, a $"CVaR"_95$ of #R.span(cm_seeds.map(c => c.cvar95)) m/s
+$#R.fixed(champ.cvar999)$ m/s, the third $#R.fixed(calc.max(..cm_seeds.map(c => c.cvar999)) - champ.cvar999)$ m/s above it
+($#R.fixed(calc.max(..cm_seeds.map(c => c.cvar999)) - champ_mean.mean, d: 0)$ m/s above the champion mean), and the three-seed mean,
+$#R.fixed(cm_mean.mean) plus.minus #R.fixed(cm_mean.sd)$, lies inside the champion's
+$#R.fixed(champ_mean.mean) plus.minus #R.fixed(champ_mean.sd)$. What the centered objective pays is
+the shallow tail, a $"CVaR"_95$ of #R.span(cm_seeds.map(c => c.cvar95)) m/s
 against the champion seeds' #R.span(mamba_seeds.map(c => c.cvar95)), and what it buys is the ceiling,
 #R.span(cm_seeds.map(c => c.hl_viol_n)) heat-load exceedances per $10^6$ scenarios against the
 champion seeds' #R.span(mamba_seeds.map(c => c.hl_viol_n)). A second training phase under the
 deployed objective, designed to recover a medium-tail deficit these seeds turn out not to have, was
-therefore not run: seed 2 as trained is a policy at parity on both pools.
+therefore not run: seeds 1 and 2 as trained are policies at parity on both pools, seed 1 the one
+the deployment rule fixes.
 
 #figure(
   table(
@@ -1604,7 +1606,7 @@ therefore not run: seed 2 as trained is a policy at parity on both pools.
   set back to the deployment presets at flight), against the three seeds trained under the deployed
   objective: correction $Delta v$ in m/s over captured scenarios, $"CVaR"_(99.9)$ with its standard
   error over the ten replicates, the sample maximum as a descriptive bound. The centered seeds hold
-  the sizing tail and the ceiling and pay in the body of the distribution.],
+  the sizing tail and the ceiling and pay in the shallow tail.],
 ) <tbl-centered-medium>
 
 #fig("fig_objective_centering.svg", [Objective centering under the high-dispersion stress probe

@@ -198,12 +198,13 @@ pairing, not a matched one; the seed spread is the comparison): -3.5 [-8.3, +1.4
 +35.1 [+33.5, +36.7]. Over seeds: anchors 168.9 +- 9.3, champion 158.5 +- 15.8.
 
 Reading against Section 2: seeds 1 and 2 meet the medium criterion (CI not above zero, capture
-parity), seed 3 does not; all three pay 15-30 m/s at CVaR95 (the linear transform and middle
-bucket trading the body for the tail) and exceed the heat-load ceiling 5-100x less often than the
-champion seeds. On the stress pool (`centered_depth_v4.json`) the same seeds already beat the
-medium joint-FTC at capture parity, so seed 2 as trained is a two-pool-parity policy and the
-premise of the TODO item (that the centered seeds give up the nominal tail) does not hold. The
-remaining levers of a second phase, seed 3's medium tail and the CVaR95 body, are not the sizing
+parity), seed 3 does not; all three pay 12-30 m/s at CVaR95 against every champion seed (the
+linear transform and middle bucket trading the shallow tail for the deep one) and exceed the
+heat-load ceiling 2-130x less often than the champion seeds. On the stress pool
+(`centered_depth_v4.json`) the same seeds already beat the medium joint-FTC at capture parity, so
+seeds 1 (the deployment rule's) and 2 as trained are two-pool-parity policies and the premise of
+the TODO item (that the centered seeds give up the nominal tail) does not hold. The remaining
+levers of a second phase, seed 3's medium tail and the shallow CVaR95 tail, are not the sizing
 statistic; Sections 4-6 (mechanism, guard, cells) were not implemented, ADR-0009 is recorded as
 not implemented, and the paper's Section 7.3 holds the two-pool table.
 

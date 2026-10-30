@@ -3,7 +3,9 @@
 # "high"; the rows were flown with the levels overridden back to the deployment presets of common.toml, so
 # `--manifest` over this file does not reproduce them: score with --cells and the four overrides,
 #   uv run python -u experiments/ou_marginal/confirmatory_marginal.py \
-#     --cells ou_marginal/centered/mamba_centered_s1:configs/training/ou_marginal/centered/mamba_centered_s1.toml (s2, s3 likewise) \
+#     --cells ou_marginal/centered/mamba_centered_s1:configs/training/ou_marginal/centered/mamba_centered_s1.toml \
+#             ou_marginal/centered/mamba_centered_s2:configs/training/ou_marginal/centered/mamba_centered_s2.toml \
+#             ou_marginal/centered/mamba_centered_s3:configs/training/ou_marginal/centered/mamba_centered_s3.toml \
 #     --extra-override monte_carlo.atmosphere.level=medium --extra-override monte_carlo.navigation.level=medium \
 #     --extra-override monte_carlo.nav_filter.level=medium --extra-override monte_carlo.density_perturbation.level=low
 # (the row records them as extra_overrides). Section 7.3 reads them through extract_confirmatory_marginal.py, which

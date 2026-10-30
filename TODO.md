@@ -22,10 +22,11 @@
       centered high-regime anchors keep the nominal sizing tail they were never selected on: every
       seed captures every scenario, two of three sit below the deployed seed's CVaR99.9 (170.3 and
       159.1 against 173.9), the three-seed mean 168.9 +- 9.3 lies inside the champion's
-      158.5 +- 15.8, at 15-30 m/s more CVaR95 and 5-100x fewer heat-load exceedances (9-208 per
-      10^6 against 437-1148). Seed 2 as trained is at parity on both pools, so the fine-tune phase
-      and the regime guard (design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`,
-      ADR-0009, recorded but not implemented) were not built; paper Section 7.3 holds the table.
+      158.5 +- 15.8, at 12-30 m/s more CVaR95 and 2-130x fewer heat-load exceedances (9-208 per
+      10^6 against 437-1148). Seeds 1 (the deployment rule's) and 2 as trained are at parity on
+      both pools, so the fine-tune phase and the regime guard (design
+      `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`, ADR-0009, recorded but not
+      implemented) were not built; paper Section 7.3 holds the table.
 - [ ] On-line adaptation of the deployed policy (the paper's third forward direction): the
       deployed policy is a fixed forward pass and all adaptation happens on the ground. Investigate
       lightweight in-flight adaptation, e.g. adapting only the calibrated input normalization or

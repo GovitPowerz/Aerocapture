@@ -428,6 +428,30 @@ def test_v4_manifest_lists_every_paper_row_once(cm: ModuleType) -> None:
     assert {label: toml for label, toml, _ in rows if label in scored} == {label: scored[label] for label in labels if label in scored}
 
 
+def test_centered_rows_flew_the_champion_dispersion_levels(cm: ModuleType) -> None:
+    """#229 Step 0: each centered anchor's row was flown with its TOML and overrides that leave its merged
+    [monte_carlo] equal to the deployed champion's (the medium pool Section 7.3 quotes), and the paper's
+    extract carries those overrides."""
+    from aerocapture.training.toml_utils import load_toml_with_bases
+
+    rows = cm.read_manifest(cm.REPO / "experiments/ou_marginal/centered_cells_v4.txt")
+    assert [label for label, _, _ in rows] == [f"ou_marginal/centered/mamba_centered_s{k}" for k in (1, 2, 3)]
+    champion = load_toml_with_bases(REPO / "configs/training/ou_marginal/hl_mamba_p962.toml")["monte_carlo"]
+    scored = {c["label"]: c for c in json.loads(cm.OUT.read_text())["cells"]}
+    extract = {c["label"]: c for c in json.loads((REPO / "articles/paper/data/confirmatory_marginal.json").read_text())["cells"]}
+    for label, toml, _ in rows:
+        row = scored[label]
+        assert row["toml"] == toml
+        flown = load_toml_with_bases(REPO / toml)["monte_carlo"]
+        assert flown != champion, f"{label}: its TOML already flies the medium levels"
+        for key, value in row["extra_overrides"].items():
+            assert key.startswith("monte_carlo."), key
+            section, _, leaf = key.removeprefix("monte_carlo.").rpartition(".")
+            flown[section][leaf] = value
+        assert flown == champion, label
+        assert extract[label]["extra_overrides"] == row["extra_overrides"]
+
+
 def test_quote_marginal_skips_quoted_cells_unless_forced(tmp_path: Path, qm: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
     scored: list[str] = []
 
