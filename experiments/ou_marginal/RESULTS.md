@@ -28,7 +28,9 @@ over `jobs_headline.txt`, `jobs_controls.txt`, `jobs_centering.txt`,
 `hl` modes; the scorers are `confirmatory_marginal.py` over
 `confirmatory_cells_v4.txt` (`make -C articles/paper mc-confirmatory-v4`),
 `controls_cells_v4.txt` (run by `15_state_controls.sh v4`: the reset-state row
-needs its `--extra-override`) and `quant_cells_v4.txt` (run by
+needs its `--extra-override`), `centered_cells_v4.txt` (#229 Step 0: the three
+centered anchors on the medium pool, `--cells` with the four level overrides in
+the manifest's header) and `quant_cells_v4.txt` (run by
 `17_quantization.sh v4 finalists`), `quote_marginal.py` (plus `--manifest
 classical_cells.txt`; `mc-quote-marginal`) and `heat_load_slope.py`
 (`mc-heat-load-slope`). Every

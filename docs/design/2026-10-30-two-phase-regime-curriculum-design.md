@@ -1,6 +1,6 @@
 # Two-phase regime curriculum: centered high-regime anchors fine-tuned under the deployed medium objective behind a regime guard
 
-> **Date:** 2026-10-30. **Status:** approved (user, 2026-10-30), pre-implementation. **Issue:** #229.
+> **Date:** 2026-10-30. **Status:** closed at Step 0 (user, 2026-10-30): the anchors hold the medium tail, nothing built (Section 10). **Issue:** #229.
 > **Topic:** the TODO's "regime-matched objective schedule" (paper Section 7.3 follow-up), settled
 > by a grilling session: which of the three proposed mechanisms to build, its trigger, its
 > feasibility gate and its compute budget. Promotion rule recorded as ADR-0009; vocabulary in
@@ -178,7 +178,36 @@ About 3-3.5 h wall. Step 0 gates the rest.
 - No change to the strict medium-side ceiling; no guard on runs that do not configure one.
 - Paper placement is decided from the Step 0 result, not here.
 
-## 10. Final step
+## 10. Outcome: Step 0 closed the campaign (2026-10-30)
+
+The three anchors scored on the medium 10 x 100,000 pool (`confirmatory_marginal.py --cells`, the
+four levels overridden as in Section 3; manifest `experiments/ou_marginal/centered_cells_v4.txt`,
+18m52s wall for the three, not 45 min), against the three `hl_mamba_p962` champion seeds:
+
+| cell | capture % | heat-load exceedances / 10^6 | CVaR95 | CVaR99.9 +- se | max |
+|---|---|---|---|---|---|
+| mamba_centered_s1 | 100.0000 | 9 | 149.7 | 170.3 +- 0.2 | 189.4 |
+| mamba_centered_s2 | 100.0000 | 18 | 146.1 | 159.1 +- 0.1 | 177.9 |
+| mamba_centered_s3 | 100.0000 | 208 | 143.2 | 177.5 +- 0.6 | 308.8 |
+| hl_mamba_p962 (deployed) | 100.0000 | 1148 | 120.1 | 173.9 +- 2.2 | 300.4 |
+| hl_mamba_p962_s2 | 99.9996 | 437 | 131.7 | 159.3 +- 0.6 | 620.8 |
+| hl_mamba_p962_s3 | 100.0000 | 567 | 122.9 | 142.3 +- 0.5 | 266.5 |
+
+Per-replicate paired CVaR99.9 delta on the same pools, anchor s_i minus champion s_i (a label
+pairing, not a matched one; the seed spread is the comparison): -3.5 [-8.3, +1.4], -0.2 [-1.5, +1.0],
++35.1 [+33.5, +36.7]. Over seeds: anchors 168.9 +- 9.3, champion 158.5 +- 15.8.
+
+Reading against Section 2: seeds 1 and 2 meet the medium criterion (CI not above zero, capture
+parity), seed 3 does not; all three pay 15-30 m/s at CVaR95 (the linear transform and middle
+bucket trading the body for the tail) and exceed the heat-load ceiling 5-100x less often than the
+champion seeds. On the stress pool (`centered_depth_v4.json`) the same seeds already beat the
+medium joint-FTC at capture parity, so seed 2 as trained is a two-pool-parity policy and the
+premise of the TODO item (that the centered seeds give up the nominal tail) does not hold. The
+remaining levers of a second phase, seed 3's medium tail and the CVaR95 body, are not the sizing
+statistic; Sections 4-6 (mechanism, guard, cells) were not implemented, ADR-0009 is recorded as
+not implemented, and the paper's Section 7.3 holds the two-pool table.
+
+## 11. Final step
 
 After implementation, invoke the `smart-commit` skill, telling it to take the whole git branch
 into account.

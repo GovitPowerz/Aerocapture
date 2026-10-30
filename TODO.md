@@ -16,14 +16,16 @@
       capture/exit phase machinery to a skip-exit-reentry sequence, add success criteria and
       reference data, benchmark the stateful policies against a classical skip-entry
       predictor-corrector.
-- [ ] Two-phase regime curriculum (#229; off-nominal robustness recovery, paper Section 7.3
-      follow-up; design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`, promotion
-      rule ADR-0009): fine-tune the three centered high-regime anchors under the medium regime with
-      the deployed cost transform and curation bucket behind a regime guard, judged at two-pool
-      parity. Step 0 first: score the anchors on the medium 10^6 pool; whether these high-trained
-      anchors give up the nominal sizing tail was never measured (`centered_depth_v4.json` scores
-      them on the stress pool only). The annealed exponent, the medium-to-high
-      widening curriculum and the stratified batch under `cubed` are rejected in the design.
+- [x] Two-phase regime curriculum (#229): closed at Step 0 (2026-10-30), the campaign's
+      "best outcome: no training, one table". Scored on the medium 10^6 per-scenario pool with the
+      four dispersion levels set back to the deployment presets (`centered_cells_v4.txt`), the three
+      centered high-regime anchors keep the nominal sizing tail they were never selected on: every
+      seed captures every scenario, two of three sit below the deployed seed's CVaR99.9 (170.3 and
+      159.1 against 173.9), the three-seed mean 168.9 +- 9.3 lies inside the champion's
+      158.5 +- 15.8, at 15-30 m/s more CVaR95 and 5-100x fewer heat-load exceedances (9-208 per
+      10^6 against 437-1148). Seed 2 as trained is at parity on both pools, so the fine-tune phase
+      and the regime guard (design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`,
+      ADR-0009, recorded but not implemented) were not built; paper Section 7.3 holds the table.
 - [ ] On-line adaptation of the deployed policy (the paper's third forward direction): the
       deployed policy is a fixed forward pass and all adaptation happens on the ground. Investigate
       lightweight in-flight adaptation, e.g. adapting only the calibrated input normalization or

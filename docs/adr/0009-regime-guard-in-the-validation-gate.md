@@ -1,6 +1,6 @@
 # ADR-0009: A configured regime guard is a second promotion bar, flown on a second pool
 
-**Status:** accepted · **Date:** 2026-10-30 (design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`)
+**Status:** accepted, not implemented · **Date:** 2026-10-30 (design `docs/design/2026-10-30-two-phase-regime-curriculum-design.md`; its Step 0 closed the campaign the same day, Section 10 there, so no run configures a guard yet: the rule stands for the next two-regime fine-tune)
 
 ## Context
 
