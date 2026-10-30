@@ -64,6 +64,8 @@ PAIRS = [
 ]
 
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
+# The file's protocol string (confirmatory_marginal writes the same one).
+ESTIMATOR = f"{CVAR_ESTIMATOR}; agg = t-CI over replicates (df=9)"
 
 REP_KEYS = ("capture_pct", "p50", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
 # This file's spelling of the record's DV block (results.typ, figlib and the extracts read it).
@@ -362,7 +364,7 @@ def main(argv: list[str] | None = None) -> None:
                     "base_mc_seed": base_seed,
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,
-                    "estimator": f"{CVAR_ESTIMATOR}; agg = t-CI over replicates (df=9)",
+                    "estimator": ESTIMATOR,
                     "cells": cells,
                     "paired": _paired(by_label),
                 },

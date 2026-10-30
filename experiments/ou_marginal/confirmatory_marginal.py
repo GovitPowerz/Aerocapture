@@ -247,7 +247,7 @@ def main(argv: list[str] | None = None) -> None:
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,
                     "pool": "CONFIRMATORY [2^31, 2^32)",
-                    "estimator": f"{ce.CVAR_ESTIMATOR}; agg = t-CI over replicates (df=9)",
+                    "estimator": ce.ESTIMATOR,
                     "cells": [by_label[k] for k in sorted(by_label)],
                 },
                 indent=1,

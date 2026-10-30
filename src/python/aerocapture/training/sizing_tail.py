@@ -40,6 +40,12 @@ _CONSTRAINT_SPECS = (
     ("heat_load", FR_INTEGRATED_FLUX, 1e3, "heat_load_limit"),  # MJ -> kJ
 )
 CONSTRAINTS = tuple(name for name, _, _, _ in _CONSTRAINT_SPECS)
+# A `[flight.constraints]` override moves the limit the simulator flies at AND the limit the record scores against.
+_LIMIT_OVERRIDES = {
+    "flight.constraints.max_heat_flux": "heat_flux_limit",
+    "flight.constraints.max_load_factor": "g_load_limit",
+    "flight.constraints.max_heat_load": "heat_load_limit",
+}
 
 Stat = Callable[[npt.NDArray[np.float64]], float]
 
@@ -54,7 +60,9 @@ def cvar_tail_size(n: int, level: float) -> int:
 
 
 def cvar(x: npt.NDArray[np.float64], level: float = 0.95) -> float:
-    """Mean of the worst (1 - level) tail (expected shortfall), >= 1 sample."""
+    """Mean of the worst (1 - level) tail (expected shortfall), >= 1 sample; NaN on no sample."""
+    if len(x) == 0:
+        return float("nan")
     return float(np.sort(x)[-cvar_tail_size(len(x), level) :].mean())
 
 
@@ -192,11 +200,18 @@ def flown_noise_seeding(result: CellResult) -> str:
     return str(regime)
 
 
+def flown_cost_kwargs(result: CellResult, cost_kwargs: dict[str, Any]) -> dict[str, Any]:
+    """`cost_kwargs` with every `[flight.constraints]` limit the flight overrode (`heat_load_slope`'s
+    ceiling legs) moved to the value flown: the record scores against the limits the simulator saw."""
+    return {**cost_kwargs, **{limit: float(str(result.overrides[key])) for key, limit in _LIMIT_OVERRIDES.items() if key in result.overrides}}
+
+
 def score_cell(result: CellResult, cost_kwargs: dict[str, Any], *, pool: str | None = None, n_boot: int | None = None, seed: int = 0) -> dict[str, Any]:
-    """The record of one `evaluate_cell` / `fly_mc` flight, with the regime it flew under and
-    the caller's name for the seed pool (`"FINAL_EVAL 2M"`, `"fresh (offset 8M)"`, ...; None
-    when the file the record goes into names the pool once for every record)."""
-    rec = {**tail_record(result.final_records, cost_kwargs, n_boot=n_boot, seed=seed), "noise_seeding": flown_noise_seeding(result)}
+    """The record of one `evaluate_cell` / `fly_mc` flight, with the regime it flew under, the
+    limits it flew at (a `[flight.constraints]` override moves the record's limit) and the caller's
+    name for the seed pool (`"FINAL_EVAL 2M"`, `"fresh (offset 8M)"`, ...; None when the file the
+    record goes into names the pool once for every record)."""
+    rec = {**tail_record(result.final_records, flown_cost_kwargs(result, cost_kwargs), n_boot=n_boot, seed=seed), "noise_seeding": flown_noise_seeding(result)}
     if pool is not None:
         rec["pool"] = pool
     return rec

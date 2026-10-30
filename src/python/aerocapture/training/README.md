@@ -282,13 +282,15 @@ use `--sim-timeout` against NaN hangs).
 - `deploy_overrides.py` — `overrides_from_params` (the full deploy rule: routing + `shaping.* =>
   guidance.command_shaping.enabled = true` + `ParamSpec.is_integer` coercion + `ref_bank` skip),
   `load_scaffolding_overrides` / `resolve_eval_toml` (consumed by `cell_eval`), `LEGACY_NOISE_REGIME`.
-- `sizing_tail.py` — the ONE sizing-tail scorer (design `docs/design/2026-10-30-sizing-tail-scorer-design.md`,
+- `sizing_tail.py` - the ONE sizing-tail scorer (design `docs/design/2026-10-30-sizing-tail-scorer-design.md`,
   #220): `score_cell(result, cost_kwargs, *, pool, n_boot)` turns a `CellResult` into the tail record
   every report, paper script and experiment writes (`n`, `n_captured`, `capture_pct`; `dv_mean`,
-  `dv_p50 / p95 / p99 / p999 / p9987`, `dv_cvar95 / 99 / 999`, `dv_max_descriptive`, the five
-  `*_ci` percentile-bootstrap intervals when `n_boot` is given; `viol_pct` the UNION of the
+  `dv_p50 / p95 / p99 / p999 / p9987`, `dv_cvar95 / 99 / 999`, `dv_max_descriptive`, `capture_pct_ci`
+  and the five `dv_*_ci` percentile-bootstrap intervals when `n_boot` is given; `viol_pct` the UNION of the
   ADR-0005 constraints with `viol_n` and the per-constraint `<c>_viol_pct` / `<c>_viol_n`;
-  `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). `tail_record` is the same
+  `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). The limits are `cost_kwargs`'
+  with every `[flight.constraints]` key the flight overrode moved to the value flown
+  (`flown_cost_kwargs`: `heat_load_slope`'s ceiling legs score at their ceiling). `tail_record` is the same
   on bare final records, `run_stats(ifinal, ecc, dv)` on parquet columns, `dv_tail(dvc)` the DV
   block alone, `constraint_exceedances` the ONE violation rule (per-constraint masks over final
   records, limits from `cost_kwargs`, columns `cell_eval.FR_*`); `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =

@@ -68,7 +68,6 @@ def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float
     overrides: dict[str, object] = dict(LEGACY_NOISE_REGIME)
     if ceiling is not None:
         overrides[CEILING_KEY] = ceiling
-        cost_kwargs["heat_load_limit"] = ceiling
     res = evaluate_cell(
         run,
         toml,
@@ -78,11 +77,12 @@ def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float
         per_seed_overrides=[{"simulation.random_seed": float(MARGINAL_SEED_BASE + MARGINAL_SEED_STEP * i)} for i in range(len(seeds))],
         sim_timeout_secs=30.0,
     )
-    # The sizing-tail record scored at `cost_kwargs`' ceiling (the pool, regime and estimator are the file's block).
+    # The sizing-tail record, scored at the ceiling flown (`score_cell` moves the limit with the
+    # override; the pool, regime and estimator are the file's block).
     rec = score_cell(res, cost_kwargs)
     heat_load = res.final_records[:, FR_INTEGRATED_FLUX]
     return {
-        "ceiling_kj_m2": float(cost_kwargs["heat_load_limit"]),
+        "ceiling_kj_m2": float(ceiling if ceiling is not None else cost_kwargs["heat_load_limit"]),
         **{k: rec[k] for k in ("capture_pct", "dv_p50", "dv_p95", "dv_cvar95")},
         "dv_max": rec["dv_max_descriptive"],
         "heat_load_p95_mj_m2": round(float(np.percentile(heat_load, 95)), 2),

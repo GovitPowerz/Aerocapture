@@ -31,7 +31,7 @@ Seed Pool, DV.
 | `run_stats(ifinal, ecc, dv, *, n_boot=None, seed=0)` | parquet columns | `n n_captured capture_pct` (+ `capture_pct_ci`) and `dv_tail` of the captured rows |
 | `constraint_exceedances(final_records, cost_kwargs)` | one flight's records | per-constraint boolean masks, limits from `cost_kwargs` (the one violation rule) |
 | `tail_record(final_records, cost_kwargs, *, n_boot=None, seed=0)` | one flight's records | `n n_captured capture_pct` (+ `capture_pct_ci`), `dv_tail`, `viol_pct viol_n`, `<c>_viol_pct <c>_viol_n` per constraint, `rms_cost` (the `[cost_function]` objective), `estimator` |
-| `score_cell(result, cost_kwargs, *, pool, n_boot=None, seed=0)` | a `CellResult` | `tail_record` + `noise_seeding` (the regime actually flown: the override, else the TOML's `[monte_carlo]`) + `pool` (the caller's label) |
+| `score_cell(result, cost_kwargs, *, pool, n_boot=None, seed=0)` | a `CellResult` | `tail_record` at the limits flown (`flown_cost_kwargs`: a `flight.constraints.*` override in `result.overrides` moves the matching `cost_kwargs` limit) + `noise_seeding` (the regime actually flown: the override, else the TOML's `[monte_carlo]`) + `pool` (the caller's label) |
 | `paired_comparison(dv_a, cap_a, dv_b, cap_b, n_boot, seed)` | two flights on one pool | `n_pairs delta_mean delta_mean_ci win_rate_a wilcoxon_p` (moved from `paper_stats`) |
 | `paired_tail(dv_a, cap_a, dv_b, cap_b, *, n_boot, seed)` | two flights on one pool | `paired_comparison` + `delta_p95 delta_p95_ci delta_cvar95 delta_cvar95_ci` (the scenario-resampled bootstrap of `aggregate_results`) + `delta_capture_pts delta_capture_pts_ci` |
 

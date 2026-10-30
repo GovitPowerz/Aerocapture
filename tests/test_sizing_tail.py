@@ -41,6 +41,14 @@ def test_cvar_small_sample_uses_at_least_one() -> None:
     assert st.cvar(np.array([3.0, 1.0]), 0.95) == 3.0
 
 
+def test_cvar_on_no_sample_is_nan_without_a_warning() -> None:
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert np.isnan(st.cvar(np.array([]), 0.95))
+
+
 @pytest.mark.parametrize(("n", "k"), [(1000, 50), (970, 49), (997, 50), (10, 1), (5, 1)])
 def test_cvar_tail_size_is_the_paper_stats_arithmetic(n: int, k: int) -> None:
     """`round(n * (1 - level))`, never `round(n * 0.05)`: at n = 970 the two differ (48.50000000000004
@@ -136,6 +144,20 @@ def test_score_cell_names_the_regime_flown_and_the_pool(tmp_path: Path) -> None:
     rec = st.score_cell(_cell(fr, bare, {}), COST_KWARGS, pool="FINAL_EVAL 2M")
     assert (rec["noise_seeding"], rec["pool"]) == ("per_draw", "FINAL_EVAL 2M")
     assert rec["estimator"] == st.CVAR_ESTIMATOR
+
+
+def test_score_cell_scores_at_the_limit_the_flight_overrode(tmp_path: Path) -> None:
+    """heat_load_slope re-flies a cell under `flight.constraints.max_heat_load`; the record's violation
+    rule and `rms_cost` follow the override (the limit the simulator flew at), not the TOML's limit."""
+    from aerocapture.training.cost import compute_cost
+
+    fr = _records(10)
+    fr[0, FR_INTEGRATED_FLUX] = 27.0  # 27000 kJ/m2: over the 25000 of COST_KWARGS, under a 30000 ceiling
+    legacy: dict[str, object] = {"monte_carlo.noise_seeding": "legacy"}
+    assert st.score_cell(_cell(fr, tmp_path / "unused.toml", legacy), COST_KWARGS)["heat_load_viol_n"] == 1
+    rec = st.score_cell(_cell(fr, tmp_path / "unused.toml", {**legacy, "flight.constraints.max_heat_load": 30000.0}), COST_KWARGS)
+    assert (rec["heat_load_viol_n"], rec["viol_n"]) == (0, 0)
+    assert rec["rms_cost"] == round(compute_cost(fr, **{**COST_KWARGS, "heat_load_limit": 30000.0}), 2)
 
 
 def test_cost_rms_matches_compute_cost() -> None:
