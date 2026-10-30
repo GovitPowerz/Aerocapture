@@ -50,8 +50,9 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
    Protocol), `SingleAlgoTrainer` or `IslandsTrainer`, each built by its `from_config`; per generation:
    `_apply_seed_strategy` (fixed / rotating / adaptive seeds, ADR-0001) -> `re_evaluate` if the
    seeds changed -> `advance` (one pymoo step) -> `observe` (the **validation gate**:
-   `evaluate.run_validation_gate` re-scores a new argmin on the reserved validation pool and
-   promotes the **champion** only on strictly lower val RMS) -> `_maybe_curate` (adaptive seeds:
+   `evaluate.run_validation_gate` re-scores a new argmin on the reserved validation pool;
+   `champion.Champion.consider` promotes the **champion** record only when feasible with strictly
+   lower val RMS) -> `_maybe_curate` (adaptive seeds:
    `seed_curator.SeedCurator`) -> `emit` (JSONL + TUI) -> `maybe_checkpoint`.
 7. `finalize`: **final selection** (`final_select.select_final_individual`, ADR-0002; feasible candidates only, ADR-0005) re-ranks the
    last population plus the champion on the validation pool; `write_best_artifacts` writes

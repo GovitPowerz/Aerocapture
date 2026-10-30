@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from aerocapture.training import charts
+from aerocapture.training.champion import Champion
 from aerocapture.training.evaluate import (
     GateStatus,
     constraint_violation_rates,
@@ -71,8 +72,7 @@ class TestGateFeasibility:
         return run_validation_gate(
             self.X,
             self.F,
-            None,
-            best_val,
+            Champion(val_rms=best_val),
             problem,
             self.SEEDS,
             max_violation_rate=ceiling,
@@ -99,12 +99,12 @@ class TestGateFeasibility:
 
     def test_no_cost_kwargs_means_no_check(self) -> None:
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_flux_viol=10))
-        gate = run_validation_gate(self.X, self.F, None, 1e9, problem, self.SEEDS)
+        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS)
         assert gate.feasible and gate.promoted and gate.violation_rates is None
 
     def test_default_ceiling_is_strict_zero(self) -> None:
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_g_viol=1))
-        gate = run_validation_gate(self.X, self.F, None, 1e9, problem, self.SEEDS, cost_kwargs=COST_KWARGS)
+        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS, cost_kwargs=COST_KWARGS)
         assert not gate.feasible and not gate.promoted
 
 
@@ -170,8 +170,8 @@ class TestIsFeasible:
 
 
 class TestPrologueFeasibility:
-    """The pre-loop initial-champion validation (fresh gen-0 best or resumed
-    champion) must not anchor best_val_cost with an infeasible individual."""
+    """The pre-loop initial-champion validation (fresh gen-0 champion or resumed one)
+    re-anchors the trainer's record and logs the verdict it reached."""
 
     def _trainer(self, records: np.ndarray):  # type: ignore[no-untyped-def]
         import types
@@ -185,9 +185,7 @@ class TestPrologueFeasibility:
         t.problem = problem  # type: ignore[assignment]
         t.config = types.SimpleNamespace(optimizer=OptimizerConfig(seed_strategy="fixed"))  # type: ignore[assignment]
         t.val_seeds = list(range(10))
-        t.best_overall_individual = np.array([0.3, 0.7])
-        t.best_val_cost = np.inf
-        t.last_validated_individual = None
+        t.champion = Champion(individual=np.array([0.3, 0.7]), train_cost=100.0)
         t.X = np.array([[0.3, 0.7]])
         t._initial_pop_costs = np.array([100.0])
         t.decode_fn = None
@@ -204,20 +202,21 @@ class TestPrologueFeasibility:
         display = types.SimpleNamespace(update=lambda *a, **kw: None)
         return logger, display, logged
 
-    def test_feasible_initial_champion_anchors_best_val_cost(self) -> None:
+    def test_feasible_initial_champion_is_trusted(self) -> None:
         t = self._trainer(_records(10))
         logger, display, logged = self._sinks()
         t.prologue(logger, display)
-        assert t.best_val_cost == 50.0
-        assert logged[0]["validation"]["feasible"] is True
+        assert t.champion.trusted and t.champion.val_rms == 50.0 and t.champion.train_cost == 100.0
+        assert logged[0]["validation"]["feasible"] is True and logged[0]["improved"] is True
+        assert logged[0]["validation"]["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.0}
 
-    def test_infeasible_initial_champion_is_not_anchored(self) -> None:
+    def test_infeasible_initial_champion_is_untrusted(self) -> None:
         t = self._trainer(_records(10, n_hl_viol=1))
         logger, display, logged = self._sinks()
         t.prologue(logger, display)
-        assert t.best_val_cost == float("inf")
-        assert np.array_equal(t.last_validated_individual, np.array([0.3, 0.7]))
-        assert logged[0]["validation"]["feasible"] is False
+        assert not t.champion.trusted and t.champion.val_rms == float("inf")
+        assert t.champion.last_validated is not None and np.array_equal(t.champion.last_validated, np.array([0.3, 0.7]))
+        assert logged[0]["validation"]["feasible"] is False and logged[0]["improved"] is False
         assert logged[0]["validation"]["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.1}
 
 

@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from aerocapture.training.champion import Champion
 from aerocapture.training.island_model import Island, IslandModel, MigrationEvent, inject_into_pso, migrate
 from aerocapture.training.optimizer import DESettings, GASettings, IslandSettings, OptimizerConfig, PSOSettings
 from pymoo.algorithms.soo.nonconvex.pso import PSO
@@ -97,10 +98,6 @@ def _make_island(name: str, X: np.ndarray, F: np.ndarray) -> Island:
     return Island(
         name=name,
         algorithm=_FakeAlgo(_make_pop(X, F)),
-        last_validated_individual=None,
-        best_overall_individual=None,
-        best_overall_cost=float("inf"),
-        best_val_cost=float("inf"),
         stagnation_counter=0,
     )
 
@@ -369,10 +366,10 @@ def test_island_model_final_eval_picks_lowest_rms_winner() -> None:
         base_mc_seed=42,
         rng=np.random.default_rng(0),
     )
-    # Hand-set each island's best_overall_individual so final_eval has work to do.
-    model.islands[0].best_overall_individual = np.array([0.1, 0.1, 0.1, 0.1])  # sum=0.4
-    model.islands[1].best_overall_individual = np.array([0.5, 0.5, 0.5, 0.5])  # sum=2.0
-    model.islands[2].best_overall_individual = np.array([0.2, 0.2, 0.2, 0.2])  # sum=0.8
+    # Hand-set each island's champion so final_eval has work to do.
+    model.islands[0].champion.individual = np.array([0.1, 0.1, 0.1, 0.1])  # sum=0.4
+    model.islands[1].champion.individual = np.array([0.5, 0.5, 0.5, 0.5])  # sum=2.0
+    model.islands[2].champion.individual = np.array([0.2, 0.2, 0.2, 0.2])  # sum=0.8
 
     results = model.final_eval()
     assert len(results) == 3
@@ -391,8 +388,8 @@ def test_final_eval_record_includes_val_rms() -> None:
         base_mc_seed=42,
         rng=np.random.default_rng(0),
     )
-    model.islands[0].best_overall_individual = np.array([0.1, 0.1, 0.1, 0.1])
-    model.islands[0].best_val_cost = 4.2  # validation rms it was promoted on
+    model.islands[0].champion.individual = np.array([0.1, 0.1, 0.1, 0.1])
+    model.islands[0].champion.val_rms = 4.2  # validation rms it was promoted on
     rec = next(r for r in model.final_eval() if r["island"] == model.islands[0].name)
     assert rec["val_rms"] == 4.2
 
@@ -422,8 +419,8 @@ def test_island_model_final_eval_skips_islands_without_best() -> None:
         base_mc_seed=0,
         rng=np.random.default_rng(0),
     )
-    model.islands[0].best_overall_individual = np.array([0.1, 0.2, 0.3, 0.4])
-    # ga and de have no best_overall — they should be skipped.
+    model.islands[0].champion.individual = np.array([0.1, 0.2, 0.3, 0.4])
+    # ga and de have no champion - they should be skipped.
     results = model.final_eval()
     assert len(results) == 1
     assert results[0]["island"] == "pso"
@@ -526,7 +523,7 @@ def test_validate_each_fires_only_when_argmin_changes() -> None:
     assert all(m["validated"] is False for m in metrics2)
 
 
-def test_validate_each_promotes_best_overall_on_rms_improvement() -> None:
+def test_validate_each_promotes_champion_on_rms_improvement() -> None:
     cfg = _make_islands_cfg()
     problem = _UnitCubeProblem()
     model = IslandModel(
@@ -544,9 +541,9 @@ def test_validate_each_promotes_best_overall_on_rms_improvement() -> None:
 
     # Run first validation.
     model.validate_each(current_gen=0)
-    initial_costs = [island.best_val_cost for island in model.islands]
+    initial_costs = [island.champion.val_rms for island in model.islands]
     assert all(c < float("inf") for c in initial_costs)
-    assert all(island.best_overall_individual is not None for island in model.islands)
+    assert all(island.champion.trusted for island in model.islands)
 
 
 def test_pool_top_k_across_islands_unions_populations() -> None:
@@ -712,22 +709,22 @@ def test_island_model_checkpoint_roundtrip() -> None:
     # Verify per-island state matches.
     for orig, rest in zip(model.islands, restored.islands, strict=True):
         assert orig.name == rest.name
-        assert orig.best_val_cost == rest.best_val_cost
+        assert orig.champion.val_rms == rest.champion.val_rms
         assert orig.stagnation_counter == rest.stagnation_counter
-        if orig.best_overall_individual is None:
-            assert rest.best_overall_individual is None
+        if orig.champion.individual is None:
+            assert rest.champion.individual is None
         else:
             np.testing.assert_array_equal(
-                orig.best_overall_individual,
-                rest.best_overall_individual,
+                orig.champion.individual,
+                rest.champion.individual,
             )
     assert len(restored.migration_log) == 1
     assert restored.migration_log[0].src_island == "ga"
 
 
-def test_island_model_resume_preserves_best_overall_per_island() -> None:
+def test_island_model_resume_preserves_champion_per_island() -> None:
     """Regression guard: cross-gen training-cost incomparability rule must apply
-    per-island. Restoring a checkpoint must NOT overwrite best_overall_* with
+    per-island. Restoring a checkpoint must NOT overwrite the champion with
     the resumed population's gen-0 argmin (see project memory
     project_resume_cost_incomparability)."""
     cfg = _make_islands_cfg()
@@ -743,12 +740,10 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
     )
     for island in model.islands:
         island.algorithm.setup(problem, seed=0)
-    # Stamp each island's best_overall as a sentinel different from any pop member.
+    # Stamp each island's champion as a sentinel different from any pop member.
     sentinel = np.array([0.99, 0.99, 0.99, 0.99])
     for island in model.islands:
-        island.best_overall_individual = sentinel.copy()
-        island.best_val_cost = 0.123
-        island.best_overall_cost = 0.456
+        island.champion = Champion(individual=sentinel.copy(), train_cost=0.456, val_rms=0.123)
 
     with tempfile.TemporaryDirectory() as td:
         ckpt_path = Path(td) / "checkpoint_g00010.npz"
@@ -773,8 +768,9 @@ def test_island_model_resume_preserves_best_overall_per_island() -> None:
     # The sentinel must survive across the resume; the restored model must NOT
     # have replaced it with the gen-0 argmin.
     for island in restored.islands:
-        np.testing.assert_array_equal(island.best_overall_individual, sentinel)
-        assert island.best_val_cost == 0.123
+        np.testing.assert_array_equal(island.champion.individual, sentinel)
+        assert island.champion.val_rms == 0.123
+        assert island.champion.train_cost == 0.456
 
 
 def test_island_model_checkpoint_roundtrips_seed_curator_state() -> None:
@@ -1146,9 +1142,9 @@ def test_validate_each_skips_all_inf_population() -> None:
     for m in metrics:
         assert m["validated"] is False
         assert m["promoted"] is False
-    # No island should have promoted a best_overall.
+    # No island should have promoted a champion.
     for island in model.islands:
-        assert island.best_overall_individual is None
+        assert island.champion.individual is None
 
 
 def test_pso_checkpoint_restores_particles_and_is_initialized() -> None:

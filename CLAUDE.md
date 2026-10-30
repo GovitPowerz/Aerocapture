@@ -159,9 +159,10 @@ on non-capture rows (ifinal != 3) -- captures are bit-identical. Time-label chan
 
 ### Resume: cross-gen training-cost incomparability
 
-On resume under adaptive/rotating seeds, the checkpointed `best_overall_cost` (training RMS at the gen it was promoted, under seed list A) is NOT comparable to the resumed population's cost snapshot
-(under the most recent seed list B). `SingleAlgoTrainer.__init__`'s initial-best-init block is gated on `best_overall_individual is None` (fresh start only) -- it must never swap the
-checkpointed best via a `<` comparison, because that would silently promote an un-validated individual and corrupt the re-validation + `best_model.json` write. Regression test:
+On resume under adaptive/rotating seeds, the checkpointed champion's training cost (`Champion.train_cost`: training RMS at the gen it was promoted, under seed list A) is NOT comparable to the
+resumed population's cost snapshot (under the most recent seed list B). `SingleAlgoTrainer.__init__`'s initial-champion block is gated on `champion.individual is None` (fresh start only) -- it
+must never swap the checkpointed champion via a `<` comparison, because that would silently promote an un-validated individual and corrupt the re-validation + `best_model.json` write. The
+record (`training/champion.py`, #221) restores both checkpoint formats verbatim and holds the only copies of the promotion transitions. Regression test:
 `tests/test_train_interrupt.py::TestResumePreservesCheckpointedBest`.
 
 ### pymoo CMA-ES self-terminates -- the single-algo loop must guard `next()` with `has_next()`

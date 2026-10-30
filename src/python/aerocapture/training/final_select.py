@@ -24,31 +24,19 @@ from typing import Any, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.champion import Champion, revalidate
+from aerocapture.training.champion import KnownCandidate as KnownCandidate  # re-export: the rule's public candidate type
+from aerocapture.training.evaluate import _SupportsPerSeedEval, constraint_violation_rates, is_feasible
+
 
 class _PerSeedEvaluator(Protocol):
     def evaluate_population_records_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
 
 
-class _RetroEvaluator(_PerSeedEvaluator, Protocol):
+class _RetroEvaluator(_PerSeedEvaluator, _SupportsPerSeedEval, Protocol):
     """What the retro CLI needs on top of the rule: re-validating a checkpoint champion."""
 
     cost_kwargs: dict[str, Any]
-
-    def evaluate_individual_records_per_seed(self, x: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
-
-
-@dataclass
-class KnownCandidate:
-    """A pre-scored candidate (champion); never re-simulated.
-
-    `provenance` is structured, not just display text: the islands call sites
-    use the grammar "<island>:champion" / "<island>:last_gen[i]" and parse the
-    island name back out via split(":", 1). Island names must not contain ":".
-    """
-
-    x: npt.NDArray[np.float64]
-    provenance: str
-    val_rms: float
 
 
 @dataclass
@@ -118,8 +106,6 @@ def select_final_individual(
     best_infeasible_rms = float("inf")
     best_infeasible_idx: int | None = None
     if kept:
-        from aerocapture.training.evaluate import constraint_violation_rates, is_feasible  # noqa: PLC0415
-
         costs, grid = problem.evaluate_population_records_per_seed(candidates[kept], val_seeds)
         rms_all = np.sqrt(np.mean(np.asarray(costs, dtype=np.float64) ** 2, axis=1))
         for row, (i, rms_val) in enumerate(zip(kept, rms_all, strict=True)):
@@ -224,7 +210,7 @@ class SelectionState:
     save_dir: Path
     population: npt.NDArray[np.float64]  # candidate rows (union across islands for "islands")
     provenances: list[str]
-    known: list[KnownCandidate]
+    champions: dict[str, Champion]  # island name -> its champion record ("" for single); only islands holding one
     base_mc_seed: int | None  # islands npz records it; single-algo derives from TOML
     json_path: Path | None  # single-algo meta path
     npz_path: Path
@@ -261,7 +247,7 @@ def load_selection_state(save_dir: Path) -> SelectionState:
         rows: list[npt.NDArray[np.float64]] = []
         provs: list[str] = []
         row_islands: list[str] = []
-        known: list[KnownCandidate] = []
+        champions: dict[str, Champion] = {}
         for s in states:
             name = str(s["name"])
             if s.get("pop_X") is not None:
@@ -270,10 +256,9 @@ def load_selection_state(save_dir: Path) -> SelectionState:
                     rows.append(pop_x[j])
                     provs.append(f"{name}:last_gen[{j}]")
                     row_islands.append(name)
-            best = s.get("best_overall_individual")
-            bvc = float(s.get("best_val_cost", float("inf")))
-            if best is not None and np.isfinite(bvc):
-                known.append(KnownCandidate(x=np.asarray(best, dtype=np.float64), provenance=f"{name}:champion", val_rms=bvc))
+            champ = Champion.from_island_state(s)
+            if champ.individual is not None:
+                champions[name] = champ
         if not rows:
             raise FileNotFoundError(f"islands checkpoint {islands_npz} has no populations")
         return SelectionState(
@@ -281,7 +266,7 @@ def load_selection_state(save_dir: Path) -> SelectionState:
             save_dir=save_dir,
             population=np.vstack(rows),
             provenances=provs,
-            known=known,
+            champions=champions,
             base_mc_seed=base_mc_seed,
             json_path=None,
             npz_path=islands_npz,
@@ -297,16 +282,14 @@ def load_selection_state(save_dir: Path) -> SelectionState:
     with np.load(npz_path) as data:
         population = np.asarray(data["population"], dtype=np.float64)
         best = np.asarray(data["best_individual"], dtype=np.float64) if "best_individual" in data else None
-    known = []
-    bvc = float(meta.get("best_val_cost", float("inf")))
-    if best is not None and np.isfinite(bvc):
-        known.append(KnownCandidate(x=best, provenance="champion", val_rms=bvc))
+    champ = Champion.from_single(meta, best)
+    champions = {"": champ} if champ.individual is not None else {}
     return SelectionState(
         kind="single",
         save_dir=save_dir,
         population=population,
         provenances=[f"last_gen[{i}]" for i in range(population.shape[0])],
-        known=known,
+        champions=champions,
         base_mc_seed=None,
         json_path=single_json,
         npz_path=npz_path,
@@ -319,25 +302,31 @@ def patch_checkpoint(
     new_best: npt.NDArray[np.float64],
     new_val_rms: float,
     island_name: str | None = None,
+    *,
+    feasible: bool = True,
 ) -> None:
     """Persist the re-selected best into the latest checkpoint (atomic rewrite).
 
     Without this, a later resume restores the old champion and the next
-    checkpoint save silently overwrites the re-selected artifacts. Only the
-    best fields are touched; populations/costs/RNG state are byte-preserved.
+    checkpoint save silently overwrites the re-selected artifacts. The champion
+    record is loaded from the file, `adopt_selection` applied (the recorded
+    training cost is kept) and written back under its wire keys; populations /
+    costs / RNG state are byte-preserved.
     """
     import pickle  # noqa: PLC0415
 
     if state.kind == "single":
         assert state.json_path is not None
+        meta = json.loads(state.json_path.read_text())
         with np.load(state.npz_path) as data:
             arrays = {k: data[k] for k in data.files}
-        arrays["best_individual"] = np.asarray(new_best, dtype=np.float64)
+        champ = Champion.from_single(meta, arrays.get("best_individual"))
+        champ.adopt_selection(np.asarray(new_best, dtype=np.float64), new_val_rms, None, feasible=feasible)
+        arrays["best_individual"] = champ.individual
         tmp = state.npz_path.with_name(".tmp_" + state.npz_path.name)
         np.savez(tmp, **arrays)
         tmp.rename(state.npz_path)
-        meta = json.loads(state.json_path.read_text())
-        meta["best_val_cost"] = float(new_val_rms)
+        meta.update(champ.single_meta())
         tmp_json = state.json_path.with_name(".tmp_" + state.json_path.name)
         tmp_json.write_text(json.dumps(meta, indent=2))
         tmp_json.rename(state.json_path)
@@ -349,8 +338,9 @@ def patch_checkpoint(
         states = pickle.loads(arrays["island_states"].item())
     for s in states:
         if str(s["name"]) == island_name:
-            s["best_overall_individual"] = np.asarray(new_best, dtype=np.float64)
-            s["best_val_cost"] = float(new_val_rms)
+            champ = Champion.from_island_state(s)
+            champ.adopt_selection(np.asarray(new_best, dtype=np.float64), new_val_rms, None, feasible=feasible)
+            s.update(champ.island_state())
             break
     else:
         raise ValueError(f"island {island_name!r} not found in checkpoint")
@@ -385,30 +375,27 @@ def run_final_select(
     behind a re-selected best_params.json (gains and reference co-adapt, so a
     mismatched table invalidates every downstream evaluation)."""
     from aerocapture.training.artifacts import deploy_winner  # noqa: PLC0415
-    from aerocapture.training.evaluate import constraint_violation_rates, format_violation_rates, is_feasible  # noqa: PLC0415
 
     state = load_selection_state(training_dir)
     ceiling = float(config.optimizer.max_violation_rate)
-    # Checkpoint champions predate the gate on pre-rule directories: re-validate
-    # them before trusting them (ADR-0005). An infeasible one competes as an
-    # ordinary candidate instead.
+    # Checkpoint champions may predate the gate or a ceiling change: re-validate
+    # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one
+    # competes as an ordinary candidate instead.
     known: list[KnownCandidate] = []
     population, provenances = state.population, list(state.provenances)
     island_of_row = list(state.island_of_row) if state.island_of_row is not None else None
-    for k in state.known:
-        _, records = problem.evaluate_individual_records_per_seed(k.x, val_seeds)
-        rates = constraint_violation_rates(records, problem.cost_kwargs)
-        if is_feasible(rates, ceiling):
-            known.append(k)
+    for name, champ in state.champions.items():
+        label = f"{name}:" if name else ""
+        revalidate(champ, problem, val_seeds, problem.cost_kwargs, ceiling, verbose=True, label=label)
+        if (trusted := champ.known(label)) is not None:
+            known.append(trusted)
             continue
-        print(
-            f"  {k.provenance}: INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%}); "
-            "competes as a candidate, not as champion"
-        )
-        population = np.vstack([population, k.x[None, :]])
-        provenances.append(f"{k.provenance}[infeasible]")
+        untrusted = champ.untrusted_row(label)
+        assert untrusted is not None
+        population = np.vstack([population, untrusted[0][None, :]])
+        provenances.append(untrusted[1])
         if island_of_row is not None:
-            island_of_row.append(k.provenance.split(":", 1)[0])
+            island_of_row.append(name)
     sel = select_final_individual(
         problem,
         population,
@@ -427,7 +414,7 @@ def run_final_select(
                 island_name = island_of_row[sel.winner_index]
             else:
                 island_name = sel.provenance.split(":", 1)[0]
-        patch_checkpoint(state, sel.individual, sel.val_rms, island_name=island_name)
+        patch_checkpoint(state, sel.individual, sel.val_rms, island_name=island_name, feasible=sel.winner_feasible)
     else:
         print("  --no-checkpoint-patch: checkpoint untouched; a later resume will revert these artifacts at its next checkpoint save.")
     # Sidecar AFTER the checkpoint patch, as in the trainer's finalize: the campaign

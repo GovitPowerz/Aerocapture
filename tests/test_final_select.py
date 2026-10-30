@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from aerocapture.training.champion import Champion
 from aerocapture.training.final_select import (
     KnownCandidate,
     SelectionResult,
@@ -260,9 +261,10 @@ class TestCheckpointIO:
         state = load_selection_state(tmp_path)
         assert state.kind == "single"
         assert state.population.shape == (4, 3)
-        assert len(state.known) == 1
-        assert state.known[0].provenance == "champion"
-        assert state.known[0].val_rms == 2.5
+        assert list(state.champions) == [""]
+        champ = state.champions[""]
+        assert champ.trusted and champ.val_rms == 2.5 and champ.train_cost == 1.5
+        assert champ.individual is not None and np.array_equal(champ.individual, np.full(3, 0.9))
 
     def test_patch_single_algo(self, tmp_path: Path) -> None:
         from aerocapture.training.final_select import load_selection_state, patch_checkpoint
@@ -277,6 +279,21 @@ class TestCheckpointIO:
         meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
         assert meta["best_val_cost"] == 1.25
         assert meta["generation"] == 7  # untouched
+
+    def test_patch_single_algo_infeasible_fallback_is_stored_untrusted(self, tmp_path: Path) -> None:
+        """The all-infeasible fallback winner deploys but lands with an inf `best_val_cost`
+        (never a promotion bar on resume); the recorded training cost is kept."""
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_single_algo_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.1)
+        patch_checkpoint(state, new_best, new_val_rms=1.25, feasible=False)
+        data = np.load(tmp_path / "checkpoint_g00007.npz")
+        assert np.array_equal(data["best_individual"], new_best)
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        assert meta["best_val_cost"] == float("inf") and meta["best_cost"] == 1.5
+        assert not load_selection_state(tmp_path).champions[""].trusted
 
     def _make_islands_ckpt(self, d: Path) -> None:
         import pickle
@@ -313,7 +330,8 @@ class TestCheckpointIO:
         state = load_selection_state(tmp_path)
         assert state.kind == "islands"
         assert state.population.shape == (6, 3)  # union of both pops
-        assert {k.provenance for k in state.known} == {"pso:champion", "ga:champion"}
+        assert {name: champ.val_rms for name, champ in state.champions.items()} == {"pso": 3.0, "ga": 2.0}
+        assert all(champ.trusted for champ in state.champions.values())
         assert state.base_mc_seed == 42
 
     def test_patch_islands_winning_island(self, tmp_path: Path) -> None:
@@ -333,6 +351,26 @@ class TestCheckpointIO:
         assert ga["best_val_cost"] == 0.5
         assert pso["best_val_cost"] == 3.0  # untouched
         assert np.array_equal(pso["pop_X"], np.full((3, 3), 0.4))  # untouched
+
+    def test_patch_islands_infeasible_fallback_is_stored_untrusted(self, tmp_path: Path) -> None:
+        """Islands write-back of the all-infeasible fallback: inf `best_val_cost` in the
+        winning island's pickled state, the pre-record keys it lacked filled from the record."""
+        import pickle
+
+        from aerocapture.training.final_select import load_selection_state, patch_checkpoint
+
+        self._make_islands_ckpt(tmp_path)
+        state = load_selection_state(tmp_path)
+        new_best = np.full(3, 0.2)
+        patch_checkpoint(state, new_best, new_val_rms=0.5, island_name="ga", feasible=False)
+        data = np.load(tmp_path / "checkpoint_g00005.npz", allow_pickle=True)
+        states = pickle.loads(data["island_states"].item())
+        ga = next(s for s in states if s["name"] == "ga")
+        assert np.array_equal(ga["best_overall_individual"], new_best)
+        assert ga["best_val_cost"] == float("inf")
+        assert ga["best_overall_cost"] == float("inf") and ga["last_validated_individual"] is None  # absent before, record defaults
+        assert not load_selection_state(tmp_path).champions["ga"].trusted
+        assert load_selection_state(tmp_path).champions["pso"].trusted  # untouched
 
     def test_no_checkpoint_raises(self, tmp_path: Path) -> None:
         from aerocapture.training.final_select import load_selection_state
@@ -394,9 +432,9 @@ class TestRunFinalSelect:
         assert (tmp_path / "final_selection.json").exists()
 
     def test_infeasible_checkpoint_champion_is_not_trusted(self, tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
-        """A pre-rule checkpoint champion that violates a constraint on the
-        validation pool loses its trusted status: a feasible fresh candidate can
-        win even against a lower stored champion RMS."""
+        """A checkpoint champion that violates a constraint on the validation pool
+        loses its trusted status: a feasible fresh candidate can win even against a
+        lower stored champion RMS."""
         from aerocapture.training import charts
         from aerocapture.training.config import TrainingConfig
         from aerocapture.training.final_select import run_final_select
@@ -429,6 +467,35 @@ class TestRunFinalSelect:
         assert any(r["provenance"] == "champion[infeasible]" and r["feasible"] is False for r in sel.candidate_rms)
         data = np.load(tmp_path / "checkpoint_g00007.npz")
         assert np.array_equal(data["best_individual"], np.full(2, 0.2))
+        assert json.loads((tmp_path / "checkpoint_g00007.json").read_text())["best_cost"] == 1.5  # recorded training cost kept
+
+    def test_untrusted_checkpoint_champion_is_revalidated_and_trusted(self, tmp_path: Path) -> None:
+        """A champion stored untrusted (inf) that is feasible now re-anchors on the
+        fresh validation RMS and competes as the pre-scored incumbent; a stored finite
+        RMS is likewise replaced by the fresh one."""
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        self._setup_dir(tmp_path)
+        np.savez(
+            tmp_path / "checkpoint_g00007.npz",
+            population=np.vstack([np.full(2, 0.2), np.full(2, 0.8)]),
+            costs=np.array([1.0, 2.0]),
+            best_individual=np.full(2, 0.1),  # beats every last_gen row
+        )
+        meta = json.loads((tmp_path / "checkpoint_g00007.json").read_text())
+        meta["best_val_cost"] = float("inf")
+        (tmp_path / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+        val_seeds = [1000001, 1000002]
+
+        sel = run_final_select(training_dir=tmp_path, config=cfg, param_specs=specs, problem=_MockProblem(), val_seeds=val_seeds, patch=True)
+        assert not sel.promoted and sel.provenance == "champion"
+        assert sel.val_rms == sel.incumbent_val_rms == _rms(np.full(2, 0.1), val_seeds)
+        assert json.loads((tmp_path / "checkpoint_g00007.json").read_text())["best_val_cost"] == _rms(np.full(2, 0.1), val_seeds)
 
     def test_no_patch_leaves_checkpoint(self, tmp_path: Path) -> None:
         from aerocapture.training.config import TrainingConfig
@@ -446,14 +513,13 @@ class TestRunFinalSelect:
 
 class TestIslandsPromotionPersistence:
     """_persist_islands_promotion: a selection-promoted winner must be written into
-    the winning island's best_overall_* and the checkpoint re-saved -- otherwise a
+    the winning island's champion record and the checkpoint re-saved -- otherwise a
     later resume restores the stale champion and reverts the deployed artifacts."""
 
     class _FakeIsland:
         def __init__(self, name: str) -> None:
             self.name = name
-            self.best_overall_individual: np.ndarray | None = None
-            self.best_val_cost = float("inf")
+            self.champion = Champion()
 
     class _FakeModel:
         def __init__(self, names: tuple[str, ...] = ("pso", "ga", "de")) -> None:
@@ -479,12 +545,13 @@ class TestIslandsPromotionPersistence:
         model = self._FakeModel()
         _persist_islands_promotion(model, sel, tmp_path, gen=7, seed_curator=None, keep_last=None)
 
-        ga = model.islands[1]
-        assert ga.best_overall_individual is not None
-        assert np.array_equal(ga.best_overall_individual, [0.1, 0.2])
-        assert ga.best_val_cost == 42.0
+        ga = model.islands[1].champion
+        assert ga.individual is not None
+        assert np.array_equal(ga.individual, [0.1, 0.2])
+        assert ga.val_rms == 42.0
+        assert ga.train_cost == float("inf")  # the recorded training cost is kept
         # other islands untouched
-        assert model.islands[0].best_overall_individual is None
-        assert model.islands[2].best_overall_individual is None
+        assert model.islands[0].champion.individual is None
+        assert model.islands[2].champion.individual is None
         # checkpoint re-saved at the final generation's path
         assert model.saved == [(tmp_path / "checkpoint_g00007.npz", 7, None)]

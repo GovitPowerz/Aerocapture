@@ -112,8 +112,8 @@ _Avoid_: leading comparisons with the median
 The in-training re-evaluation of a new candidate on the validation pool; promotion requires feasibility (every configured constraint's violation rate at or below `max_violation_rate`, ADR-0005) and then strict RMS improvement.
 
 **Champion**:
-The best validated feasible individual so far in a training run.
-_Avoid_: best, winner (until final selection)
+The individual a training run (or one island) currently holds as its best, kept as one record (`training/champion.py`: individual, training cost at promotion, validation RMS, last-validated individual). *Trusted* when its validation RMS is finite (validated feasible under the current ceiling); *untrusted* when re-validation finds it infeasible (e.g. after a ceiling or limit change), before its first validation (the fresh-start gen-0 argmin), without a validation pool, or when final selection deployed it as the no-champion all-infeasible fallback. A trusted champion enters final selection pre-scored; an untrusted one competes as an ordinary candidate (`champion[infeasible]` provenance).
+_Avoid_: best, winner (until final selection), infeasible champion (say untrusted)
 
 **Final Selection**:
 The end-of-training re-ranking of the last generation plus the champion on the validation pool; infeasible candidates cannot win; decides the deployed winner.

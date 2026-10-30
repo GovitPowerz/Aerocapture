@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +16,9 @@ import numpy.typing as npt
 from pymoo.algorithms.soo.nonconvex.pso import PSO
 from pymoo.core.algorithm import Algorithm
 
+from aerocapture.training.champion import Champion, revalidate
 from aerocapture.training.checkpoint import _check_resume_chromosome_shape
-from aerocapture.training.evaluate import GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
+from aerocapture.training.evaluate import GateStatus, run_validation_gate
 from aerocapture.training.metrics import capture_rate as _capture_rate
 from aerocapture.training.optimizer import OptimizerConfig, create_algorithm
 from aerocapture.training.problem import training_rms
@@ -56,15 +57,13 @@ class Island:
     """One algorithm-population pair in the 3-island model.
 
     `algorithm` is a pymoo Algorithm (PSO/GA/DE) whose `.pop` Population is
-    mutated in-place by migration.
+    mutated in-place by migration. `champion` is the island's promotion record
+    (`champion.Champion`: individual, training cost, validation RMS, last-validated).
     """
 
     name: str
     algorithm: Any  # pymoo Algorithm or test stand-in (must expose .pop)
-    last_validated_individual: npt.NDArray[np.float64] | None = None
-    best_overall_individual: npt.NDArray[np.float64] | None = None
-    best_overall_cost: float = float("inf")
-    best_val_cost: float = float("inf")
+    champion: Champion = field(default_factory=Champion)
     stagnation_counter: int = 0
     # Most recent `compute_eval_summary` payload (DV / apoapsis / heat-flux /
     # g-load / heat-load percentiles + violation rates). Carried across gens
@@ -365,10 +364,11 @@ class IslandModel:
     def validate_each(self, current_gen: int) -> list[dict[str, Any]]:
         """Run identity-trigger validation per island.
 
-        For each island, if its argmin differs from `last_validated_individual`,
-        run validation on the reserved validation seeds; promote `best_overall_*`
-        if val_rms < best_val_cost. Returns one summary dict per island for
-        logging (includes a "validated" bool flag).
+        For each island, if its argmin differs from its champion's last-validated
+        individual, run validation on the reserved validation seeds; the record
+        promotes on a feasible, strictly lower val_rms (`Champion.consider`).
+        Returns one dict per island (a "validated" bool flag; validated ones carry
+        the per-seed `val_costs` / `val_records` the run-log payload is built from).
         """
         results: list[dict[str, Any]] = []
         for island in self.islands:
@@ -378,12 +378,11 @@ class IslandModel:
             # skips validation when every F is non-finite (e.g. all sims timed
             # out or returned NaN) -- a bare `np.argmin` on an all-inf array
             # silently returns 0, which would promote whatever junk chromosome
-            # happens to sit at pop[0] as last_validated / best_overall_individual.
+            # happens to sit at pop[0] as the last-validated individual / champion.
             gate = run_validation_gate(
                 pop.get("X"),
                 pop.get("F"),
-                island.last_validated_individual,
-                island.best_val_cost,
+                island.champion,
                 self.problem,
                 self.validation_seeds,
                 max_violation_rate=self.config.max_violation_rate,
@@ -416,30 +415,11 @@ class IslandModel:
                 )
                 continue
 
-            assert gate.individual is not None and gate.val_costs is not None and gate.val_records is not None and gate.val_rms is not None
-            val_costs = gate.val_costs
-            island.last_validated_individual = gate.individual
-
-            if gate.promoted:
-                island.best_val_cost = gate.val_rms
-                island.best_overall_individual = gate.individual.copy()
-                island.best_overall_cost = gate.argmin_cost
+            assert gate.val_costs is not None and gate.val_records is not None
+            if island.champion.consider(gate):
                 island.stagnation_counter = 0
             else:
                 island.stagnation_counter += 1
-
-            # Rich per-island validation dashboard (DV / apoapsis / heat-flux /
-            # g-load / heat-load percentiles + violation rates) mirroring
-            # `compute_eval_summary`. Imported here to keep the report module
-            # out of the island_model import graph -- it pulls matplotlib.
-            from aerocapture.training.report import compute_eval_summary
-
-            val_summary = compute_eval_summary(
-                gate.val_records,
-                len(self.validation_seeds),
-                getattr(self.problem, "cost_kwargs", None),
-            )
-            island.latest_val_summary = val_summary
             results.append(
                 {
                     "island": island.name,
@@ -449,47 +429,37 @@ class IslandModel:
                     "violation_rates": gate.violation_rates,
                     "argmin_train_cost": gate.argmin_cost,
                     "val_rms": gate.val_rms,
-                    "val_mean": float(np.mean(val_costs)),
-                    "val_p95": float(np.percentile(val_costs, 95)),
-                    "val_capture_rate": _capture_rate(np.asarray(val_costs), cost_transform=self._cost_transform()),
-                    "val_summary": val_summary,
+                    "val_costs": gate.val_costs,
+                    "val_records": gate.val_records,
                     "stagnation": island.stagnation_counter,
                 }
             )
         return results
 
     def revalidate_each(self) -> None:
-        """Re-validate each island's best_overall_individual under the current config.
+        """Re-validate each island's champion under the current config (`champion.revalidate`).
 
-        Called once after `from_checkpoint` on resume so each island's
-        `best_val_cost` reflects the CURRENT cost_kwargs (notably a changed
-        `cost_transform`) rather than the stale value baked into the checkpoint.
-        Keeps the individual; only refreshes the metric baseline. Islands with no
-        `best_overall_individual` (or with no validation seeds) are skipped.
+        Called once after `from_checkpoint` on resume so each island's `val_rms`
+        reflects the CURRENT cost_kwargs (notably a changed `cost_transform`) and
+        ceiling rather than the stale value baked into the checkpoint. Keeps the
+        individual; only re-anchors the metric baseline (an infeasible one becomes
+        untrusted, ADR-0005). Islands with no champion (or with no validation seeds)
+        are skipped.
         """
         if not self.validation_seeds:
             return
         for island in self.islands:
-            if island.best_overall_individual is None:
+            if island.champion.individual is None:
                 continue
-            val_costs, val_records = self.problem.evaluate_individual_records_per_seed(
-                island.best_overall_individual,
+            revalidate(
+                island.champion,
+                self.problem,
                 self.validation_seeds,
+                self.problem.cost_kwargs,
+                self.config.max_violation_rate,
+                verbose=True,
+                label=f"{island.name}:",
             )
-            rms = float(np.sqrt(np.mean(val_costs**2)))
-            # Pre-rule checkpoint: the champion stays last_validated, but an
-            # infeasible one must not anchor the promotion bar (ADR-0005).
-            ceiling = self.config.max_violation_rate
-            rates = constraint_violation_rates(val_records, self.problem.cost_kwargs)
-            if is_feasible(rates, ceiling):
-                island.best_val_cost = rms
-            else:
-                island.best_val_cost = float("inf")
-                print(
-                    f"  [{island.name}] resumed champion is INFEASIBLE ({format_violation_rates(rates)} > ceiling {ceiling:.3%}) "
-                    f"- not anchoring best_val_cost (rms was {rms:.4g})"
-                )
-            island.last_validated_individual = island.best_overall_individual.copy()
 
     def resize_populations(
         self,
@@ -620,10 +590,7 @@ class IslandModel:
                 "pop_F": pop.get("F") if pop is not None else None,
                 "n_iter": int(n_iter_attr) if n_iter_attr is not None else 1,
                 "is_initialized": bool(getattr(island.algorithm, "is_initialized", False)),
-                "last_validated_individual": island.last_validated_individual,
-                "best_overall_individual": island.best_overall_individual,
-                "best_overall_cost": island.best_overall_cost,
-                "best_val_cost": island.best_val_cost,
+                **island.champion.island_state(),
                 "stagnation_counter": island.stagnation_counter,
             }
             if isinstance(island.algorithm, PSO):
@@ -658,10 +625,11 @@ class IslandModel:
             this field). The caller is responsible for re-hydrating the curator
             via `SeedCurator.from_dict(...)`.
 
-        IMPORTANT: per-island best_overall_* are restored verbatim. The
-        resumed population's gen-0 argmin must NOT be allowed to overwrite them
-        (cross-gen training-cost incomparability under adaptive/rotating
-        seeds -- see project memory project_resume_cost_incomparability).
+        IMPORTANT: per-island champions are restored verbatim
+        (`Champion.from_island_state`). The resumed population's gen-0 argmin must
+        NOT be allowed to overwrite them (cross-gen training-cost incomparability
+        under adaptive/rotating seeds -- see project memory
+        project_resume_cost_incomparability).
         """
         import pickle  # noqa: PLC0415
 
@@ -685,10 +653,7 @@ class IslandModel:
         for island, state in zip(self.islands, island_states, strict=True):
             if island.name != state["name"]:
                 raise ValueError(f"checkpoint island order mismatch: {island.name} != {state['name']}")
-            island.last_validated_individual = state["last_validated_individual"]
-            island.best_overall_individual = state["best_overall_individual"]
-            island.best_overall_cost = float(state["best_overall_cost"])
-            island.best_val_cost = float(state["best_val_cost"])
+            island.champion = Champion.from_island_state(state)
             island.stagnation_counter = int(state["stagnation_counter"])
 
             if state["pop_X"] is not None:
@@ -746,29 +711,29 @@ class IslandModel:
         return generation, seed_curator_state, saved_cost_transform
 
     def final_eval(self) -> list[dict[str, Any]]:
-        """Re-evaluate each island's best_overall on the reserved final-eval seeds.
+        """Re-evaluate each island's champion on the reserved final-eval seeds.
 
-        Returns one record per island that had a validated best, sorted by rms ascending.
+        Returns one record per island that holds a champion, sorted by rms ascending.
         The lowest-rms record is the winner.
         """
         results: list[dict[str, Any]] = []
         for island in self.islands:
-            if island.best_overall_individual is None:
+            if island.champion.individual is None:
                 continue
             costs = self.problem.evaluate_individual_per_seed(
-                island.best_overall_individual,
+                island.champion.individual,
                 self.final_eval_seeds,
             )
             rms = float(np.sqrt(np.mean(costs**2)))
             results.append(
                 {
                     "island": island.name,
-                    "X": island.best_overall_individual.copy(),
+                    "X": island.champion.individual.copy(),
                     "rms": rms,
-                    # The validation rms this island's best_overall was promoted on
+                    # The validation rms this island's champion was promoted on
                     # (see validate_each). Compared against `rms` (fresh held-out
                     # final-eval) by val_generalization_gap to flag overfit.
-                    "val_rms": island.best_val_cost,
+                    "val_rms": island.champion.val_rms,
                     "mean": float(np.mean(costs)),
                     "p95": float(np.percentile(costs, 95)),
                     "capture_rate": _capture_rate(np.asarray(costs), cost_transform=self._cost_transform()),

@@ -13,13 +13,16 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig
 from aerocapture.training.sizing_tail import constraint_exceedances
+
+if TYPE_CHECKING:
+    from aerocapture.training.champion import Champion
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -59,8 +62,8 @@ class GateStatus(Enum):
 
 @dataclass
 class GateResult:
-    """Result of `run_validation_gate`. Callers apply their own state updates
-    (stagnation counters, result-dict shaping, no-validation fallback)."""
+    """Result of `run_validation_gate`. `Champion.consider` applies it to the record;
+    callers keep their own stagnation counters and result-dict shaping."""
 
     status: GateStatus
     argmin_cost: float
@@ -84,8 +87,7 @@ class _SupportsPerSeedEval(Protocol):
 def run_validation_gate(
     X: npt.NDArray[np.float64],
     F: npt.NDArray[np.float64],
-    last_validated: npt.NDArray[np.float64] | None,
-    best_val_cost: float,
+    champion: Champion,
     problem: _SupportsPerSeedEval,
     val_seeds: list[int],
     max_violation_rate: float = 0.0,
@@ -94,16 +96,17 @@ def run_validation_gate(
     """Guarded gen-best selection + identity-trigger validation, shared by the
     single-algorithm loop and the islands trainer.
 
-    Decides three things and nothing else:
+    Reads the champion's last-validated individual and `val_rms` (the promotion bar)
+    and decides three things and nothing else:
       1. SKIP_ALL_INF when every training cost is non-finite (the guard -- a bare
          `np.argmin` on an all-inf array returns 0, which would promote whatever
          junk chromosome sits at pop[0]).
-      2. SKIP_UNCHANGED when the guarded argmin matches `last_validated` (no point
-         re-running the same individual through the validation MC).
+      2. SKIP_UNCHANGED when the guarded argmin matches the last-validated individual
+         (no point re-running the same individual through the validation MC).
       3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
          whether it promotes: feasible on the validation pool (every configured
          constraint's violation rate <= `max_violation_rate`, ADR-0005) AND
-         `val_rms < best_val_cost`.
+         `val_rms < champion.val_rms` (ties keep the incumbent, ADR-0002).
 
     Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost
     rows: in a mixed finite+NaN population the finite minimum is selected, not the
@@ -112,9 +115,10 @@ def run_validation_gate(
     bug where a Rust sim leaking a NaN state (e.g. no sim_timeout_secs) could
     otherwise cause a NaN-cost individual to be validated and promoted.
 
-    It does NOT manage stagnation counters, build result/summary dicts, or run the
-    no-validation fallback -- those stay caller-side so each caller's observable
-    behavior (result-dict shape, logging payload) is unchanged.
+    It does NOT touch the record (`Champion.consider` applies the result), manage
+    stagnation counters, build result/summary dicts, or run the no-validation
+    fallback -- those stay caller-side so each caller's observable behavior
+    (result-dict shape, logging payload) is unchanged.
     """
     f = np.asarray(F).reshape(-1)
     if not np.any(np.isfinite(f)):
@@ -124,7 +128,7 @@ def run_validation_gate(
     individual = X[idx].copy()
     argmin_cost = float(f[idx])
 
-    if last_validated is not None and np.array_equal(individual, last_validated):
+    if champion.last_validated is not None and np.array_equal(individual, champion.last_validated):
         return GateResult(status=GateStatus.SKIP_UNCHANGED, argmin_cost=argmin_cost, individual=individual)
 
     val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
@@ -138,7 +142,7 @@ def run_validation_gate(
         val_costs=val_costs,
         val_records=val_records,
         val_rms=val_rms,
-        promoted=(val_rms < best_val_cost) and feasible,
+        promoted=(val_rms < champion.val_rms) and feasible,
         feasible=feasible,
         violation_rates=rates,
     )

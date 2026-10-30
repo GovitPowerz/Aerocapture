@@ -38,12 +38,13 @@ from pymoo.core.evaluator import Evaluator  # type: ignore[import-untyped]
 from pymoo.core.population import Population  # type: ignore[import-untyped]
 
 from aerocapture.training.artifacts import owned_deploy_path, write_best_artifacts
+from aerocapture.training.champion import Champion, KnownCandidate, revalidate
 from aerocapture.training.checkpoint import _prune_old_checkpoints, _restore_seed_curator, load_checkpoint, save_checkpoint
 from aerocapture.training.chromosome_layout import ChromosomeLayout
 from aerocapture.training.corridor import _accumulate_corridor
 from aerocapture.training.encoding import _decode_nn_weights, decode_normalized
-from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, constraint_violation_rates, format_violation_rates, is_feasible, run_validation_gate
-from aerocapture.training.final_select import KnownCandidate, SelectionResult, format_selection_summary, select_final_individual, write_final_selection_json
+from aerocapture.training.evaluate import _HAS_PYO3, GateStatus, format_violation_rates, run_validation_gate
+from aerocapture.training.final_select import SelectionResult, format_selection_summary, select_final_individual, write_final_selection_json
 from aerocapture.training.initial_population import _build_initial_population
 from aerocapture.training.island_model import IslandModel, compute_migration_origin_stats, summarize_latest_migration, val_generalization_gap
 from aerocapture.training.metrics import capture_rate
@@ -73,9 +74,13 @@ def _build_validation_payload(
     final_records: npt.NDArray[np.float64] | None,
     n_sims: int,
     cost_kwargs: dict[str, Any] | None,
+    *,
+    feasible: bool,
+    violation_rates: dict[str, float] | None,
 ) -> tuple[dict, dict | None]:
-    """Compose the flat metrics dict (back-compat for charts/report) and the
-    rich `compute_eval_summary` dashboard (consumed by the TUI).
+    """Compose the run log's validation sub-record (the flat metrics dict, one
+    shape for both adapters: charts/report read it) and the rich
+    `compute_eval_summary` dashboard (consumed by the TUI).
 
     The summary is None when `final_records` is unavailable (e.g. legacy
     fallback paths or future callers that haven't switched yet).
@@ -89,6 +94,8 @@ def _build_validation_payload(
         "worst_cost": float(np.max(costs)),
         "capture_rate": capture_rate(costs, cost_transform=(cost_kwargs or {}).get("cost_transform", "linear")),
         "n_sims": n_sims,
+        "feasible": feasible,
+        "violation_rates": violation_rates,
     }
     summary: dict | None = None
     if final_records is not None:
@@ -163,18 +170,18 @@ def _persist_islands_promotion(
 ) -> None:
     """Persist a selection-promoted winner into the islands checkpoint.
 
-    `from_checkpoint` restores best_overall_* verbatim, so without this write-back
-    a later resume restores the stale pre-selection champion and its next
+    `from_checkpoint` restores each island's champion verbatim, so without this
+    write-back a later resume restores the stale pre-selection champion and its next
     checkpoint save / end-of-run write silently overwrites the deployed
     best_model.json. Called BEFORE write_best_artifacts (durable state first) and
     AFTER final_eval (the per-island report numbers still quote the pre-selection
-    champions; the promoted winner keeps its clean single-candidate quote).
+    champions; the promoted winner keeps its clean single-candidate quote). The
+    recorded training cost is kept (`adopt_selection(..., train_cost=None)`).
     """
     win_name = selection.provenance.split(":", 1)[0]
     for isl in island_model.islands:
         if isl.name == win_name:
-            isl.best_overall_individual = selection.individual.copy()
-            isl.best_val_cost = float(selection.val_rms)
+            isl.champion.adopt_selection(selection.individual, selection.val_rms, None, feasible=selection.winner_feasible)
             break
     island_model.checkpoint(
         save_dir / f"checkpoint_g{gen:05d}.npz",
@@ -413,7 +420,7 @@ class SingleAlgoTrainer:
     ) -> SingleAlgoTrainer:
         """Resume detection (RNG / curator / corridor restore, `n_gen` bump),
         reserved seed pools, the initial population, then `__init__` (pymoo
-        seeding). The checkpointed best is restored verbatim in `__init__`."""
+        seeding). The checkpointed champion is restored verbatim in `__init__`."""
         seed_curator = _make_seed_curator(config, rng)
         resumed = load_checkpoint(Path(resume_dir)) if resume_dir is not None else None
         if resumed is not None:
@@ -438,8 +445,8 @@ class SingleAlgoTrainer:
             problem.param_specs = layout.specs
         seed_weights = _load_seed_weights(config, cwd, verbose) if resumed is None and not from_scratch else None
         if resumed is not None and verbose:
-            # The checkpointed best is re-validated unconditionally in `prologue`
-            # (gated on val_seeds), so best_val_cost is already recomputed under
+            # The checkpointed champion is re-validated unconditionally in `prologue`
+            # (gated on val_seeds), so its val_rms is already recomputed under
             # the current transform; this is just an informative notice.
             saved_transform = resumed.get("cost_transform")
             current_transform = problem.cost_kwargs.get("cost_transform", "linear")
@@ -511,16 +518,12 @@ class SingleAlgoTrainer:
         self.toml_abs_path = toml_abs_path
         self.decode_fn = decode_fn
 
-        self.best_overall_cost: float = resumed["best_cost"] if resumed else np.inf
-        self.best_overall_individual: npt.NDArray[np.float64] | None = resumed["best_individual"] if resumed else None
-        self.best_val_cost: float = resumed["best_val_cost"] if resumed else np.inf
+        # The champion record (`champion.Champion`): restored verbatim on resume, else
+        # empty until the fresh-start init below. Its last-validated individual is the
+        # gate's identity trigger -- cost comparison is unreliable under rotating or
+        # curated seeds.
+        self.champion: Champion = Champion.from_single(resumed, resumed["best_individual"]) if resumed else Champion()
         self.cost_history: list[float] = resumed["cost_history"] if resumed else []
-        # Identity of the last individual we ran validation on. Used to detect
-        # "new best individual" by parameter comparison -- cost comparison is
-        # unreliable under rotating or curated seeds.
-        self.last_validated_individual: npt.NDArray[np.float64] | None = (
-            resumed["best_individual"].copy() if resumed and resumed["best_individual"] is not None else None
-        )
 
         self.algorithm = create_algorithm(config.optimizer, n_params=len(param_specs))
         if verbose:
@@ -557,19 +560,19 @@ class SingleAlgoTrainer:
         # never holds, even under seed_strategy = "fixed".
         warm_start_algorithm(self.algorithm, problem, initial_pop, seed=int(rng.integers(2**31)))
 
-        # Initialize best from the first population eval -- but ONLY on a fresh
-        # start. On resume the checkpointed best was validated under a different
-        # seed list, so a `<` comparison against the current pop is meaningless
-        # (cross-gen incomparability rule).
-        if self.best_overall_individual is None:
+        # Initialize the champion from the first population eval -- but ONLY on a
+        # fresh start. On resume the checkpointed champion was validated under a
+        # different seed list, so a `<` comparison against the current pop is
+        # meaningless (cross-gen incomparability rule).
+        if self.champion.individual is None:
             finite = np.isfinite(pop_costs)
             if finite.any():
                 init_best_idx = int(np.flatnonzero(finite)[np.argmin(pop_costs[finite])])
-                self.best_overall_cost = float(pop_costs[init_best_idx])
+                init_best_cost = float(pop_costs[init_best_idx])
             else:
                 init_best_idx = 0
-                self.best_overall_cost = float("inf")
-            self.best_overall_individual = pop_array[init_best_idx].copy()
+                init_best_cost = float("inf")
+            self.champion.adopt_unvalidated(pop_array[init_best_idx].copy(), init_best_cost)
 
         # CMA-ES self-terminates (wraps pycma); cache the instance check once.
         self.is_cmaes = isinstance(self.algorithm, (CMAES, SimpleCMAES))
@@ -590,49 +593,39 @@ class SingleAlgoTrainer:
     # ── loop contract ──────────────────────────────────────────────
 
     def prologue(self, logger: TrainingLogger, display: DisplayProtocol) -> None:
-        """Validate the starting best: gen-0 individual on fresh starts, the
-        checkpointed best on resume (keeps "Best val" + stagnation honest)."""
+        """Validate the starting champion: gen-0 individual on fresh starts, the
+        checkpointed one on resume (keeps "Best val" + stagnation honest). An
+        infeasible one is re-anchored as untrusted (`champion.revalidate`, ADR-0005);
+        the record's `improvement` flag is its trust, not the feasibility verdict alone."""
 
-        if self.val_seeds is None or self.best_overall_individual is None:
+        if self.val_seeds is None or self.champion.individual is None:
             return
-        init_val_costs, init_val_records = self.problem.evaluate_individual_records_per_seed(self.best_overall_individual, self.val_seeds)
-        init_rms = float(np.sqrt(np.mean(init_val_costs**2)))
-        # An infeasible initial / resumed champion must not anchor the promotion bar (ADR-0005).
         ceiling = self.config.optimizer.max_violation_rate
-        init_rates = constraint_violation_rates(init_val_records, self.problem.cost_kwargs)
-        init_feasible = is_feasible(init_rates, ceiling)
-        if init_feasible:
-            self.best_val_cost = init_rms
-        else:
-            self.best_val_cost = float("inf")
-            if self.verbose:
-                print(
-                    f"  Initial champion validation: INFEASIBLE ({format_violation_rates(init_rates)} > ceiling {ceiling:.3%}) "
-                    f"- not anchoring best_val_cost (rms was {init_rms:.4g})"
-                )
-        self.last_validated_individual = self.best_overall_individual.copy()
+        init_val_costs, init_val_records, init_feasible = revalidate(
+            self.champion, self.problem, self.val_seeds, self.problem.cost_kwargs, ceiling, self.verbose
+        )
         init_val_metrics, init_val_summary = _build_validation_payload(
             init_val_costs,
             init_val_records,
             len(self.val_seeds),
             self.problem.cost_kwargs,
+            feasible=init_feasible,
+            violation_rates=self.champion.violation_rates,
         )
-        init_val_metrics["feasible"] = init_feasible
-        init_val_metrics["violation_rates"] = init_rates
         logger.log_generation(
             self.start_gen,
             self.X,
             self._initial_pop_costs,
-            self.best_overall_individual,
+            self.champion.individual,
             self.decode_fn,
             validation=init_val_metrics,
             validation_summary=init_val_summary,
-            improved=init_feasible,
+            improved=self.champion.trusted,
         )
         display.update(logger, current_run=0)
         if self.verbose:
             label = f"Gen {self.start_gen}" if self.start_gen > 0 else "Gen 0"
-            print(f"  {label} validation: mean={init_rms:.4e} cap={init_val_metrics['capture_rate']:.0%}")
+            print(f"  {label} validation: mean={init_val_metrics['rms_cost']:.4e} cap={init_val_metrics['capture_rate']:.0%}")
 
     def re_evaluate(self) -> None:
         """Pre-next re-eval after a seed-list change (skipped for CMA-ES)."""
@@ -685,30 +678,25 @@ class SingleAlgoTrainer:
             gate = run_validation_gate(
                 self.X,
                 self.costs,
-                self.last_validated_individual,
-                self.best_val_cost,
+                self.champion,
                 self.problem,
                 self.val_seeds,
                 max_violation_rate=ceiling,
                 cost_kwargs=self.problem.cost_kwargs,
             )
             if gate.status is GateStatus.VALIDATED:
-                assert gate.individual is not None and gate.val_costs is not None and gate.val_rms is not None
+                assert gate.val_costs is not None and gate.val_rms is not None
                 self._validation_metrics, self._validation_summary = _build_validation_payload(
                     gate.val_costs,
                     gate.val_records,
                     len(self.val_seeds),
                     self.problem.cost_kwargs,
+                    feasible=gate.feasible,
+                    violation_rates=gate.violation_rates,
                 )
-                self._validation_metrics["feasible"] = gate.feasible
-                self._validation_metrics["violation_rates"] = gate.violation_rates
-                self.last_validated_individual = gate.individual
-                if gate.promoted:
-                    self.best_val_cost = gate.val_rms
-                    self.best_overall_individual = gate.individual
-                    self.best_overall_cost = gate.argmin_cost
-                    self._validated_improvement = True
-                elif not gate.feasible and gate.val_rms < self.best_val_cost and self.verbose:
+                rejected_better = not gate.feasible and gate.val_rms < self.champion.val_rms
+                self._validated_improvement = self.champion.consider(gate)
+                if rejected_better and self.verbose:
                     print(
                         f"  Gen {gen} validation: REJECTED (infeasible: {format_violation_rates(gate.violation_rates)} > ceiling {ceiling:.3%}) "
                         f"despite rms {gate.val_rms:.4g}"
@@ -716,11 +704,10 @@ class SingleAlgoTrainer:
             # SKIP_UNCHANGED / SKIP_ALL_INF: no validation, no promotion.
         elif np.isfinite(self._gen_best_cost):
             # No validation gate: promote each generation's finite training
-            # argmin directly. The final MC eval re-ranks on a disjoint pool,
-            # so cross-gen seed incomparability is bounded.
+            # argmin directly (untrusted). The final MC eval re-ranks on a
+            # disjoint pool, so cross-gen seed incomparability is bounded.
             assert self._gen_best_individual is not None
-            self.best_overall_individual = self._gen_best_individual
-            self.best_overall_cost = self._gen_best_cost
+            self.champion.adopt_unvalidated(self._gen_best_individual, self._gen_best_cost)
         return self._validated_improvement
 
     def top_k(self, k: int) -> npt.NDArray[np.float64]:
@@ -728,12 +715,12 @@ class SingleAlgoTrainer:
 
     def emit(self, gen: int, logger: TrainingLogger, display: DisplayProtocol) -> None:
 
-        self.gen_best_costs.append(self.best_overall_cost)
+        self.gen_best_costs.append(self.champion.train_cost)
 
         # Per-layer weight stats for NN (dense-only; v2 heterogeneous skip).
         ws = None
-        if self.config.guidance_type == "neural_network" and self.best_overall_individual is not None and self.config.network.architecture is None:
-            best_weights = _decode_nn_weights(self.best_overall_individual, self.param_specs)
+        if self.config.guidance_type == "neural_network" and self.champion.individual is not None and self.config.network.architecture is None:
+            best_weights = _decode_nn_weights(self.champion.individual, self.param_specs)
             ws = compute_weight_stats(best_weights, self.config.network.layer_sizes)
 
         pool_metrics: dict | None = None
@@ -748,7 +735,7 @@ class SingleAlgoTrainer:
             gen + 1,
             self.X,
             self.costs,
-            self.best_overall_individual if self.best_overall_individual is not None else self.X[0],
+            self.champion.individual if self.champion.individual is not None else self.X[0],
             self.decode_fn,
             weight_stats=ws,
             pool_metrics=pool_metrics,
@@ -760,7 +747,7 @@ class SingleAlgoTrainer:
         )
         display.update(logger, current_run=0)
         if self.verbose and not display.is_live and (gen + 1) % 5 == 0:
-            print(f"  Gen {gen + 1}/{self.config.optimizer.n_gen}: best={self.best_overall_cost:.4e} ({gen_elapsed_s:.1f}s)")
+            print(f"  Gen {gen + 1}/{self.config.optimizer.n_gen}: best={self.champion.train_cost:.4e} ({gen_elapsed_s:.1f}s)")
 
     def maybe_checkpoint(self, gen: int) -> None:
 
@@ -770,8 +757,7 @@ class SingleAlgoTrainer:
                 gen + 1,
                 self.X,
                 self.costs,
-                self.best_overall_cost,
-                self.best_overall_individual,
+                self.champion,
                 self.cost_history + self.gen_best_costs,
                 self.rng,
                 self.config,
@@ -779,7 +765,6 @@ class SingleAlgoTrainer:
                 self.param_specs,
                 seed_curator=self.seed_curator,
                 corridor_acc=self.corridor_acc,
-                best_val_cost=self.best_val_cost,
                 cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
             )
             if self.verbose:
@@ -797,13 +782,12 @@ class SingleAlgoTrainer:
         if self.val_seeds is not None:
             known: list[KnownCandidate] = []
             cand_X, cand_prov = self.X, [f"last_gen[{i}]" for i in range(self.X.shape[0])]
-            if self.best_overall_individual is not None:
-                if np.isfinite(self.best_val_cost):
-                    known.append(KnownCandidate(x=self.best_overall_individual, provenance="champion", val_rms=float(self.best_val_cost)))
-                else:
-                    # Infeasible initial / resumed champion (prologue): competes as a candidate, not as a trusted champion.
-                    cand_X = np.vstack([self.X, self.best_overall_individual[None, :]])
-                    cand_prov.append("champion[infeasible]")
+            if (trusted := self.champion.known()) is not None:
+                known.append(trusted)
+            elif (untrusted := self.champion.untrusted_row()) is not None:
+                # Untrusted (infeasible initial / resumed) champion: competes as a candidate.
+                cand_X = np.vstack([self.X, untrusted[0][None, :]])
+                cand_prov.append(untrusted[1])
             try:
                 sel = select_final_individual(
                     self.problem,
@@ -820,13 +804,11 @@ class SingleAlgoTrainer:
             if sel is not None:
                 final_sel = sel
                 if sel.promoted:
-                    self.best_overall_individual = sel.individual.copy()
-                    self.best_val_cost = sel.val_rms
                     assert sel.winner_index is not None
                     # Training-cost-at-promotion semantics (resume-incomparability rule);
                     # the appended champion row keeps its own recorded cost.
-                    if sel.winner_index < self.X.shape[0]:
-                        self.best_overall_cost = float(self.costs[sel.winner_index])
+                    train_cost = float(self.costs[sel.winner_index]) if sel.winner_index < self.X.shape[0] else None
+                    self.champion.adopt_selection(sel.individual, sel.val_rms, train_cost, feasible=sel.winner_feasible)
                     selection_promoted = True
 
         # Always save a final checkpoint labeled with the last gen that ran.
@@ -837,8 +819,7 @@ class SingleAlgoTrainer:
                 last_gen,
                 self.X,
                 self.costs,
-                self.best_overall_cost,
-                self.best_overall_individual,
+                self.champion,
                 self.cost_history,
                 self.rng,
                 self.config,
@@ -846,7 +827,6 @@ class SingleAlgoTrainer:
                 self.param_specs,
                 seed_curator=self.seed_curator,
                 corridor_acc=self.corridor_acc,
-                best_val_cost=self.best_val_cost,
                 cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
             )
             if self.verbose:
@@ -873,8 +853,7 @@ class SingleAlgoTrainer:
             self.completed_gen,
             self.X,
             self.costs,
-            self.best_overall_cost,
-            self.best_overall_individual,
+            self.champion,
             self.cost_history + self.gen_best_costs,
             self.rng,
             self.config,
@@ -882,7 +861,6 @@ class SingleAlgoTrainer:
             self.param_specs,
             seed_curator=self.seed_curator,
             corridor_acc=self.corridor_acc,
-            best_val_cost=self.best_val_cost,
             cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
         )
         logger.close()
@@ -892,8 +870,8 @@ class SingleAlgoTrainer:
 
     def _result(self, *, interrupted: bool) -> dict[str, Any]:
         return {
-            "best_cost": self.best_overall_cost,
-            "best_individual": self.best_overall_individual,
+            "best_cost": self.champion.train_cost,
+            "best_individual": self.champion.individual,
             "cost_history": self.cost_history,
             "interrupted": interrupted,
             "corridor_acc": self.corridor_acc,
@@ -1103,9 +1081,8 @@ class IslandsTrainer:
                 if finite_mask.any():
                     X = i.algorithm.pop.get("X")
                     amin = int(np.argmin(np.where(finite_mask, F, np.inf)))
-                    i.best_overall_individual = X[amin].copy()
-                    i.best_overall_cost = float(F[amin])
                     argmin_cost = float(F[amin])
+                    i.champion.adopt_unvalidated(X[amin].copy(), argmin_cost)
                 else:
                     argmin_cost = float("inf")
                 self._val_records.append(
@@ -1128,35 +1105,36 @@ class IslandsTrainer:
             X = island.algorithm.pop.get("X")
             F = island.algorithm.pop.get("F").flatten()
             validation_dict: dict | None = None
+            validation_summary: dict | None = None
             if val_rec["validated"]:
-                validation_dict = {
-                    "rms_cost": val_rec["val_rms"],
-                    "mean_cost": val_rec["val_mean"],
-                    "p95_cost": val_rec["val_p95"],
-                    "capture_rate": val_rec["val_capture_rate"],
-                    "n_sims": len(self.val_seeds) if self.val_seeds else 0,
-                    "feasible": val_rec.get("feasible", True),
-                    "violation_rates": val_rec.get("violation_rates"),
-                }
+                validation_dict, validation_summary = _build_validation_payload(
+                    val_rec["val_costs"],
+                    val_rec["val_records"],
+                    len(self.val_seeds) if self.val_seeds else 0,
+                    self.problem.cost_kwargs,
+                    feasible=val_rec["feasible"],
+                    violation_rates=val_rec["violation_rates"],
+                )
+                # Sticky: the TUI shows the last validated dashboard on non-validating gens.
+                island.latest_val_summary = validation_summary
             logger.log_generation(
                 generation=gen,
                 population=X,
                 costs=F,
-                best_individual=island.best_overall_individual,
+                best_individual=island.champion.individual,
                 decode_fn=self.decode_fn,
                 validation=validation_dict,
-                validation_summary=val_rec.get("val_summary") if val_rec["validated"] else None,
+                validation_summary=validation_summary,
                 improved=val_rec["promoted"],
                 island_name=island.name,
             )
 
         island_records: dict[str, Any] = {
             island.name: {
-                "best_val": island.best_val_cost,
+                "best_val": island.champion.val_rms,
                 "val_rms": val_rec.get("val_rms", float("inf")),
                 "stagnation": island.stagnation_counter,
                 "argmin_train_cost": val_rec.get("argmin_train_cost", float("inf")),
-                # Sticky: last validated dashboard shown even on non-validating gens.
                 "val_summary": island.latest_val_summary,
             }
             for island, val_rec in zip(
@@ -1231,22 +1209,14 @@ class IslandsTrainer:
         # pops + champions decides the ARTIFACTS; final_eval is report-only.
         selection = None
         if island_model.validation_seeds:
-            known = [
-                KnownCandidate(
-                    x=np.asarray(isl.best_overall_individual, dtype=np.float64),
-                    provenance=f"{isl.name}:champion",
-                    val_rms=float(isl.best_val_cost),
-                )
-                for isl in island_model.islands
-                if isl.best_overall_individual is not None and np.isfinite(isl.best_val_cost)
-            ]
+            known = [trusted for isl in island_model.islands if (trusted := isl.champion.known(f"{isl.name}:")) is not None]
             cand_rows: list[npt.NDArray[np.float64]] = []
             cand_prov: list[str] = []
             for isl in island_model.islands:
-                if isl.best_overall_individual is not None and not np.isfinite(isl.best_val_cost):
-                    # Infeasible resumed champion (revalidate_each): competes as a candidate.
-                    cand_rows.append(np.asarray(isl.best_overall_individual, dtype=np.float64))
-                    cand_prov.append(f"{isl.name}:champion[infeasible]")
+                if (untrusted := isl.champion.untrusted_row(f"{isl.name}:")) is not None:
+                    # Untrusted (infeasible resumed, `revalidate_each`) champion: competes as a candidate.
+                    cand_rows.append(untrusted[0])
+                    cand_prov.append(untrusted[1])
                 pop = isl.algorithm.pop
                 if pop is None:
                     continue

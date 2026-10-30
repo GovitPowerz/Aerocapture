@@ -55,3 +55,11 @@ modules. All three runs identical.
 Re-run after the PR #145 review fixes (`be4ad5c1`: `run_loop` reads the problem and RNG
 from the adapter, the islands curator shares the widened excluded-seed set) against
 the same baseline: all three runs identical.
+
+Re-run for the champion record (`feature/champion-record`, 2026-10-30, #221): baseline =
+`main` source, candidate = one `champion.Champion` held by `SingleAlgoTrainer` and per
+`Island`, both checkpoint writers serializing it, the islands run-log validation dict
+routed through `_build_validation_payload`. `diff_gate.py` now strips `median_cost` /
+`std_cost` / `worst_cost` from islands validation records (the payload builder adds
+them; the hand-built islands dict never carried them) and compares everything else
+bit-exact. All three runs identical under that comparison.

@@ -4,7 +4,13 @@ Usage: uv run python experiments/trainer_seam_gate/diff_gate.py baseline post
 
 Compares, per gate run:
 - JSONL training logs: every record, with volatile keys (timestamps, wall
-  times, rates, file paths embedding the tag) stripped recursively.
+  times, rates, file paths embedding the tag) stripped recursively. Islands
+  records (`island_name` set) also drop `median_cost` / `std_cost` /
+  `worst_cost` from their `validation` sub-record: the champion record (#221)
+  routes the islands payload through `_build_validation_payload`, which adds
+  those three keys the hand-built islands dict never had. Everything else in
+  the sub-record (rms / mean / p95 / capture_rate / n_sims / feasible /
+  violation_rates) is compared bit-exact.
 - Final checkpoint npz: every array bit-exact.
 - final_selection.json (when present): volatile keys stripped.
 Exit 0 = equivalent; prints the first divergence otherwise.
@@ -22,6 +28,7 @@ import numpy as np
 G = Path(__file__).resolve().parents[2] / ".scratch/trainer_seam_gate"  # run_gate.sh output root
 VOLATILE_SUBSTRINGS = ("time", "elapsed", "eta", "rate_", "_rate_s", "duration", "path", "dir")
 VOLATILE_KEYS = {"timestamp", "gen_elapsed_s", "wall_s", "eta_s", "save_dir", "toml_path", "output_dir", "config_hash"}
+ISLANDS_PAYLOAD_ONLY_KEYS = {"median_cost", "std_cost", "worst_cost"}  # added to islands validation records by #221
 
 
 def strip(o: Any) -> Any:
@@ -32,10 +39,16 @@ def strip(o: Any) -> Any:
     return o
 
 
+def strip_record(record: dict[str, Any]) -> Any:
+    if record.get("island_name") is not None and isinstance(record.get("validation"), dict):
+        record = {**record, "validation": {k: v for k, v in record["validation"].items() if k not in ISLANDS_PAYLOAD_ONLY_KEYS}}
+    return strip(record)
+
+
 def load_jsonl(d: Path) -> list[Any]:
     files = sorted(d.glob("run_*.jsonl"))
     assert files, f"no jsonl in {d}"
-    return [strip(json.loads(line)) for f in files for line in f.read_text().splitlines()]
+    return [strip_record(json.loads(line)) for f in files for line in f.read_text().splitlines()]
 
 
 def latest_ckpt(d: Path) -> Path:

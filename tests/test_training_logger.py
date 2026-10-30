@@ -152,6 +152,48 @@ class TestTrainingLogger:
         assert logger.buffer[0]["validation"] == val
         logger.close()
 
+    def test_validation_payload_has_one_shape_for_both_adapters(self, logger: TrainingLogger) -> None:
+        """`trainer._build_validation_payload` is the only emitter of the run log's
+        validation sub-record: the islands path (logged with `island_name`) carries
+        the same keys as the single-algo path (#221)."""
+        from aerocapture.training.trainer import _build_validation_payload
+
+        costs = np.array([10.0, 20.0, 30.0, 40.0])
+        metrics, summary = _build_validation_payload(costs, None, 4, {"cost_transform": "linear"}, feasible=True, violation_rates={"heat_load": 0.0})
+        assert summary is None  # no final records
+        expected_keys = ["rms_cost", "mean_cost", "median_cost", "std_cost", "p95_cost", "worst_cost", "capture_rate", "n_sims", "feasible", "violation_rates"]
+        assert list(metrics) == expected_keys
+        assert metrics["rms_cost"] == float(np.sqrt(np.mean(costs**2))) and metrics["n_sims"] == 4 and metrics["feasible"] is True
+
+        # The islands adapter's own emit, not a hand-fed payload.
+        import types
+
+        from aerocapture.training.champion import Champion
+        from aerocapture.training.island_model import Island
+        from aerocapture.training.trainer import IslandsTrainer
+
+        X, F = _make_population(), _make_costs().reshape(-1, 1)
+        island = Island(name="ga", algorithm=types.SimpleNamespace(pop=types.SimpleNamespace(get={"X": X, "F": F}.__getitem__)))
+        island.champion = Champion(individual=np.full(7, 0.5), val_rms=30.0)
+        t = IslandsTrainer.__new__(IslandsTrainer)  # bypass __init__ (pymoo setup)
+        model = types.SimpleNamespace(islands=[island], migration_log=[], latest_migration_summary=None, latest_migration_gen=None, origin_stats_cache=None)
+        t.island_model = model  # type: ignore[assignment]
+        t._val_records = [
+            {"island": "ga", "validated": True, "promoted": False, "feasible": True, "violation_rates": {"heat_load": 0.0}, "argmin_train_cost": 1.0}
+            | {"val_rms": metrics["rms_cost"], "val_costs": costs, "val_records": None, "stagnation": 1}
+        ]
+        t.val_seeds = [1, 2, 3, 4]
+        t.problem = types.SimpleNamespace(cost_kwargs={"cost_transform": "linear"})  # type: ignore[assignment]
+        t.decode_fn = _decode_fn
+        t._events = []
+        t.config = types.SimpleNamespace(optimizer=types.SimpleNamespace(n_gen=10))  # type: ignore[assignment]
+        t.verbose = False
+        t.emit(1, logger, types.SimpleNamespace(update=lambda *a, **kw: None, is_live=True))  # type: ignore[arg-type]
+        (record,) = logger.buffer
+        assert record["island_name"] == "ga"
+        assert record["validation"] == metrics
+        logger.close()
+
     def test_validation_absent_by_default(self, logger: TrainingLogger) -> None:
         logger.log_generation(1, _make_population(), _make_costs(), np.full(7, 0.5), _decode_fn)
         assert "validation" not in logger.buffer[0]
