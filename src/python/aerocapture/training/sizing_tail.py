@@ -26,15 +26,20 @@ import numpy as np
 import numpy.typing as npt
 from scipy.stats import wilcoxon
 
-from aerocapture.training.cell_eval import FR_DV_TOTAL, is_captured
-from aerocapture.training.evaluate import constraint_exceedances
+from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_INTEGRATED_FLUX, FR_MAX_G_LOAD, FR_MAX_HEAT_FLUX, is_captured
 
 if TYPE_CHECKING:
     from aerocapture.training.cell_eval import CellResult
 
 # The estimator every CVaR on a record was computed with; stored next to the number.
 CVAR_ESTIMATOR = "mean of the worst max(1, round((1 - level) * n_captured)) captured-DV samples"
-CONSTRAINTS = ("heat_flux", "g_load", "heat_load")
+# ADR-0005 constraints: (name, final-record column, scale to the limit's unit, `cost_kwargs` key).
+_CONSTRAINT_SPECS = (
+    ("heat_flux", FR_MAX_HEAT_FLUX, 1.0, "heat_flux_limit"),
+    ("g_load", FR_MAX_G_LOAD, 1.0, "g_load_limit"),
+    ("heat_load", FR_INTEGRATED_FLUX, 1e3, "heat_load_limit"),  # MJ -> kJ
+)
+CONSTRAINTS = tuple(name for name, _, _, _ in _CONSTRAINT_SPECS)
 
 Stat = Callable[[npt.NDArray[np.float64]], float]
 
@@ -72,7 +77,23 @@ def capture_mask(ifinal: npt.NDArray[np.float64], ecc: npt.NDArray[np.float64]) 
 
 
 def _p(x: npt.NDArray[np.float64], q: float) -> float:
-    return float(np.percentile(x, q))
+    # NaN on no sample, like `cvar`: np.percentile raises on an empty array (a side with no capture).
+    return float(np.percentile(x, q)) if len(x) else float("nan")
+
+
+def constraint_exceedances(
+    final_records: npt.NDArray[np.float64],
+    cost_kwargs: dict[str, Any] | None,
+) -> dict[str, npt.NDArray[np.bool_]]:
+    """Per-constraint exceedance masks over a final-records matrix: the one violation rule.
+
+    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
+    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
+    `[flight.constraints]` by `cost.build_cost_kwargs`, which defaults a missing one).
+    A constraint without a configured limit is not assessed and is omitted.
+    """
+    kw = cost_kwargs or {}
+    return {name: final_records[:, col] * scale > float(kw[key]) for name, col, scale, key in _CONSTRAINT_SPECS if isinstance(kw.get(key), (int, float))}
 
 
 def dv_tail(dvc: npt.NDArray[np.float64], *, n_boot: int | None = None, seed: int = 0) -> dict[str, Any]:

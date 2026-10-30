@@ -170,8 +170,6 @@ def _eval_cell(
     from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    cost_kwargs = None
-
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
     if bundle_key and (bundle_model is None or not bundle_model.exists()):
         raise SystemExit(f"{label}: bundle key {bundle_key} given but {bundle_model} missing (refusing local fallback)")
@@ -180,6 +178,7 @@ def _eval_cell(
     # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
     # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes.
     eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
+    cost_kwargs = read_cost_kwargs(eval_toml)
     flown = {**cell_overrides, **overrides}
     model_path = flown.pop("data.neural_network", None)
     flight = {
@@ -209,8 +208,6 @@ def _eval_cell(
             print(f"  {label} r{r}: loaded from {done.parent}", flush=True)
             continue
         res = evaluate_cell(cell_dir, Path(toml), seeds, model=bundle_model, extra_overrides=overrides, sim_timeout_secs=sim_timeout)
-        if cost_kwargs is None:
-            cost_kwargs = read_cost_kwargs(res.toml_path)
         model_used = res.overrides.get("data.neural_network")
         cap = res.captured
         x = np.sort(res.dv)

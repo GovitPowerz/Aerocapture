@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 ARMS = ["baseline", "trapz", "complex", "both"]
 OUT_DIR = Path("training_output/mamba3_962")
 CONFIG_DIR = Path("configs/training/mamba3_962")
 
 
-def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, float]:
+def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, Any]:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
     from aerocapture.training.report import read_cost_kwargs
@@ -34,7 +35,7 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, f
     rec = score_cell(res, read_cost_kwargs(config), pool="MAMBA3_EVAL")
     nan = float("nan")
     return {
-        "capture_rate": rec["capture_pct"] / 100.0,
+        "capture_rate": rec["n_captured"] / rec["n"],
         "dv_p50": rec.get("dv_p50", nan),
         "dv_p95": rec.get("dv_p95", nan),
         "dv_s3sigma": rec.get("dv_p9987", nan),
@@ -52,7 +53,7 @@ def main() -> None:
     args = p.parse_args()
 
     seeds = make_reserved_seeds(0, MAMBA3_EVAL_SEED_OFFSET, args.n_sims)
-    rows: dict[str, dict[str, float]] = {}
+    rows: dict[str, dict[str, Any]] = {}
     for arm in ARMS:
         if not (OUT_DIR / arm / "best_model.json").exists():
             print(f"skip {arm}: no best_model.json")

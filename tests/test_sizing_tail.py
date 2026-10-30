@@ -181,16 +181,27 @@ def test_paired_tail_deltas_and_cis() -> None:
     assert p["delta_capture_pts"] == 1.0 and p["delta_capture_pts_ci"][0] <= 1.0 <= p["delta_capture_pts_ci"][1]
 
 
+def test_paired_tail_with_a_side_that_never_captures_is_nan_not_a_crash() -> None:
+    """The depth scripts pair after every cell is flown: an IndexError there would lose the flights."""
+    dv = np.full(50, 100.0)
+    p = st.paired_tail(dv, np.ones(50, dtype=bool), dv, np.zeros(50, dtype=bool), n_boot=20)
+    assert np.isnan(p["delta_p95"]) and np.isnan(p["delta_cvar95"]) and p["delta_capture_pts"] == 100.0
+
+
 REPO = Path(__file__).resolve().parents[1]
 RUNS = REPO / "articles/paper/data/runs"
 
 
-def test_paired_tail_reproduces_a_committed_results_json_pair() -> None:
+def test_paired_tail_reproduces_a_committed_results_json_pair(monkeypatch: pytest.MonkeyPatch) -> None:
     """results.json's paired block is the frozen shape of `paired_tail`: the committed numbers
-    (point deltas and the scenario-resampled CIs at seed 0, 10 000 resamples) must come back."""
+    (point deltas and the scenario-resampled CIs at seed 0, 10 000 resamples) must come back, in the
+    committed key order (`aggregate_results` writes without sort_keys)."""
     import json
 
     import pandas as pd
+
+    monkeypatch.syspath_prepend(str(REPO / "articles/paper/scripts"))
+    from aggregate_results import _PAIRED_STAT_KEYS  # type: ignore[import-not-found]
 
     results = json.loads((REPO / "articles/paper/data/results.json").read_text())
     pair = results["paired"]["v4_nn_vs_jointftc"]
@@ -201,8 +212,8 @@ def test_paired_tail_reproduces_a_committed_results_json_pair() -> None:
     ca = st.capture_mask(da["ifinal"].to_numpy(), da["eccentricity"].to_numpy())
     cb = st.capture_mask(db["ifinal"].to_numpy(), db["eccentricity"].to_numpy())
     got = st.paired_tail(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb)
-    for k in ("delta_p95", "delta_p95_ci", "delta_cvar95", "delta_cvar95_ci", "n_pairs", "delta_mean", "delta_mean_ci", "win_rate_a", "wilcoxon_p"):
-        assert got[k] == pair[k], k
+    assert {"a": pair["a"], "b": pair["b"], **{k: got[k] for k in _PAIRED_STAT_KEYS if k in got}} == pair
+    assert ["a", "b", *(k for k in _PAIRED_STAT_KEYS if k in got)] == list(pair)
 
 
 # --- two scripts that used to disagree ---------------------------------------------------------

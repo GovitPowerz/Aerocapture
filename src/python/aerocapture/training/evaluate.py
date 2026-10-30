@@ -19,7 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig
-from aerocapture.training.parquet_output import G_LOAD_RAW_INDEX, HEAT_FLUX_RAW_INDEX, HEAT_LOAD_RAW_INDEX
+from aerocapture.training.sizing_tail import constraint_exceedances
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -30,34 +30,11 @@ except ImportError:
     _HAS_PYO3 = False
 
 
-# ADR-0005 constraints: (name, final-record column, scale to the limit's unit, `cost_kwargs` key).
-_CONSTRAINTS = (
-    ("heat_flux", HEAT_FLUX_RAW_INDEX, 1.0, "heat_flux_limit"),
-    ("g_load", G_LOAD_RAW_INDEX, 1.0, "g_load_limit"),
-    ("heat_load", HEAT_LOAD_RAW_INDEX, 1e3, "heat_load_limit"),  # MJ -> kJ
-)
-
-
-def constraint_exceedances(
-    final_records: npt.NDArray[np.float64],
-    cost_kwargs: dict[str, Any] | None,
-) -> dict[str, npt.NDArray[np.bool_]]:
-    """Per-constraint exceedance masks over a final-records matrix: the one violation rule.
-
-    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
-    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
-    `[flight.constraints]` by `cost.build_cost_kwargs`, which defaults a missing one).
-    A constraint without a configured limit is not assessed and is omitted.
-    """
-    kw = cost_kwargs or {}
-    return {name: final_records[:, col] * scale > float(kw[key]) for name, col, scale, key in _CONSTRAINTS if isinstance(kw.get(key), (int, float))}
-
-
 def constraint_violation_rates(
     final_records: npt.NDArray[np.float64],
     cost_kwargs: dict[str, Any] | None,
 ) -> dict[str, float] | None:
-    """Fractional per-constraint violation rates (`constraint_exceedances` means); None
+    """Fractional per-constraint violation rates (`sizing_tail.constraint_exceedances` means); None
     when no limit is configured at all (feasibility cannot be assessed)."""
     rates = {name: float(m.mean()) for name, m in constraint_exceedances(final_records, cost_kwargs).items()}
     return rates or None

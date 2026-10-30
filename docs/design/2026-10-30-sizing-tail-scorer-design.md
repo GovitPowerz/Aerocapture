@@ -27,7 +27,9 @@ Seed Pool, DV.
 | `cvar(x, level)` | sorted or unsorted DV | mean of the worst `cvar_tail_size` samples (the former `paper_stats.cvar`, arithmetic unchanged) |
 | `bootstrap_ci(x, stat, n_boot, seed, alpha)` | | percentile CI over resamples (moved from `paper_stats`) |
 | `capture_mask(ifinal, ecc)` | parquet columns | the ADR capture definition (moved from `paper_stats`) |
-| `dv_tail(dvc, *, n_boot=None, seed=0)` | the captured DV | `dv_mean dv_p50 dv_p95 dv_p99 dv_p999 dv_cvar95 dv_cvar99 dv_cvar999 dv_max_descriptive`, plus `dv_mean_ci dv_p95_ci dv_cvar95_ci dv_p99_ci dv_cvar99_ci` when `n_boot` is given |
+| `dv_tail(dvc, *, n_boot=None, seed=0)` | the captured DV | `dv_mean dv_p50 dv_p95 dv_p99 dv_p999 dv_p9987 dv_cvar95 dv_cvar99 dv_cvar999 dv_max_descriptive`, plus `dv_mean_ci dv_p95_ci dv_cvar95_ci dv_p99_ci dv_cvar99_ci` when `n_boot` is given |
+| `run_stats(ifinal, ecc, dv, *, n_boot=None, seed=0)` | parquet columns | `n n_captured capture_pct` (+ `capture_pct_ci`) and `dv_tail` of the captured rows |
+| `constraint_exceedances(final_records, cost_kwargs)` | one flight's records | per-constraint boolean masks, limits from `cost_kwargs` (the one violation rule) |
 | `tail_record(final_records, cost_kwargs, *, n_boot=None, seed=0)` | one flight's records | `n n_captured capture_pct` (+ `capture_pct_ci`), `dv_tail`, `viol_pct viol_n`, `<c>_viol_pct <c>_viol_n` per constraint, `rms_cost` (the `[cost_function]` objective), `estimator` |
 | `score_cell(result, cost_kwargs, *, pool, n_boot=None, seed=0)` | a `CellResult` | `tail_record` + `noise_seeding` (the regime actually flown: the override, else the TOML's `[monte_carlo]`) + `pool` (the caller's label) |
 | `paired_comparison(dv_a, cap_a, dv_b, cap_b, n_boot, seed)` | two flights on one pool | `n_pairs delta_mean delta_mean_ci win_rate_a wilcoxon_p` (moved from `paper_stats`) |
@@ -37,9 +39,10 @@ Every DV statistic is rounded to two decimals (the rule every writer already app
 computed on the unclipped correction DV of the captured runs (`CellResult.dv`), as
 `results.json` always was; the report's `[1, 5000]` display clip stays in `report` / `charts`.
 
-The violation rule is `evaluate.constraint_exceedances` (per-constraint boolean masks over the
-final records, limits from `cost_kwargs`, columns from `parquet_output`), and
-`constraint_violation_rates` is its means. `viol_pct` is the union: the share of draws that
+The violation rule is `sizing_tail.constraint_exceedances` (per-constraint boolean masks over the
+final records, limits from `cost_kwargs`, columns `cell_eval.FR_*`), and
+`evaluate.constraint_violation_rates` (the training gate's) is its means. It lives in the scorer,
+not in `evaluate`, whose import pulls the optimizer stack (pymoo, matplotlib). `viol_pct` is the union: the share of draws that
 exceed at least one configured limit. The limits come from `cost.build_cost_kwargs` everywhere
 (`report._read_constraint_limits` delegates to it): a config that omits a limit is scored at the
 cost function's default, as the gate always scored it.
@@ -73,8 +76,9 @@ cost function's default, as the gate always scored it.
 ## What moves
 
 - `paper_stats.py` keeps `actual_sims` (run-log accounting); `cvar`, `bootstrap_ci`,
-  `capture_mask`, `paired_comparison` move to `sizing_tail`; `run_stats` is replaced by
-  `dv_tail` behind `aggregate_results`' frozen filter.
+  `capture_mask`, `paired_comparison`, `run_stats` move to `sizing_tail` (`run_stats` gains
+  `n_captured` and its CIs become opt-in through `n_boot`); `aggregate_results` filters `dv_tail`
+  through its frozen key tuples.
 - The final-record column table moves from `charts._FR_*` to `cell_eval.FR_*` (already the home
   of `FR_ECC / FR_IFINAL / FR_DV_TOTAL`, pinned to the Rust `final_record_indices()`); `charts`
   aliases them. No non-rendering module imports `charts` for a column.
@@ -82,7 +86,7 @@ cost function's default, as the gate always scored it.
   `demo`, `collect_appendix`, `aggregate_results`, `far_tail_eval`, `confirmatory_eval`,
   `centered_depth_eval`, `stress_depth_eval`, `robustness_stress`, `objective_centering_eval`,
   `fresh_pool_requote`, `fig_pareto`, `quote_marginal`, `heat_load_slope`, `measure_obs_lag`,
-  `eval_fnpag`.
+  `world_model`.
 
 ## Out of scope
 

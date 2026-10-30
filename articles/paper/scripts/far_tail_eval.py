@@ -89,7 +89,7 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
     # heat-load violations is not a clean competitor; see the LSTM disclosure in the
     # paper's section 6.2), plus the far-tail CIs this n = 10000 pool is for.
     rec = score_cell(res, read_cost_kwargs(res.toml_path), pool="FINAL_EVAL 2M", n_boot=10_000)
-    x = np.sort(res.dv)
+    x = res.dv  # seed order, the basis of the record's CIs (the same resamples index the same rows)
     r2 = lambda v: round(float(v), 2)  # noqa: E731
     out = {"label": label, **{k: rec[k] for k in ("n", "n_captured", "capture_pct")}}
     out.update({k: rec[src] for k, src in _KEYS.items()})

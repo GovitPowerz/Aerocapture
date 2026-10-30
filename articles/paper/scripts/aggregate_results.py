@@ -24,7 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_results_schema import PAIRED_KEYS, RUN_KEYS  # noqa: E402
 
 # results.json's frozen shapes (the check-schema gate pins them): the sizing-tail record filtered
-# to the keys the file has always carried; every record key added since is for the other writers.
+# to the keys the file has always carried, in the order it has carried them (json.dumps keeps
+# insertion order, so iterating the record instead would reorder the committed bytes).
 _RUN_DV_KEYS = tuple(k for k in RUN_KEYS if k.startswith("dv_"))
 _PAIRED_STAT_KEYS = tuple(k for k in PAIRED_KEYS if k not in ("a", "b")) + ("n_pairs", "delta_mean", "delta_mean_ci", "win_rate_a", "wilcoxon_p")
 
@@ -163,7 +164,8 @@ def summarize(key: str) -> dict:
     }
     cap = capture_mask(df["ifinal"].to_numpy(), df["eccentricity"].to_numpy())
     out.update({"n": int(len(df)), "capture_pct": round(100 * float(cap.mean()), 2)})
-    out.update({k: v for k, v in dv_tail(df["dv_total_m_s"].to_numpy()[cap], n_boot=10_000).items() if k in _RUN_DV_KEYS})
+    tail = dv_tail(df["dv_total_m_s"].to_numpy()[cap], n_boot=10_000)
+    out.update({k: tail[k] for k in _RUN_DV_KEYS if k in tail})
     out["heat_flux_p95"] = round(float(np.percentile(df["max_heat_flux_kw_m2"], 95)), 1)
     out["g_load_p95"] = round(float(np.percentile(df["max_load_factor_g"], 95)), 2)
     out["best_val_rms_within_transform_only"] = _best_val_rms(records)
@@ -198,7 +200,7 @@ def main() -> None:
         # wins on the tail). CVaR99.9 needs n=10000 (see far_tail_eval.json); p95/CVaR95
         # are stable at this n=1000 pool. Reviewer R1-S2: the tail deltas carry CIs.
         pt = paired_tail(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb)
-        paired[label] = {"a": ka, "b": kb, **{k: v for k, v in pt.items() if k in _PAIRED_STAT_KEYS}}
+        paired[label] = {"a": ka, "b": kb, **{k: pt[k] for k in _PAIRED_STAT_KEYS if k in pt}}
 
     sigma_run = {}
     for label, members in REPEAT_GROUPS.items():

@@ -271,18 +271,18 @@ def _score_variant(
     )
     rec = score_cell(res, cost_kwargs)  # the pool is the sweep file's `pool` block
     return {
-        "capture_rate": rec["capture_pct"] / 100.0,
+        "capture_rate": rec["n_captured"] / rec["n"],
         **{k: rec.get(k) for k in ("dv_p50", "dv_p95", "dv_p99", "dv_cvar95")},
         **{k: rec[k] for k in ("viol_pct", "rms_cost", "estimator", "noise_seeding")},
     }
 
 
 def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[int], dict[str, Any]]:
-    from aerocapture.training.cell_eval import reserved_pool
+    from aerocapture.training.seeds import make_reserved_seeds
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
-    return reserved_pool(Path(toml_path), pool_offset, n_sims), {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
+    return make_reserved_seeds(base_mc_seed, pool_offset, n_sims), {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
 
 
 def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False) -> dict[str, Any]:

@@ -194,8 +194,7 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     rec = score_cell(batch, cost_kwargs, pool="FINAL_EVAL 2M")
     summary.update({k: rec[k] for k in ("dv_p99", "dv_cvar95", "estimator")})
     summary["title"] = title
-    summary["noise_seeding"] = NOISE_REGIME["monte_carlo.noise_seeding"]
-    summary["pool"] = "FINAL_EVAL 2M"
+    summary.update({k: rec[k] for k in ("noise_seeding", "pool")})
     summary["results_key"] = results_key
     (out / "stats.json").write_text(json.dumps(summary, indent=1, default=float))
     print(f"  wrote {out.relative_to(REPO)} (7 svg + stats.json)")

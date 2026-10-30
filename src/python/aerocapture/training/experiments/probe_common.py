@@ -72,7 +72,7 @@ def score_model(
     cost_kwargs: dict[str, Any],
     sim_timeout: float | None,
     extra_overrides: dict[str, Any] | None = None,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """One MC batch of len(seeds) sims for a deployed model: the sizing-tail record
     (`sizing_tail.score_cell`) in this file's METRIC_KEYS spelling.
 
@@ -90,7 +90,7 @@ def score_model(
     nan = float("nan")
     return {
         "rms_cost": rec["rms_cost"],
-        "capture_rate": rec["capture_pct"] / 100.0,
+        "capture_rate": rec["n_captured"] / rec["n"],
         "dv_p50": rec.get("dv_p50", nan),
         "dv_p95": rec.get("dv_p95", nan),
         "cvar95": rec.get("dv_cvar95", nan),
@@ -99,7 +99,7 @@ def score_model(
     }
 
 
-def aggregate(per_rep: list[dict[str, float]]) -> dict[str, Any]:
+def aggregate(per_rep: list[dict[str, Any]]) -> dict[str, Any]:
     if not per_rep:
         return {"n_repeats": 0}
     agg: dict[str, Any] = {"n_repeats": len(per_rep), "per_repeat": per_rep}
@@ -248,7 +248,7 @@ def eval_arms(
 
     out: dict[str, Any] = {}
     for arm in arms:
-        per_rep: list[dict[str, float]] = []
+        per_rep: list[dict[str, Any]] = []
         for r in range(repeats):
             out_dir = out_root / f"{arm}_s{r}"
             model = out_dir / "best_model.json"
@@ -268,14 +268,14 @@ def score_references(
     references: dict[str, tuple[Path, Path]],
     seeds: list[int],
     sim_timeout: float | None,
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, Any]]:
     """Score deployed champions on the shared pool. NOT budget-matched -- each
     runs its own training TOML + best_model.json (+ best_params.json scaffolding
     when present). Missing artifacts skip with a notice."""
     from aerocapture.training.deploy_overrides import load_scaffolding_overrides
     from aerocapture.training.report import read_cost_kwargs
 
-    out: dict[str, dict[str, float]] = {}
+    out: dict[str, dict[str, Any]] = {}
     for name, (toml_path, scheme_dir) in references.items():
         toml_path, scheme_dir = Path(toml_path), Path(scheme_dir)
         model = scheme_dir / "best_model.json"

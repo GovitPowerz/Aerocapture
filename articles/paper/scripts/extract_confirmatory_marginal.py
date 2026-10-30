@@ -72,6 +72,7 @@ def build() -> dict:
         "freeze_commit": src["freeze_commit"],
         "n_replicates": src["n_replicates"],
         "n_per_replicate": src["n_per_replicate"],
+        **{k: src[k] for k in ("pool", "estimator") if k in src},  # written by the scorer since #220; older sources predate it
         "cells": [
             {
                 "label": label,

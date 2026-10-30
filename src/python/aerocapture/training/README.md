@@ -290,7 +290,8 @@ use `--sim-timeout` against NaN hangs).
   ADR-0005 constraints with `viol_n` and the per-constraint `<c>_viol_pct` / `<c>_viol_n`;
   `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). `tail_record` is the same
   on bare final records, `run_stats(ifinal, ecc, dv)` on parquet columns, `dv_tail(dvc)` the DV
-  block alone; `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =
+  block alone, `constraint_exceedances` the ONE violation rule (per-constraint masks over final
+  records, limits from `cost_kwargs`, columns `cell_eval.FR_*`); `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =
   `max(1, round((1 - level) n))` samples, `CVAR_ESTIMATOR` names it on every record); `paired_tail`
   / `paired_comparison` score two flights on one pool (both-captured mean delta, Wilcoxon, the
   scenario-resampled bootstrap of the p95 / CVaR95 / capture deltas). Every DV statistic is over
@@ -446,9 +447,8 @@ use `--sim-timeout` against NaN hangs).
 - `evaluate.py` — `write_nn_json` (chromosome -> model JSON via
   `aerocapture_rs.flat_weights_to_json`, QAT rounding applied), `build_v2_architecture`,
   `write_guidance_toml` (base TOML + `deploy_overrides.overrides_from_params` -> `toml_utils.write_toml`),
-  `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_exceedances` (the ONE
-  violation rule: per-constraint masks over final records, limits from `cost_kwargs`, columns
-  from `parquet_output`) and its means `constraint_violation_rates`,
+  `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_violation_rates` (the means of
+  `sizing_tail.constraint_exceedances`, the ONE violation rule),
   `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
   `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
 - `cost.py` — `build_cost_kwargs(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]`

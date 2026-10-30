@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO / "src/python"))
 
 from aerocapture.training.cell_eval import FR_DV_TOTAL  # noqa: E402
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME  # noqa: E402
-from aerocapture.training.sizing_tail import paired_tail, score_cell  # noqa: E402
+from aerocapture.training.sizing_tail import CONSTRAINTS, paired_tail, score_cell  # noqa: E402
 
 MC_TOML = "configs/training/paper/objective_centering/mamba_centered_high.toml"
 # (label, run_dir under training_output/, training TOML). The s2 / s3 repeats were trained by
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> None:
             flown[label] = (cap, dv)
             s = {"label": label, **rec}
             if args.v4:  # the per-constraint block the v4 file has carried since #177 (the record's rates, as a dict)
-                s["violation_pct"] = {c: rec[f"{c}_viol_pct"] for c in ("heat_flux", "g_load", "heat_load")}
+                s["violation_pct"] = {c: rec[f"{c}_viol_pct"] for c in CONSTRAINTS}
             cells.setdefault(regime, []).append(s)
             print(
                 f"  {regime:8s} {label:18s} capture {s['capture_pct']:5.1f}% [{s['capture_pct_ci'][0]:5.1f}, {s['capture_pct_ci'][1]:5.1f}]"
