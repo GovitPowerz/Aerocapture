@@ -220,12 +220,14 @@ def test_quote_marginal_and_fresh_pool_requote_report_the_same_tail(tmp_path: Pa
     fr[:, FR_DV_TOTAL] = np.sqrt(np.arange(1, n + 1, dtype=float)) * 20.0
     toml = REPO / "configs/training/sweep/mamba_p962.toml"
     fake = lambda _d, _t, seeds=None, *, pool=None, **kw: _cell(fr, toml, dict(kw.get("extra_overrides") or {}))  # noqa: E731
-    monkeypatch.setattr(cell_eval, "evaluate_cell", fake)
     monkeypatch.syspath_prepend(str(REPO / "experiments/ou_marginal"))
     monkeypatch.syspath_prepend(str(REPO / "articles/paper/scripts"))
     import fresh_pool_requote  # type: ignore[import-not-found]
     import quote_marginal  # type: ignore[import-not-found]
 
+    # quote_marginal binds evaluate_cell at import (another test module may have imported it first); fresh_pool_requote imports it inside main.
+    monkeypatch.setattr(quote_marginal, "evaluate_cell", fake)
+    monkeypatch.setattr(cell_eval, "evaluate_cell", fake)
     quoted = quote_marginal.score(str(toml.relative_to(REPO)), None, np.arange(n), "frozen")
     run_dir = tmp_path / "cell"
     run_dir.mkdir()
