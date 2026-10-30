@@ -87,8 +87,8 @@ and beat one another by a margin it does. The arxiv-v3 results this replaces (sh
 123.3 +- 0.1; its per-scenario fine-tune 163.0 +- 0.3) are the README's historical section.
 
 Paper: `articles/paper/paper.pdf`, v4 (the single-regime rewrite, #181; the `arxiv-v4` tag and
-GitHub Release were cut 2026-10-16 on the #216 merge commit, Zenodo DOI 10.5281/zenodo.23422624, #183; the arXiv
-submission is #217, blocked on an endorser). The arxiv-v3 build is the
+GitHub Release were cut 2026-10-16 on the #216 merge commit, Zenodo DOI 10.5281/zenodo.23422624, #183; the Zenodo
+record is the citable publication, an arXiv submission is not planned, #217). The arxiv-v3 build is the
 `arxiv-v3` tag / Release; changes since it: `articles/paper/CHANGES.md`. Detailed phase history
 (Phases 0 through 4a, task-by-task): this file's git history plus the specs and plans under
 `docs/design/` (the implementation plans left the tree in ee1518a: `git show ee1518a^:docs/superpowers/plans/`).
