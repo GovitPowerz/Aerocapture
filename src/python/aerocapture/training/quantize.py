@@ -254,11 +254,11 @@ def _score_variant(
     sim_timeout_secs: float | None,
     noise_seeding: str = "legacy",
 ) -> dict[str, Any]:
-    """One MC batch on an explicit seed list for a pinned model; tail-led metrics."""
-    from aerocapture.training import charts
+    """One MC batch on an explicit seed list for a pinned model: the sizing-tail record
+    (`sizing_tail.score_cell`; `viol_pct` is the union of the constraints) with this
+    file's `capture_rate` fraction."""
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.experiments.probe_common import cvar95
-    from aerocapture.training.report import compute_eval_summary
+    from aerocapture.training.sizing_tail import score_cell
 
     # Scored under the regime the quantized head's source cell was trained under (ADR-0006).
     res = evaluate_cell(
@@ -269,27 +269,20 @@ def _score_variant(
         extra_overrides={**_regime_overrides(noise_seeding), **extra_overrides},
         sim_timeout_secs=sim_timeout_secs,
     )
-    summary = compute_eval_summary(res.final_records, n_sims=len(seeds), cost_kwargs=cost_kwargs)
-    dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
-    viol = _max_viol_pct(summary["constraints"])
+    rec = score_cell(res, cost_kwargs)  # the pool is the sweep file's `pool` block
     return {
-        "capture_rate": float(summary["capture_rate"]),
-        "dv_p50": float(np.percentile(dv, 50)) if dv.size else None,
-        "dv_p95": float(np.percentile(dv, 95)) if dv.size else None,
-        "dv_p99": float(np.percentile(dv, 99)) if dv.size else None,
-        "dv_cvar95": cvar95(dv) if dv.size else None,
-        "viol_pct": viol,
-        "rms_cost": float(summary["cost"]["rms"]),
+        "capture_rate": rec["capture_pct"] / 100.0,
+        **{k: rec.get(k) for k in ("dv_p50", "dv_p95", "dv_p99", "dv_cvar95")},
+        **{k: rec[k] for k in ("viol_pct", "rms_cost", "estimator", "noise_seeding")},
     }
 
 
 def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[int], dict[str, Any]]:
-    from aerocapture.training.seeds import make_reserved_seeds
+    from aerocapture.training.cell_eval import reserved_pool
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     base_mc_seed = int(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("seed", 42))
-    seeds = make_reserved_seeds(base_mc_seed, pool_offset, n_sims)
-    return seeds, {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
+    return reserved_pool(Path(toml_path), pool_offset, n_sims), {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
 
 
 def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False) -> dict[str, Any]:
@@ -304,11 +297,6 @@ def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False)
             f"params_dir {d} yielded no scaffolding overrides (missing/empty best_params.json) -- scoring without co-trained scaffolding mis-ranks the model"
         )
     return overrides
-
-
-def _max_viol_pct(constraints: dict[str, Any]) -> float:
-    """Worst constraint-violation %; constraints without a configured limit carry viol_pct=None and are skipped."""
-    return max((float(c["viol_pct"]) for c in constraints.values() if c.get("viol_pct") is not None), default=0.0)
 
 
 def _pick_verdict(variants: list[dict[str, Any]], bits: int) -> dict[str, Any]:

@@ -32,8 +32,9 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
+from aerocapture.training.cell_eval import FR_DV_TOTAL  # noqa: E402
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME  # noqa: E402
-from aerocapture.training.paper_stats import _r2, bootstrap_ci, capture_mask, cvar, paired_comparison, run_stats  # noqa: E402
+from aerocapture.training.sizing_tail import paired_tail, score_cell  # noqa: E402
 
 MC_TOML = "configs/training/paper/objective_centering/mamba_centered_high.toml"
 # (label, run_dir under training_output/, training TOML). The s2 / s3 repeats were trained by
@@ -68,17 +69,15 @@ V4_REGIMES = {"per_draw": REGIMES["per_draw"]}
 V4_OUT = REPO / "articles/paper/data/centered_depth_v4.json"
 
 
-def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, np.ndarray, dict[str, float]]:
-    """(seeds, ifinal, eccentricity, correction DV) per scenario of one cell under one regime, plus its
-    per-constraint violation rates over every draw against the ADR-0005 gate's own limits (the TOML's
-    [flight.constraints]; build_cost_kwargs defaults any missing one, so all three are always scored)."""
+def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, dict]:
+    """(seeds, captured mask, correction DV per scenario, the sizing-tail record with bootstrap CIs) of
+    one cell under one regime on the 9M stress pool; the record's violation rates are against the
+    ADR-0005 gate's own limits (the TOML's [flight.constraints]; build_cost_kwargs defaults any
+    missing one, so all three are always scored)."""
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.evaluate import constraint_violation_rates
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
-    cost_kwargs = read_cost_kwargs(Path(toml))
     res = evaluate_cell(
         REPO / "training_output" / run_dir,
         Path(toml),
@@ -86,30 +85,16 @@ def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], 
         extra_overrides={**REGIMES[regime], **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    return res.seeds, col["ifinal"], col["eccentricity"], col["dv_total_m_s"], constraint_violation_rates(res.final_records, cost_kwargs)
+    rec = score_cell(res, read_cost_kwargs(Path(toml)), pool="STRESS_EVAL 9M", n_boot=N_BOOT)
+    return res.seeds, res.captured, res.final_records[:, FR_DV_TOTAL], rec
 
 
 def _paired(a: tuple[np.ndarray, np.ndarray], b: tuple[np.ndarray, np.ndarray]) -> dict:
-    """a versus b on the shared pool: the both-captured mean delta (paper_stats), plus a paired
-    bootstrap over scenarios (resampled row indices) of the capture-rate and conditional-CVaR95
-    deltas (negative = a better on the tail, positive = a captures more)."""
+    """a versus b on the shared pool (`sizing_tail.paired_tail`): the both-captured mean delta, and the
+    scenario-resampled bootstrap of the capture-rate and conditional-CVaR95 deltas (negative = a
+    better on the tail, positive = a captures more)."""
     (cap_a, dv_a), (cap_b, dv_b) = a, b
-    rows = np.arange(len(cap_a))
-
-    def d_cap(i: np.ndarray) -> float:
-        return float(100 * (cap_a[i].mean() - cap_b[i].mean()))
-
-    def d_tail(i: np.ndarray) -> float:
-        return cvar(dv_a[i][cap_a[i]], 0.95) - cvar(dv_b[i][cap_b[i]], 0.95)
-
-    return {
-        **paired_comparison(dv_a, cap_a, dv_b, cap_b, n_boot=N_BOOT),
-        "delta_capture_pts": _r2(d_cap(rows)),
-        "delta_capture_pts_ci": [_r2(v) for v in bootstrap_ci(rows, d_cap, N_BOOT)],
-        "delta_cvar95": _r2(d_tail(rows)),
-        "delta_cvar95_ci": [_r2(v) for v in bootstrap_ci(rows, d_tail, N_BOOT)],
-    }
+    return paired_tail(dv_a, cap_a, dv_b, cap_b, n_boot=N_BOOT)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -133,16 +118,14 @@ def main(argv: list[str] | None = None) -> None:
         flown: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         pool: list[int] | None = None
         for label, run_dir, toml in seed_cells + baseline_cells:
-            seeds, ifinal, ecc, dv, rates = _fly(run_dir, toml, regime, args.n_sims)
+            seeds, cap, dv, rec = _fly(run_dir, toml, regime, args.n_sims)
             if pool is not None and seeds != pool:
                 sys.exit(f"{label} flew a different seed pool: the comparisons are paired")
             pool = seeds
-            cap = capture_mask(ifinal, ecc)
             flown[label] = (cap, dv)
-            s = {"label": label, **run_stats(ifinal, ecc, dv, n_boot=N_BOOT)}
-            s["capture_pct_ci"] = [_r2(100 * v) for v in bootstrap_ci(cap.astype(np.float64), np.mean, N_BOOT)]
-            if args.v4:  # the arxiv-v3 file's shape stays as committed
-                s["violation_pct"] = {k: _r2(100 * v) for k, v in rates.items()}
+            s = {"label": label, **rec}
+            if args.v4:  # the per-constraint block the v4 file has carried since #177 (the record's rates, as a dict)
+                s["violation_pct"] = {c: rec[f"{c}_viol_pct"] for c in ("heat_flux", "g_load", "heat_load")}
             cells.setdefault(regime, []).append(s)
             print(
                 f"  {regime:8s} {label:18s} capture {s['capture_pct']:5.1f}% [{s['capture_pct_ci'][0]:5.1f}, {s['capture_pct_ci'][1]:5.1f}]"

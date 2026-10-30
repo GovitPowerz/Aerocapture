@@ -182,7 +182,7 @@ Planning on the 1,000-seed planning pool (`per_draw` noise):
 
 Paired on the same seeds, every learned planner costs 634 to 829 m/s more than the clairvoyant one
 on average and wins on no flight (`vs_oracle` in the JSON).
-Delta-v statistics are over captured flights (`paper_stats.run_stats`). Planning cost is wall time
+Delta-v statistics are over captured flights (`sizing_tail.run_stats`). Planning cost is wall time
 per flight and replan, batched over the 1,000 flights on this machine: the replay re-flies each
 flight from t = 0 with 14 Rayon threads, the learned models run on 10 torch threads and stop a
 rollout once every flight in the batch has terminated, so a model that predicts early crashes

@@ -35,6 +35,7 @@ def build() -> dict:
         "source": str(SRC.relative_to(REPO)),
         "n_sims": src["n_sims"],
         **{k: src[k] for k in PROTOCOL},
+        **({"estimator": src["estimator"]} if "estimator" in src else {}),  # written by the scorer since #220; older sources predate it
         "cells": {key: {f: src["cells"][key][f] for f in FIELDS} for key in sorted(src["cells"])},
     }
 

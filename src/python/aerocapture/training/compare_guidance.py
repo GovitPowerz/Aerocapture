@@ -25,8 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from aerocapture.training import charts
-from aerocapture.training.cell_eval import fly_mc
+from aerocapture.training.cell_eval import FR_APO_ERR, FR_PERI_ERR, fly_mc
 from aerocapture.training.cost import compute_cost
 
 SCHEMES = [
@@ -154,10 +153,10 @@ def run_scheme(
     }
 
     if captured.any():
-        metrics["apo_err_mean"] = float(np.abs(final[captured, charts._FR_APO_ERR]).mean())
-        metrics["apo_err_std"] = float(np.abs(final[captured, charts._FR_APO_ERR]).std())
-        metrics["peri_err_mean"] = float(np.abs(final[captured, charts._FR_PERI_ERR]).mean())
-        metrics["peri_err_std"] = float(np.abs(final[captured, charts._FR_PERI_ERR]).std())
+        metrics["apo_err_mean"] = float(np.abs(final[captured, FR_APO_ERR]).mean())
+        metrics["apo_err_std"] = float(np.abs(final[captured, FR_APO_ERR]).std())
+        metrics["peri_err_mean"] = float(np.abs(final[captured, FR_PERI_ERR]).mean())
+        metrics["peri_err_std"] = float(np.abs(final[captured, FR_PERI_ERR]).std())
         dv = res.dv
         metrics["dv_mean"] = float(np.mean(dv))
         metrics["dv_std"] = float(np.std(dv))

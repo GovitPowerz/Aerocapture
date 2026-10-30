@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from aerocapture.training import cell_eval, report
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, CellResult
+from aerocapture.training.cost import build_cost_kwargs
 from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
 
 REPO = Path(__file__).resolve().parents[1]
@@ -24,7 +25,7 @@ TOY_TOML = "configs/training/ou_marginal/mamba_p962.toml"
 TOY_POOLS = [list(range(2**31, 2**31 + 40)), list(range(2**31 + 40, 2**31 + 80))]
 
 
-def toy_flight(seeds: list[int]) -> CellResult:
+def toy_flight(seeds: list[int], overrides: dict[str, Any] | None = None) -> CellResult:
     rng = np.random.default_rng(seeds[0])
     n = len(seeds)
     fr = np.zeros((n, 52))
@@ -41,7 +42,7 @@ def toy_flight(seeds: list[int]) -> CellResult:
         trajectories=None,
         seeds=list(seeds),
         toml_path=Path("toy.toml"),
-        overrides={"data.neural_network": "toy/best_model.json"},
+        overrides={"data.neural_network": "toy/best_model.json", **(overrides or {})},
     )
 
 
@@ -57,19 +58,21 @@ class ToySim:
         self.calls = 0
         self.fail_at: int | None = None
 
-    def __call__(self, cell_dir: Path | None, base_toml: Path, seeds: list[int], **_kw: Any) -> CellResult:
+    def __call__(self, cell_dir: Path | None, base_toml: Path, seeds: list[int], **kw: Any) -> CellResult:
         self.calls += 1
         if self.fail_at is not None and self.calls - 1 == self.fail_at:
             raise Interrupted
         self.flown.append(list(seeds))
-        return toy_flight(seeds)
+        return toy_flight(seeds, kw.get("extra_overrides"))
 
 
 @pytest.fixture
 def sim(monkeypatch: pytest.MonkeyPatch) -> ToySim:
     s = ToySim()
     monkeypatch.setattr(cell_eval, "evaluate_cell", s)
-    monkeypatch.setattr(report, "_read_constraint_limits", lambda _toml: (1.9, 1.9, 1000.0))
+    monkeypatch.setattr(
+        report, "read_cost_kwargs", lambda _toml: {**build_cost_kwargs({}), "heat_flux_limit": 1.9, "g_load_limit": 1.9, "heat_load_limit": 1000.0}
+    )
     return s
 
 
@@ -213,11 +216,11 @@ def test_a_save_keeps_cells_another_invocation_wrote_meanwhile(
         "replicate_stats": {"capture_pct": {"mean": 1.0}},
     }
 
-    def other_invocation_saves(seeds: list[int]) -> CellResult:
+    def other_invocation_saves(seeds: list[int], overrides: dict[str, Any]) -> CellResult:
         out.write_text(json.dumps({"n_replicates": 2, "n_per_replicate": 30, "noise_seeding": "per_draw", "cells": [foreign]}))
-        return toy_flight(seeds)
+        return toy_flight(seeds, overrides)
 
-    monkeypatch.setattr(cell_eval, "evaluate_cell", lambda _d, _t, seeds, **_kw: other_invocation_saves(seeds))
+    monkeypatch.setattr(cell_eval, "evaluate_cell", lambda _d, _t, seeds, **kw: other_invocation_saves(seeds, kw["extra_overrides"]))
     ce.main(["--cells", f"joint_reference/toy:{TOY_TOML}", "--replicates", "2", "--n", "30", "--out", str(out), "--noise-seeding", "per_draw"])
     assert [c["label"] for c in json.loads(out.read_text())["cells"]] == ["joint_reference/toy", "other"]
 
@@ -276,7 +279,9 @@ class OutcomeSim:
         col = dict(zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True))
         fr[:, col["max_heat_flux_kw_m2"]] = np.where(r == 4, 2.0, 0.0)
         fr[:, col["integrated_flux_mj_m2"]] = np.where((r == 4) | (r == 5), 0.01, 0.0)
-        return CellResult(final_records=fr, dispersions=np.zeros((len(seeds), 26)), trajectories=None, seeds=list(seeds), toml_path=Path("t"), overrides={})
+        return CellResult(
+            final_records=fr, dispersions=np.zeros((len(seeds), 26)), trajectories=None, seeds=list(seeds), toml_path=Path("t"), overrides=dict(extra_overrides)
+        )
 
 
 @pytest.fixture
@@ -284,7 +289,9 @@ def outcomes(tmp_path: Path, cm: ModuleType, monkeypatch: pytest.MonkeyPatch) ->
     """The seed-keyed sim on two 40-seed pools (100-139, 140-179) and the argv scoring one finished toy cell."""
     s = OutcomeSim()
     monkeypatch.setattr(cell_eval, "evaluate_cell", s)
-    monkeypatch.setattr(report, "_read_constraint_limits", lambda _toml: (1.0, 1.0, 1.0))
+    monkeypatch.setattr(
+        report, "read_cost_kwargs", lambda _toml: {**build_cost_kwargs({}), "heat_flux_limit": 1.0, "g_load_limit": 1.0, "heat_load_limit": 1.0}
+    )
     monkeypatch.setattr("aerocapture.training.seeds.make_confirmatory_pools", lambda _seed, _r, _n: [list(range(100, 140)), list(range(140, 180))])
     monkeypatch.setattr(cm, "OUT", tmp_path / "out.json")
     cell = tmp_path / "toy"

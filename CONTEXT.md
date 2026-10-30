@@ -105,7 +105,7 @@ The correction delta-v (m/s) of the post-capture cleanup burns; the physical obj
 The synthetic DV assigned to non-capture outcomes so every termination stays comparable in cost.
 
 **Sizing Tail**:
-The upper tail of the DV distribution (p95, CVaR95 and beyond) that sizes propellant mass; the headline comparison metric.
+The upper tail of the DV distribution (p95, CVaR95 and beyond) that sizes propellant mass; the headline comparison metric. Scored by one module, `training/sizing_tail.py`, whose record names its CVaR estimator, noise regime and seed pool.
 _Avoid_: leading comparisons with the median
 
 **Validation Gate**:

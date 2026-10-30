@@ -65,19 +65,6 @@ def _completion(out_dir: Path, config: Path, n_gen: int) -> str:
     return "done"
 
 
-def cvar95(dv: np.ndarray) -> float:
-    """CVaR95 = mean of the worst 5% (DV at or above the 95th percentile).
-
-    The propellant-sizing tail statistic: what the ergol budget must cover in
-    the bad-luck cases, not the median mission.
-    """
-    if dv.size == 0:
-        return float("nan")
-    thr = float(np.percentile(dv, 95))
-    tail = dv[dv >= thr]
-    return float(np.mean(tail)) if tail.size else thr
-
-
 def score_model(
     config: Path,
     model: Path,
@@ -86,34 +73,29 @@ def score_model(
     sim_timeout: float | None,
     extra_overrides: dict[str, Any] | None = None,
 ) -> dict[str, float]:
-    """One MC batch of len(seeds) sims for a deployed model; tail-led metric dict."""
-    from aerocapture.training import charts
+    """One MC batch of len(seeds) sims for a deployed model: the sizing-tail record
+    (`sizing_tail.score_cell`) in this file's METRIC_KEYS spelling.
+
+    Constraint feasibility is scored on the same pool (the LSTM lesson: a cell can win
+    the DV tail while violating the heat-load limit; a probe arm must not be quoted as
+    "within sigma_run" without this check); `viol_pct` is the union of the constraints.
+    """
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary
+    from aerocapture.training.sizing_tail import score_cell
 
     # Probe arms were trained under the shared noise path; score them there (ADR-0006).
     res = evaluate_cell(None, config, seeds, model=model, extra_overrides={**LEGACY_NOISE_REGIME, **(extra_overrides or {})}, sim_timeout_secs=sim_timeout)
-    final = res.final_records
-    summary = compute_eval_summary(final, n_sims=len(seeds), cost_kwargs=cost_kwargs)
-    dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
-    # Constraint feasibility on the same pool (the LSTM lesson: a cell can win the
-    # DV tail while violating the heat-load limit; a probe arm must not be quoted
-    # as "within sigma_run" without this check).
-    hfl, gll, hll = (v if v is not None else float("inf") for v in _read_constraint_limits(config))
-    v_hf = final[:, charts._FR_MAX_HEAT_FLUX] > hfl
-    v_g = final[:, charts._FR_MAX_G_LOAD] > gll
-    v_hl = final[:, charts._FR_INTEGRATED_FLUX] * 1e3 > hll
+    rec = score_cell(res, cost_kwargs, pool="PROBE_EVAL")  # seeds.PROBE_EVAL_SEED_OFFSET, shared by every probe
+    nan = float("nan")
     return {
-        "rms_cost": float(summary["cost"]["rms"]),
-        "capture_rate": float(summary["capture_rate"]),
-        "dv_p50": float(summary["captured"]["dv"]["p50"]) if summary["captured"] else float("nan"),
-        "dv_p95": float(summary["captured"]["dv"]["p95"]) if summary["captured"] else float("nan"),
-        "cvar95": cvar95(dv),
-        "viol_pct": float(100.0 * np.mean(v_hf | v_g | v_hl)),
-        "heat_flux_viol_pct": float(100.0 * np.mean(v_hf)),
-        "g_load_viol_pct": float(100.0 * np.mean(v_g)),
-        "heat_load_viol_pct": float(100.0 * np.mean(v_hl)),
+        "rms_cost": rec["rms_cost"],
+        "capture_rate": rec["capture_pct"] / 100.0,
+        "dv_p50": rec.get("dv_p50", nan),
+        "dv_p95": rec.get("dv_p95", nan),
+        "cvar95": rec.get("dv_cvar95", nan),
+        **{k: rec[k] for k in ("viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "heat_load_viol_pct")},
+        **{k: rec[k] for k in ("estimator", "noise_seeding")},
     }
 
 

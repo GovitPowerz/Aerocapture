@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import numpy as np
 import pytest
-from aerocapture.training.experiments.probe_common import _completion, aggregate, arch_toml, cvar95
+from aerocapture.training.experiments.probe_common import _completion, aggregate, arch_toml
 
 
 def _write_arm(tmp: Path, arch: list[dict], checkpoint_gens: list[int]) -> tuple[Path, Path]:
@@ -119,17 +118,6 @@ def test_train_jobs_skips_done_resumes_partial_wipes_stale(tmp_path: Path, monke
     assert "--from-scratch" not in launched["partial"]  # resume preserves the checkpoint
     assert "--from-scratch" in launched["stale"]  # unusable checkpoints wiped
     assert "--from-scratch" not in launched["absent"]  # fresh dir, nothing to wipe
-
-
-def test_cvar95_is_worst_5pct_mean() -> None:
-    x = np.arange(100.0)
-    cv = cvar95(x)
-    assert cv > float(np.percentile(x, 95))
-    assert cv == float(np.mean(x[x >= np.percentile(x, 95)]))
-
-
-def test_cvar95_empty_is_nan() -> None:
-    assert np.isnan(cvar95(np.array([])))
 
 
 def test_aggregate_mean_std() -> None:

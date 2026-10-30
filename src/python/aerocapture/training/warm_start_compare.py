@@ -35,7 +35,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.artifacts import write_best_artifacts
-from aerocapture.training.cell_eval import evaluate_cell
+from aerocapture.training.cell_eval import evaluate_cell, is_captured
 from aerocapture.training.deploy_overrides import overrides_from_params
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.report import _read_constraint_limits
@@ -199,7 +199,7 @@ def render_trajectory_comparison(
                         heat_flux_limit=heat_flux_limit,
                         g_load_limit=None,  # g-load violation already counted via heat-flux path
                     )
-                    n_captured = int(((final_records[:, _charts._FR_IFINAL] == 3) & (final_records[:, _charts._FR_ECC] < 1.0)).sum())
+                    n_captured = int(is_captured(final_records).sum())
                     prefix = f"compare_{pool_name}_{side}"
                     _render_pool_panels(
                         trajectories=trajectories,

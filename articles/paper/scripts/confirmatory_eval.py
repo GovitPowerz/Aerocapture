@@ -9,8 +9,8 @@ design-based dispersion (t-based SE over replicates, no bootstrap-on-design
 caveat), and replicates share seeds across cells so per-replicate stat
 differences are paired.
 
-Estimator: cvar(x, a) = mean of the worst max(1, round((1-a) * n_captured))
-captured-DV observations, no interpolation (paper_stats.cvar).
+Estimator: `sizing_tail.cvar` (the mean of the worst max(1, round((1-a) * n_captured))
+captured-DV observations, no interpolation), named in the file's `estimator`.
 
 Usage:
     uv run python articles/paper/scripts/confirmatory_eval.py \
@@ -49,7 +49,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
-from aerocapture.training.paper_stats import cvar  # noqa: E402
+from aerocapture.training.sizing_tail import CVAR_ESTIMATOR, cvar_tail_size, dv_tail, score_cell  # noqa: E402
 
 OUT = REPO / "articles/paper/data/confirmatory_eval.json"
 
@@ -66,6 +66,18 @@ PAIRS = [
 T95_DF9 = 2.262  # t(0.975, df=9) for 10 replicates
 
 REP_KEYS = ("capture_pct", "p50", "p95", "cvar95", "p99", "cvar99", "p999", "p9987", "cvar999", "max")
+# This file's spelling of the record's DV block (results.typ, figlib and the extracts read it).
+_DV_KEYS = {
+    "p50": "dv_p50",
+    "p95": "dv_p95",
+    "cvar95": "dv_cvar95",
+    "p99": "dv_p99",
+    "cvar99": "dv_cvar99",
+    "p999": "dv_p999",
+    "p9987": "dv_p9987",
+    "cvar999": "dv_cvar999",
+    "max": "dv_max_descriptive",
+}
 # Per-constraint violation rates ride along per replicate (ADR-0005: quote feasibility next to the tail),
 # with their exact counts: a 2-decimal rate reads fewer than 5 violations per 100,000 as 0.00.
 VIOL_KEYS = ("viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "heat_load_viol_pct")
@@ -93,22 +105,13 @@ def _parse_extra_overrides(items: list[str]) -> dict[str, Any]:
     return out
 
 
-def _replicate_stats(x: np.ndarray, n_total: int, n_captured: int, viol: dict[str, float]) -> dict:
-    return {
-        "n": n_total,
-        "n_captured": n_captured,
-        "capture_pct": _r2(100.0 * n_captured / n_total),
-        "p50": _r2(np.percentile(x, 50)),
-        "p95": _r2(np.percentile(x, 95)),
-        "cvar95": _r2(cvar(x, 0.95)),
-        "p99": _r2(np.percentile(x, 99)),
-        "cvar99": _r2(cvar(x, 0.99)),
-        "p999": _r2(np.percentile(x, 99.9)),
-        "p9987": _r2(np.percentile(x, 99.87)),
-        "cvar999": _r2(cvar(x, 0.999)),
-        "max": _r2(x.max()),
-        **{k: _r2(v) for k, v in viol.items()},
-    }
+def _replicate_stats(rec: dict) -> dict:
+    """The sizing-tail record of one replicate in this file's spelling: n, capture, the DV block,
+    the violation rates and their exact counts."""
+    out = {k: rec[k] for k in ("n", "n_captured", "capture_pct")}
+    out.update({k: rec[src] for k, src in _DV_KEYS.items()})
+    out.update({k: rec[k] for k in VIOL_KEYS + VIOL_COUNT_KEYS})
+    return out
 
 
 def _agg(values: list[float]) -> dict:
@@ -164,11 +167,10 @@ def _eval_cell(
     as the completion marker), and a replicate found there is loaded instead of flown, so an
     interrupted cell resumes where it stopped. The caller deletes the store once the cell is saved."""
     from aerocapture.training.cell_eval import _resolve_cell, evaluate_cell
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-    from aerocapture.training.report import _read_constraint_limits
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    hfl, gll, hll = (None, None, None)
+    cost_kwargs = None
 
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
     if bundle_key and (bundle_model is None or not bundle_model.exists()):
@@ -207,19 +209,12 @@ def _eval_cell(
             print(f"  {label} r{r}: loaded from {done.parent}", flush=True)
             continue
         res = evaluate_cell(cell_dir, Path(toml), seeds, model=bundle_model, extra_overrides=overrides, sim_timeout_secs=sim_timeout)
-        if hfl is None:
-            hfl, gll, hll = _read_constraint_limits(res.toml_path)
+        if cost_kwargs is None:
+            cost_kwargs = read_cost_kwargs(res.toml_path)
         model_used = res.overrides.get("data.neural_network")
-        recs = res.final_records
-        col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
         cap = res.captured
         x = np.sort(res.dv)
-        over_flux = col["max_heat_flux_kw_m2"] > hfl
-        over_g = col["max_load_factor_g"] > gll
-        over_hl = col["integrated_flux_mj_m2"] * 1e3 > hll
-        over = {"viol": over_flux | over_g | over_hl, "heat_flux_viol": over_flux, "g_load_viol": over_g, "heat_load_viol": over_hl}
-        viol = {f"{k}_pct": 100 * float(m.mean()) for k, m in over.items()}
-        rep = {"replicate": r, **_replicate_stats(x, len(recs), int(cap.sum()), viol), **{f"{k}_n": int(m.sum()) for k, m in over.items()}}
+        rep = {"replicate": r, **_replicate_stats(score_cell(res, cost_kwargs))}
         failed = [int(s) for s, ok in zip(seeds, cap, strict=True) if not ok][:50]
         if failed:
             rep["failed_seeds"] = failed  # for post-hoc classification (timeout vs physical)
@@ -233,6 +228,7 @@ def _eval_cell(
         print(f"  {label} r{r}: cap={reps[-1]['capture_pct']}% cvar999={reps[-1]['cvar999']} max={reps[-1]['max']}", flush=True)
 
     pooled_x = np.sort(np.concatenate(pooled_parts))
+    pooled_tail = dv_tail(pooled_x)
     n_all = sum(rp["n"] for rp in reps)
     n_cap = sum(rp["n_captured"] for rp in reps)
     step = max(1, len(pooled_x) // 10_000)
@@ -248,10 +244,8 @@ def _eval_cell(
             "n": n_all,
             "n_captured": n_cap,
             "capture_pct": _r2(100.0 * n_cap / n_all),
-            **{k: _r2(np.percentile(pooled_x, p)) for k, p in (("p95", 95), ("p99", 99), ("p999", 99.9), ("p9987", 99.87))},
-            **{f"cvar{t}": _r2(cvar(pooled_x, lv)) for t, lv in (("95", 0.95), ("99", 0.99), ("999", 0.999))},
-            "max": _r2(pooled_x.max()),
-            "n_tail_obs_cvar999": max(1, int(round(0.001 * n_cap))),
+            **{k: pooled_tail[_DV_KEYS[k]] for k in ("p95", "p99", "p999", "p9987", "cvar95", "cvar99", "cvar999", "max")},
+            "n_tail_obs_cvar999": cvar_tail_size(n_cap, 0.999),
             **{k: _r2(float(np.mean([rp[k] for rp in reps]))) for k in VIOL_KEYS},
             **{k: sum(rp[k] for rp in reps) for k in VIOL_COUNT_KEYS},
         },
@@ -371,7 +365,7 @@ def main(argv: list[str] | None = None) -> None:
                     "base_mc_seed": base_seed,
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,
-                    "estimator": "cvar(x,a) = mean of worst max(1, round((1-a)*n_captured)) captured-DV obs; agg = t-CI over replicates (df=9)",
+                    "estimator": f"{CVAR_ESTIMATOR}; agg = t-CI over replicates (df=9)",
                     "cells": cells,
                     "paired": _paired(by_label),
                 },

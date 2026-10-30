@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME  # noqa: E402
-from aerocapture.training.paper_stats import run_stats  # noqa: E402
+from aerocapture.training.sizing_tail import score_cell  # noqa: E402
 
 # (label, run_dir under training_output/, training TOML). n_sims is the training
 # budget used (for the convergence x-axis), set by the runner.
@@ -92,8 +92,6 @@ def extract_convergence(records: list[dict], n_pop: int, n_sims: int) -> list[li
 
 def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int, regime: dict[str, str]) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.evaluate import constraint_violation_rates
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
     from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
@@ -106,10 +104,9 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
         extra_overrides={**regime, **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    stats = {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
-    # Every draw against the ADR-0005 gate's own limits (the TOML's [flight.constraints]; build_cost_kwargs defaults any missing one).
-    stats["violation_rates"] = constraint_violation_rates(res.final_records, cost_kwargs)
+    stats = {"label": label, **score_cell(res, cost_kwargs, pool="STRESS_EVAL 9M", n_boot=2000)}
+    # The per-constraint fractions this file has carried (the record's rates, as fractions in a dict).
+    stats["violation_rates"] = {c: stats[f"{c}_viol_pct"] / 100.0 for c in ("heat_flux", "g_load", "heat_load")}
     records = _read_run_log(sorted(glob.glob(str(scheme_dir / "run_*.jsonl"))))  # run_000_<UTC stamp>: name order is launch order
     stats["convergence"] = extract_convergence(records, _derive_n_pop(records, N_POP), n_sims_train)
     return stats

@@ -32,11 +32,10 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-from aerocapture.training import charts
-from aerocapture.training.cell_eval import evaluate_cell
+from aerocapture.training.cell_eval import FR_INTEGRATED_FLUX, evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.evaluate import constraint_violation_rates
 from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.sizing_tail import CVAR_ESTIMATOR, score_cell
 from quote_marginal import MARGINAL_SEED_BASE, MARGINAL_SEED_STEP, REGIMES, SEED_POOL, SEED_POOL_HIGH, SEED_POOL_RNG_SEED
 
 REPO = Path(__file__).resolve().parents[2]
@@ -79,23 +78,16 @@ def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float
         per_seed_overrides=[{"simulation.random_seed": float(MARGINAL_SEED_BASE + MARGINAL_SEED_STEP * i)} for i in range(len(seeds))],
         sim_timeout_secs=30.0,
     )
-    rates = constraint_violation_rates(res.final_records, cost_kwargs)
-    assert rates is not None
-    heat_load = res.final_records[:, charts._FR_INTEGRATED_FLUX]
-    dv = res.dv
-    p50, p95 = np.percentile(dv, [50, 95])
+    # The sizing-tail record scored at `cost_kwargs`' ceiling (the pool, regime and estimator are the file's block).
+    rec = score_cell(res, cost_kwargs)
+    heat_load = res.final_records[:, FR_INTEGRATED_FLUX]
     return {
         "ceiling_kj_m2": float(cost_kwargs["heat_load_limit"]),
-        "capture_pct": round(100.0 * float(res.captured.mean()), 2),
-        "dv_p50": round(float(p50), 2),
-        "dv_p95": round(float(p95), 2),
-        "dv_cvar95": round(float(dv[dv >= p95].mean()), 2),
-        "dv_max": round(float(dv.max()), 2),
+        **{k: rec[k] for k in ("capture_pct", "dv_p50", "dv_p95", "dv_cvar95")},
+        "dv_max": rec["dv_max_descriptive"],
         "heat_load_p95_mj_m2": round(float(np.percentile(heat_load, 95)), 2),
         "heat_load_max_mj_m2": round(float(heat_load.max()), 2),
-        "heat_load_viol_pct": round(100.0 * rates["heat_load"], 2),
-        "heat_flux_viol_pct": round(100.0 * rates["heat_flux"], 2),
-        "g_load_viol_pct": round(100.0 * rates["g_load"], 2),
+        **{k: rec[k] for k in ("heat_load_viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "viol_pct")},
     }
 
 
@@ -197,6 +189,7 @@ def main(argv: list[str] | None = None) -> None:
                 "n_sims": args.n_sims,
                 "regime": REGIMES["marginal"],
                 "seed_pool": SEED_POOL,
+                "estimator": CVAR_ESTIMATOR,
                 "v4_max_heat_load": V4_MAX_HEAT_LOAD,
                 "override": CEILING_KEY,
                 "rows": rows,

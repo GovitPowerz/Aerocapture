@@ -26,6 +26,7 @@ from aerocapture.training.cell_eval import FR_DV_TOTAL, _resolve_cell, evaluate_
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
 from aerocapture.training.model_io import load_policy_from_json
 from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
+from aerocapture.training.sizing_tail import dv_tail
 
 OUT = Path("/tmp/obs_lag")
 
@@ -70,11 +71,10 @@ def main() -> None:
     name = a.cell.name + "_" + a.arm + (f"_{a.tag}" if a.tag else "")
     np.savez(OUT / f"{name}.npz", seeds=np.asarray(seeds), final_records=fr)
     cap = is_captured(fr)
-    dv = np.sort(fr[cap, FR_DV_TOTAL])
-    tail = dv[-max(1, len(dv) // 20) :].mean()
+    t = dv_tail(fr[cap, FR_DV_TOTAL])
     print(
-        f"{name}: n={len(fr)} capture={100 * cap.mean():.1f}% mean={dv.mean():.2f} p50={np.percentile(dv, 50):.2f} "
-        f"p95={np.percentile(dv, 95):.2f} cvar95={tail:.2f} max={dv.max():.2f}"
+        f"{name}: n={len(fr)} capture={100 * cap.mean():.1f}% mean={t['dv_mean']:.2f} p50={t['dv_p50']:.2f} "
+        f"p95={t['dv_p95']:.2f} cvar95={t['dv_cvar95']:.2f} max={t['dv_max_descriptive']:.2f}"
     )
 
 

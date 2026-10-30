@@ -173,7 +173,9 @@ class ToySim:
         fr[:, FR_ECC] = 0.5
         fr[:, FR_DV_TOTAL] = rng.gamma(4.0, 30.0, n)
         fr[:, charts._FR_MAX_HEAT_FLUX] = np.where(rng.random(n) < 0.25, 250.0, 150.0)  # kW/m2 against the 200 limit
-        return CellResult(final_records=fr, dispersions=np.zeros((n, 26)), trajectories=None, seeds=seed_list, toml_path=Path("toy.toml"), overrides={})
+        return CellResult(
+            final_records=fr, dispersions=np.zeros((n, 26)), trajectories=None, seeds=seed_list, toml_path=Path("toy.toml"), overrides=dict(self.calls[-1])
+        )
 
 
 @pytest.fixture

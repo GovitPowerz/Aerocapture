@@ -10,11 +10,15 @@ manifests as DATA (never name-regex).
 """
 
 import json
+import sys
 
 import figlib as fl
 import matplotlib.pyplot as plt
 import numpy as np
 import pyarrow.parquet as pq
+
+sys.path.insert(0, str(fl.REPO / "src/python"))
+from aerocapture.training.sizing_tail import cvar  # noqa: E402
 
 FAMILY_C = {"dense": fl.C["dense"], "gru": fl.C["gru"], "lstm": fl.C["lstm"], "mamba": fl.C["mamba"], "transformer": "#d1701f", "window": "#937860"}
 
@@ -38,9 +42,8 @@ def _tail(arch: str, params: int):
         raise FileNotFoundError(f"sweep cell missing from the bundle: {par}")
     df = pq.read_table(par).to_pandas()
     cap = (df["ifinal"] == 3) & (df["eccentricity"] < 1.0)
-    x = np.sort(df.loc[cap, "dv_total_m_s"].to_numpy())
-    cvar95 = x[-max(1, round(len(x) * 0.05)) :].mean()
-    return float(np.percentile(x, 99)), float(cvar95)
+    x = df.loc[cap, "dv_total_m_s"].to_numpy()
+    return float(np.percentile(x, 99)), cvar(x, 0.95)
 
 
 def main():

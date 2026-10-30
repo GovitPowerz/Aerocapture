@@ -30,8 +30,8 @@ import wm_model
 import wm_planner
 import wm_plant
 from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.paper_stats import capture_mask, paired_comparison, run_stats
 from aerocapture.training.seeds import WORLD_MODEL_SEED_OFFSET, base_mc_seed_from_toml, make_reserved_seeds
+from aerocapture.training.sizing_tail import capture_mask, paired_comparison, run_stats
 from aerocapture.training.toml_utils import load_toml_with_bases
 from scipy.stats import spearmanr
 

@@ -21,7 +21,23 @@ import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
 from scipy import stats  # noqa: E402
 
 # The captured predicate and its final-record columns live with the deploy-side evaluation path; re-exported for the chart callers.
-from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL  # noqa: E402
+from aerocapture.training.cell_eval import (  # noqa: E402
+    FR_APO_ERR,
+    FR_BANK_CONSUMPTION,
+    FR_DV1,
+    FR_DV2,
+    FR_DV3,
+    FR_DV_TOTAL,
+    FR_ECC,
+    FR_FPA,
+    FR_IFINAL,
+    FR_INCL_ERR,
+    FR_INTEGRATED_FLUX,
+    FR_MAX_G_LOAD,
+    FR_MAX_HEAT_FLUX,
+    FR_PERI_ERR,
+    FR_VELOCITY,
+)
 from aerocapture.training.cell_eval import is_captured as is_captured  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -87,23 +103,23 @@ DV_CAP: float = 5000.0
 DV_FLOOR: float = 1.0
 
 # ---------------------------------------------------------------------------
-# Final record column indices (52-element array)
+# Final record column indices: the table is `cell_eval.FR_*`; these are its local aliases
 # ---------------------------------------------------------------------------
-_FR_VELOCITY = 3
-_FR_FPA = 4
+_FR_VELOCITY = FR_VELOCITY
+_FR_FPA = FR_FPA
 _FR_ECC = FR_ECC
-_FR_MAX_HEAT_FLUX = 16
-_FR_MAX_G_LOAD = 17
-_FR_PERI_ERR = 29
-_FR_APO_ERR = 30
+_FR_MAX_HEAT_FLUX = FR_MAX_HEAT_FLUX
+_FR_MAX_G_LOAD = FR_MAX_G_LOAD
+_FR_PERI_ERR = FR_PERI_ERR
+_FR_APO_ERR = FR_APO_ERR
 _FR_IFINAL = FR_IFINAL
-_FR_DV1 = 37
-_FR_DV2 = 38
-_FR_DV3 = 39
+_FR_DV1 = FR_DV1
+_FR_DV2 = FR_DV2
+_FR_DV3 = FR_DV3
 _FR_DV_TOTAL = FR_DV_TOTAL
-_FR_INTEGRATED_FLUX = 28
-_FR_BANK_CONSUMPTION = 45
-_FR_INCL_ERR = 46
+_FR_INTEGRATED_FLUX = FR_INTEGRATED_FLUX
+_FR_BANK_CONSUMPTION = FR_BANK_CONSUMPTION
+_FR_INCL_ERR = FR_INCL_ERR
 
 
 # ---------------------------------------------------------------------------

@@ -15,34 +15,31 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import numpy as np
-
 ARMS = ["baseline", "trapz", "complex", "both"]
 OUT_DIR = Path("training_output/mamba3_962")
 CONFIG_DIR = Path("configs/training/mamba3_962")
 
 
 def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, float]:
-    from aerocapture.training import charts
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.experiments.probe_common import cvar95 as _cvar95
-    from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.sizing_tail import score_cell
 
     config = CONFIG_DIR / f"{arm}.toml"
     # shared-path cells, scored with their co-trained scaffolding
     res = evaluate_cell(
         OUT_DIR / arm, config, seeds, model=OUT_DIR / arm / "best_model.json", extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=sim_timeout
     )
-    summary = compute_eval_summary(res.final_records, n_sims=len(seeds), cost_kwargs=read_cost_kwargs(config))
-    dv = np.clip(res.dv, charts.DV_FLOOR, charts.DV_CAP)
-    cap = summary["captured"]
+    rec = score_cell(res, read_cost_kwargs(config), pool="MAMBA3_EVAL")
+    nan = float("nan")
     return {
-        "capture_rate": float(summary["capture_rate"]),
-        "dv_p50": float(cap["dv"]["p50"]) if cap else float("nan"),
-        "dv_p95": float(cap["dv"]["p95"]) if cap else float("nan"),
-        "dv_s3sigma": float(cap["dv"]["s3sigma"]) if cap else float("nan"),
-        "cvar95": _cvar95(dv),
+        "capture_rate": rec["capture_pct"] / 100.0,
+        "dv_p50": rec.get("dv_p50", nan),
+        "dv_p95": rec.get("dv_p95", nan),
+        "dv_s3sigma": rec.get("dv_p9987", nan),
+        "cvar95": rec.get("dv_cvar95", nan),
+        **{k: rec[k] for k in ("estimator", "noise_seeding")},
     }
 
 

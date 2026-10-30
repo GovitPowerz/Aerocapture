@@ -31,9 +31,19 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
-from aerocapture.training.paper_stats import bootstrap_ci, cvar  # noqa: E402
+from aerocapture.training.sizing_tail import bootstrap_ci, cvar, score_cell  # noqa: E402
 
 OUT = REPO / "articles/paper/data/far_tail_eval.json"
+# This file's spelling of the record (results.typ / figlib read `cvar999`, `p999`, `max`, ...).
+_KEYS = {
+    "p95": "dv_p95",
+    "cvar95": "dv_cvar95",
+    "p99": "dv_p99",
+    "cvar99": "dv_cvar99",
+    "p999": "dv_p999",
+    "cvar999": "dv_cvar999",
+    "max": "dv_max_descriptive",
+}
 
 
 def _parse_extra_overrides(items: list[str]) -> dict:
@@ -56,8 +66,7 @@ def _parse_extra_overrides(items: list[str]) -> dict:
 def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None, extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
-    from aerocapture.training.report import _read_constraint_limits
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     src = scaffolding_from or label
@@ -75,40 +84,21 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
         extra_overrides={**LEGACY_NOISE_REGIME, **(extra or {})},
         sim_timeout_secs=5.0,
     )
-    recs = res.final_records
-    col = {name: recs[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    cap = res.captured
+    # The sizing-tail record with its CIs (constraint feasibility on the same pool: the
+    # sizing tail must be flown INSIDE the envelope -- a policy that buys its tail with
+    # heat-load violations is not a clean competitor; see the LSTM disclosure in the
+    # paper's section 6.2), plus the far-tail CIs this n = 10000 pool is for.
+    rec = score_cell(res, read_cost_kwargs(res.toml_path), pool="FINAL_EVAL 2M", n_boot=10_000)
     x = np.sort(res.dv)
-    # constraint feasibility on the same pool (the sizing tail must be flown INSIDE
-    # the envelope -- a policy that buys its tail with heat-load violations is not
-    # a clean competitor; see the LSTM disclosure in the paper's section 6.2)
-    hfl, gll, hll = _read_constraint_limits(res.toml_path)
-    v_hf = col["max_heat_flux_kw_m2"] > hfl
-    v_g = col["max_load_factor_g"] > gll
-    v_hl = col["integrated_flux_mj_m2"] * 1e3 > hll
     r2 = lambda v: round(float(v), 2)  # noqa: E731
-    return {
-        "label": label,
-        "n": int(len(recs)),
-        "n_captured": int(cap.sum()),
-        "capture_pct": r2(100 * cap.mean()),
-        "p95": r2(np.percentile(x, 95)),
-        "cvar95": r2(cvar(x, 0.95)),
-        "cvar95_ci": [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.95))],
-        "p99": r2(np.percentile(x, 99)),
-        "p99_ci": [r2(v) for v in bootstrap_ci(x, lambda a: float(np.percentile(a, 99)))],
-        "cvar99": r2(cvar(x, 0.99)),
-        "cvar99_ci": [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.99))],
-        "p999": r2(np.percentile(x, 99.9)),
-        "p999_ci": [r2(v) for v in bootstrap_ci(x, lambda a: float(np.percentile(a, 99.9)))],
-        "cvar999": r2(cvar(x, 0.999)),
-        "cvar999_ci": [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.999))],
-        "max": r2(x.max()),  # descriptive bound, no CI (sample max)
-        "viol_pct": r2(100 * (v_hf | v_g | v_hl).mean()),
-        "heat_flux_viol_pct": r2(100 * v_hf.mean()),
-        "g_load_viol_pct": r2(100 * v_g.mean()),
-        "heat_load_viol_pct": r2(100 * v_hl.mean()),
-    }
+    out = {"label": label, **{k: rec[k] for k in ("n", "n_captured", "capture_pct")}}
+    out.update({k: rec[src] for k, src in _KEYS.items()})
+    out.update({f"{k}_ci": rec[f"{src}_ci"] for k, src in _KEYS.items() if f"{src}_ci" in rec})
+    out["p999_ci"] = [r2(v) for v in bootstrap_ci(x, lambda a: float(np.percentile(a, 99.9)))]
+    out["cvar999_ci"] = [r2(v) for v in bootstrap_ci(x, lambda a: cvar(a, 0.999))]
+    out.update({k: rec[k] for k in rec if k.endswith("_viol_pct") or k == "viol_pct"})
+    out.update({k: rec[k] for k in ("estimator", "noise_seeding", "pool")})
+    return out
 
 
 def main(argv: list[str] | None = None) -> None:

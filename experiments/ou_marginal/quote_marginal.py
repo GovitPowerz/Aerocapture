@@ -37,8 +37,8 @@ from pathlib import Path
 import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.evaluate import constraint_violation_rates
 from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.sizing_tail import CVAR_ESTIMATOR, score_cell
 from confirmatory_marginal import read_manifest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -118,20 +118,10 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         else None,
         sim_timeout_secs=30.0,
     )
-    rates = constraint_violation_rates(res.final_records, cost_kwargs)
-    assert rates is not None
-    cap = res.captured
-    dv = res.dv
-    p50, p95, p99 = np.percentile(dv, [50, 95, 99])
+    # The sizing-tail record; the pool, regime and estimator are the file's protocol block.
+    rec = score_cell(res, cost_kwargs)
     return {
-        "capture_pct": round(100.0 * cap.mean(), 2),
-        "dv_p50": round(float(p50), 2),
-        "dv_p95": round(float(p95), 2),
-        "dv_p99": round(float(p99), 2),
-        "dv_cvar95": round(float(dv[dv >= p95].mean()), 2),
-        "heat_load_viol_pct": round(100.0 * rates["heat_load"], 2),
-        "heat_flux_viol_pct": round(100.0 * rates["heat_flux"], 2),
-        "g_load_viol_pct": round(100.0 * rates["g_load"], 2),
+        k: rec[k] for k in ("capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "heat_load_viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "viol_pct")
     }
 
 
@@ -146,7 +136,12 @@ def main(argv: list[str] | None = None) -> None:
 
     cells = read_manifest(args.manifest) if args.manifest else discover_ou_cells() + CELLS
     prior = json.loads(OUT.read_text()) if OUT.exists() else None
-    same_protocol = prior is not None and (prior["n_sims"], prior["regimes"], prior["seed_pool"]) == (args.n_sims, REGIMES, SEED_POOL)
+    same_protocol = prior is not None and (prior["n_sims"], prior["regimes"], prior["seed_pool"], prior.get("estimator")) == (
+        args.n_sims,
+        REGIMES,
+        SEED_POOL,
+        CVAR_ESTIMATOR,
+    )
     if prior is not None and not same_protocol and (args.only or not args.force):
         raise SystemExit(f"{OUT.name} was quoted under another n_sims / protocol: re-quote every cell instead (--force)")
     out: dict[str, dict] = prior["cells"] if prior is not None and (args.only or not args.force) else {}
@@ -172,7 +167,7 @@ def main(argv: list[str] | None = None) -> None:
             m = score(toml, model_dir, seeds, regime)
             out[f"{label}/{regime}"] = m
             tmp = OUT.with_name(f".tmp_{OUT.name}")
-            tmp.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "cells": out}, indent=1))
+            tmp.write_text(json.dumps({"n_sims": args.n_sims, "regimes": REGIMES, "seed_pool": SEED_POOL, "estimator": CVAR_ESTIMATOR, "cells": out}, indent=1))
             tmp.replace(OUT)
             print(
                 f"{label:<20} {regime:<8} capture {m['capture_pct']:6.1f}%  p50 {m['dv_p50']:7.1f}  "
