@@ -26,6 +26,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from aerocapture.training.cell_eval import evaluate_cell
+from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.sizing_tail import score_cell
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEMO_TOML = REPO_ROOT / "configs/training/sweep/mamba_p962.toml"
@@ -51,9 +53,9 @@ def select_model(finetune: bool = False, legacy: bool = False) -> tuple[Path, st
 
 
 def run_demo(n_sims: int, output: Path, finetune: bool = False, legacy: bool = False) -> None:
-    # One sim per seed, matching the paper's evaluation methodology (run_batch
-    # per-seed, as in report.py / fresh_pool_requote.py) so the demo's numbers
-    # are comparable to the quoted ones.
+    # One sim per seed through `evaluate_cell` and the paper's own scorer (`sizing_tail.score_cell`,
+    # the estimator every quoted CVaR uses), so the demo's numbers are comparable to the quoted
+    # ones; only the pool is illustrative.
     model_dir, mode, regime = select_model(finetune=finetune, legacy=legacy)
     seeds = np.random.default_rng(DEMO_SEED).integers(0, 2**31, size=n_sims)
 
@@ -65,12 +67,11 @@ def run_demo(n_sims: int, output: Path, finetune: bool = False, legacy: bool = F
     captured = results.captured
     dv = results.dv
 
-    n_cap = int(captured.sum())
-    print(f"Captured {n_cap}/{n_sims} ({100.0 * n_cap / n_sims:.1f}%)")
+    rec = score_cell(results, read_cost_kwargs(DEMO_TOML), pool=f"demo rng {DEMO_SEED}")
+    n_cap = rec["n_captured"]
+    print(f"Captured {n_cap}/{n_sims} ({rec['capture_pct']:.1f}%)")
     if n_cap:
-        p50, p95 = np.percentile(dv, [50, 95])
-        cvar95 = dv[dv >= p95].mean()
-        print(f"Correction DV: p50 {p50:.1f} m/s, p95 {p95:.1f} m/s, CVaR95 {cvar95:.1f} m/s")
+        print(f"Correction DV: p50 {rec['dv_p50']:.1f} m/s, p95 {rec['dv_p95']:.1f} m/s, CVaR95 {rec['dv_cvar95']:.1f} m/s")
 
     fig, (ax_cdf, ax_corr) = plt.subplots(1, 2, figsize=(12, 4.5))
 

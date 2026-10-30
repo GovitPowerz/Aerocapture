@@ -21,8 +21,6 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
-
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
@@ -38,7 +36,9 @@ def main(argv: list[str] | None = None) -> None:
 
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
+    from aerocapture.training.sizing_tail import score_cell
 
     run_dir = Path(args.run_dir)
     model = run_dir / "best_model.json"
@@ -51,22 +51,7 @@ def main(argv: list[str] | None = None) -> None:
         run_dir, Path(args.toml), pool=(HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims), extra_overrides=regime, sim_timeout_secs=args.sim_timeout
     )
 
-    records = results.final_records
-    cap = results.captured
-    dvc = np.sort(results.dv)
-    out = {
-        "pool": "fresh (offset 8M)",
-        "noise_seeding": args.noise_seeding,
-        "n": int(len(records)),
-        "capture_pct": round(100 * float(cap.mean()), 2),
-        "dv_mean": round(float(dvc.mean()), 2),
-        "dv_p50": round(float(np.percentile(dvc, 50)), 2),
-        "dv_p95": round(float(np.percentile(dvc, 95)), 2),
-        "dv_p99": round(float(np.percentile(dvc, 99)), 2),
-        "dv_cvar95": round(float(dvc[-max(1, len(dvc) // 20) :].mean()), 2),
-        "dv_max_descriptive": round(float(dvc.max()), 2),
-        "scaffolding_applied": sorted(scaffolding),
-    }
+    out = {**score_cell(results, read_cost_kwargs(Path(args.toml)), pool="fresh (offset 8M)"), "scaffolding_applied": sorted(scaffolding)}
     out_path = run_dir / "fresh_pool_requote.json"
     out_path.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, indent=2))

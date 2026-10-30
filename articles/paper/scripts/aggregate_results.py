@@ -17,7 +17,16 @@ import pyarrow.parquet as pq
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
-from aerocapture.training.paper_stats import actual_sims, capture_mask, paired_comparison, run_stats  # noqa: E402
+from aerocapture.training.paper_stats import actual_sims  # noqa: E402
+from aerocapture.training.sizing_tail import capture_mask, paired_tail, run_stats  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_results_schema import PAIRED_KEYS, RUN_KEYS  # noqa: E402
+
+# results.json's frozen shapes (the check-schema gate pins them): the sizing-tail record filtered
+# to the keys the file has always carried, in the order it has carried them (json.dumps keeps
+# insertion order, so iterating the record instead would reorder the committed bytes).
+_PAIRED_STAT_KEYS = tuple(k for k in PAIRED_KEYS if k not in ("a", "b")) + ("n_pairs", "delta_mean", "delta_mean_ci", "win_rate_a", "wilcoxon_p")
 
 RUNS_DIR = REPO / "articles/paper/data/runs"
 OUT = REPO / "articles/paper/data/results.json"
@@ -142,25 +151,6 @@ def _disp_fingerprint_ok(df_a, df_b) -> bool:
     return all(np.allclose(df_a[c].to_numpy()[:n], df_b[c].to_numpy()[:n]) for c in cols)
 
 
-def _paired_tail_delta_cis(dva, ca, dvb, cb, n_boot=10_000, seed=0):
-    """Percentile bootstrap CIs on the marginal tail deltas (p95, CVaR95) of a
-    paired pool: resample the shared SCENARIO index (pairing preserved), apply
-    each scheme's own capture mask to the resample, recompute both marginals.
-    Reviewer R1-S2: Table 4 carried a CI only for the mean difference while the
-    paper's argument lives on the tail deltas."""
-    rng = np.random.default_rng(seed)
-    n = len(dva)
-    d95 = np.empty(n_boot)
-    dcv = np.empty(n_boot)
-    for i in range(n_boot):
-        idx = rng.integers(0, n, size=n)
-        xa, xb = np.sort(dva[idx][ca[idx]]), np.sort(dvb[idx][cb[idx]])
-        d95[i] = np.percentile(xa, 95) - np.percentile(xb, 95)
-        dcv[i] = xa[-max(1, round(len(xa) * 0.05)) :].mean() - xb[-max(1, round(len(xb) * 0.05)) :].mean()
-    pct = lambda a: [round(float(np.percentile(a, 2.5)), 2), round(float(np.percentile(a, 97.5)), 2)]  # noqa: E731
-    return pct(d95), pct(dcv)
-
-
 def summarize(key: str) -> dict:
     df = _load_parquet(key)
     if df is None:
@@ -171,7 +161,8 @@ def summarize(key: str) -> dict:
         "legacy_prefix_regime": key.startswith("legacy/"),
         "noise_seeding": "per_draw" if key.startswith(PER_DRAW_PREFIXES) else "legacy",
     }
-    out.update(run_stats(df["ifinal"].to_numpy(), df["eccentricity"].to_numpy(), df["dv_total_m_s"].to_numpy()))
+    rec = run_stats(df["ifinal"].to_numpy(), df["eccentricity"].to_numpy(), df["dv_total_m_s"].to_numpy(), n_boot=10_000)
+    out.update({k: rec[k] for k in RUN_KEYS if k in rec})
     out["heat_flux_p95"] = round(float(np.percentile(df["max_heat_flux_kw_m2"], 95)), 1)
     out["g_load_p95"] = round(float(np.percentile(df["max_load_factor_g"], 95)), 2)
     out["best_val_rms_within_transform_only"] = _best_val_rms(records)
@@ -204,19 +195,9 @@ def main() -> None:
         # Marginal TAIL deltas (a - b, negative = a better) -- the headline is a TAIL
         # winner, so mean-only tables would mislead (mamba ties dense/lstm on the mean,
         # wins on the tail). CVaR99.9 needs n=10000 (see far_tail_eval.json); p95/CVaR95
-        # are stable at this n=1000 pool.
-        xa, xb = np.sort(da["dv_total_m_s"].to_numpy()[ca]), np.sort(db["dv_total_m_s"].to_numpy()[cb])
-        cvar95 = lambda x: float(x[-max(1, round(len(x) * 0.05)) :].mean())  # noqa: E731
-        d95_ci, dcv_ci = _paired_tail_delta_cis(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb)
-        paired[label] = {
-            "a": ka,
-            "b": kb,
-            "delta_p95": round(float(np.percentile(xa, 95) - np.percentile(xb, 95)), 2),
-            "delta_p95_ci": d95_ci,
-            "delta_cvar95": round(cvar95(xa) - cvar95(xb), 2),
-            "delta_cvar95_ci": dcv_ci,
-            **paired_comparison(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb),
-        }
+        # are stable at this n=1000 pool. Reviewer R1-S2: the tail deltas carry CIs.
+        pt = paired_tail(da["dv_total_m_s"].to_numpy(), ca, db["dv_total_m_s"].to_numpy(), cb)
+        paired[label] = {"a": ka, "b": kb, **{k: pt[k] for k in _PAIRED_STAT_KEYS if k in pt}}
 
     sigma_run = {}
     for label, members in REPEAT_GROUPS.items():

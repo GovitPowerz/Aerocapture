@@ -116,3 +116,4 @@ below) was retired into `TODO.md`; the March implementation plans that accompani
 | 2026-03-20 | [Remove `--guidance` CLI Flag](2026-03-20-remove-guidance-cli-flag-design.md) | Approved |
 | 2026-06-04 | [Python + PyO3 Review Remediation — Design](2026-06-04-python-pyo3-review-fixes-design.md) | — |
 | 2026-06-12 | [Paper Experiments Reorganization — Design](2026-06-12-paper-experiments-reorg-design.md) | Approved (user, 2026-06-12) |
+| 2026-10-30 | [Sizing-tail scorer: one tail record behind `evaluate_cell`](2026-10-30-sizing-tail-scorer-design.md) | Approved (user, 2026-10-30) |

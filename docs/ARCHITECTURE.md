@@ -125,7 +125,9 @@ All in `training/seeds.py` (`make_reserved_seeds(base_mc_seed, offset, n)`), one
 
 `articles/paper/scripts/*.py` evaluate deployed cells (`training_output/<cell>/best_model.json` +
 `best_params.json`, flown by `cell_eval.evaluate_cell`, the one deploy-side evaluation path that
-the demo, the reports and `compare_guidance` also take) on the pools above and write
+the demo, the reports and `compare_guidance` also take, and scored by `sizing_tail.score_cell`,
+the one tail record: capture, the DV tail by one named CVaR estimator, the ADR-0005 violation
+rates with `viol_pct` the union, the regime and pool flown) on the pools above and write
 `articles/paper/data/*.json`; `results.typ` reads `results.json`, `confirmatory_marginal.json` (the
 per-scenario far-tail confirmatory), `quote_marginal.json` (the paired n = 1000 both-regime scoring)
 and `heat_load_slope.json`, all three extracted from `experiments/ou_marginal/`, plus

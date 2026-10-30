@@ -282,6 +282,25 @@ use `--sim-timeout` against NaN hangs).
 - `deploy_overrides.py` — `overrides_from_params` (the full deploy rule: routing + `shaping.* =>
   guidance.command_shaping.enabled = true` + `ParamSpec.is_integer` coercion + `ref_bank` skip),
   `load_scaffolding_overrides` / `resolve_eval_toml` (consumed by `cell_eval`), `LEGACY_NOISE_REGIME`.
+- `sizing_tail.py` - the ONE sizing-tail scorer (design `docs/design/2026-10-30-sizing-tail-scorer-design.md`,
+  #220): `score_cell(result, cost_kwargs, *, pool, n_boot)` turns a `CellResult` into the tail record
+  every report, paper script and experiment writes (`n`, `n_captured`, `capture_pct`; `dv_mean`,
+  `dv_p50 / p95 / p99 / p999 / p9987`, `dv_cvar95 / 99 / 999`, `dv_max_descriptive`, `capture_pct_ci`
+  and the five `dv_*_ci` percentile-bootstrap intervals when `n_boot` is given; `viol_pct` the UNION of the
+  ADR-0005 constraints with `viol_n` and the per-constraint `<c>_viol_pct` / `<c>_viol_n`;
+  `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). The limits are `cost_kwargs`'
+  with every `[flight.constraints]` key the flight overrode moved to the value flown
+  (`flown_cost_kwargs`: `heat_load_slope`'s ceiling legs score at their ceiling). `tail_record` is the same
+  on bare final records, `run_stats(ifinal, ecc, dv)` on parquet columns, `dv_tail(dvc)` the DV
+  block alone, `constraint_exceedances` the ONE violation rule (per-constraint masks over final
+  records, limits from `cost_kwargs`, columns `cell_eval.FR_*`); `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =
+  `max(1, round((1 - level) n))` samples, `CVAR_ESTIMATOR` names it on every record); `paired_tail`
+  / `paired_comparison` score two flights on one pool (both-captured mean delta, Wilcoxon, the
+  scenario-resampled bootstrap of the p95 / CVaR95 / capture deltas). Every DV statistic is over
+  the unclipped captured DV, rounded to two decimals. `results.json` keeps its frozen run / paired
+  shapes: `aggregate_results` filters the record through the key tuples `check_results_schema`
+  pins; `confirmatory_eval` / `confirmatory_marginal`, `probe_common` and `quantize` keep their
+  files' spellings and map the record once at the write site. Pure numpy + scipy, soft-import clean.
 - `cell_eval.py` — the ONE deploy-side evaluation path. `evaluate_cell(cell_dir, base_toml,
   seeds | pool=(offset, n), *, model, extra_overrides, per_seed_overrides, include_trajectories,
   sim_timeout_secs, n_threads)` flies a cell one sim per seed through `run_batch`: TOML via
@@ -298,7 +317,9 @@ use `--sim-timeout` against NaN hangs).
   requested), `seeds`, the resolved `toml_path` and the shared `overrides` (provenance), plus
   `captured` (`is_captured`, the ONE captured predicate; `charts.is_captured` re-exports it) and
   `dv` (captured-only). `reserved_pool(toml, offset, n)` keys a registered pool by the TOML's
-  `[monte_carlo] seed`. Callers: `report.py` (final MC + nominal overlay), `demo.py`, `rl/train.py`
+  `[monte_carlo] seed`. The final-record column table every Python reader indexes (`FR_ECC`,
+  `FR_IFINAL`, `FR_DV_TOTAL`, `FR_MAX_HEAT_FLUX`, `FR_INTEGRATED_FLUX`, ...) lives here, pinned to
+  the Rust `final_record_indices()`; `charts._FR_*` are its aliases. Callers: `report.py` (final MC + nominal overlay), `demo.py`, `rl/train.py`
   (`_evaluate_model`), `rl/report_rl.py`, `compare_guidance`, `param_sweep --eval`, `quantize`,
   `probe_common.score_model`, `mamba3_962_compare`, `warm_start_compare`, `ablation`, `animate`,
   every paper script, `experiments/ou_marginal`, `experiments/fnpag_ab`. The seam is still called
@@ -428,7 +449,8 @@ use `--sim-timeout` against NaN hangs).
 - `evaluate.py` — `write_nn_json` (chromosome -> model JSON via
   `aerocapture_rs.flat_weights_to_json`, QAT rounding applied), `build_v2_architecture`,
   `write_guidance_toml` (base TOML + `deploy_overrides.overrides_from_params` -> `toml_utils.write_toml`),
-  `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_violation_rates`,
+  `run_validation_gate` / `GateStatus` / `GateResult`, `constraint_violation_rates` (the means of
+  `sizing_tail.constraint_exceedances`, the ONE violation rule),
   `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
   `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
 - `cost.py` — `build_cost_kwargs(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]`
@@ -487,7 +509,8 @@ use `--sim-timeout` against NaN hangs).
   guidance_scheme, n_sims); `read_parquet(path)` -> `(DataFrame, metadata_dict)`;
   `FINAL_RECORD_INDICES` (39 of 52, matching Rust `extract_final_csv_values()`) and
   `FINAL_COLUMNS` (`FINAL_CSV_COLUMNS` minus sim_number). CSV output is unchanged (39 columns).
-- `paper_stats.py`, `cleanup_checkpoints.py`.
+- `paper_stats.py` (`actual_sims`, the run-log simulation accounting of `results.json`),
+  `cleanup_checkpoints.py`.
 
 ### NN specifics (the runtime contract is in the NN runtime README)
 

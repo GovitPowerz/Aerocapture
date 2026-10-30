@@ -30,8 +30,8 @@ import wm_model
 import wm_planner
 import wm_plant
 from aerocapture.training.deploy_overrides import overrides_from_params
-from aerocapture.training.paper_stats import capture_mask, paired_comparison, run_stats
 from aerocapture.training.seeds import WORLD_MODEL_SEED_OFFSET, base_mc_seed_from_toml, make_reserved_seeds
+from aerocapture.training.sizing_tail import capture_mask, paired_comparison, run_stats
 from aerocapture.training.toml_utils import load_toml_with_bases
 from scipy.stats import spearmanr
 
@@ -226,7 +226,8 @@ def predictor(label: str) -> wm_model.Predictor:
 def _outcomes(ifinal: np.ndarray, ecc: np.ndarray, dv: np.ndarray, fr: np.ndarray) -> dict[str, object]:
     idx = aerocapture_rs.final_record_indices()
     cap = capture_mask(ifinal, ecc)
-    stats = {k: v for k, v in run_stats(ifinal, ecc, dv).items() if k in ("n", "capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "dv_cvar95_ci")}
+    rec = run_stats(ifinal, ecc, dv, n_boot=10_000)
+    stats = {k: v for k, v in rec.items() if k in ("n", "capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "dv_cvar95_ci")}
     return {
         **stats,
         "apoapsis_err_km_p50_abs": round(float(np.median(np.abs(fr[cap, idx["apoapsis_err_km"]]))), 2),

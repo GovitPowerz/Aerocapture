@@ -246,6 +246,8 @@ def main(argv: list[str] | None = None) -> None:
                     "freeze_commit": existing.get("freeze_commit", freeze_commit),
                     "n_replicates": args.replicates,
                     "n_per_replicate": args.n,
+                    "pool": "CONFIRMATORY [2^31, 2^32)",
+                    "estimator": ce.ESTIMATOR,
                     "cells": [by_label[k] for k in sorted(by_label)],
                 },
                 indent=1,

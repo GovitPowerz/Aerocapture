@@ -138,6 +138,7 @@ def _fly(run_dir, toml, results_key, n_sims):
 def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     from aerocapture.training import charts
     from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.sizing_tail import score_cell
 
     batch, nom = _fly(run_dir, toml, results_key, n_sims)
     eval_toml = batch.toml_path
@@ -188,13 +189,12 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
         charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, figsize=(2.4, 1.9), **nk)
         charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, figsize=(2.4, 1.9), unit="MJ", **nk)
 
-    summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=read_cost_kwargs(eval_toml))
-    dvc = np.abs(recs[cap, charts._FR_DV_TOTAL])
-    summary["dv_p99"] = float(np.percentile(dvc, 99))
-    summary["dv_cvar95"] = float(np.sort(dvc)[-max(1, round(len(dvc) * 0.05)) :].mean())
+    cost_kwargs = read_cost_kwargs(eval_toml)
+    summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=cost_kwargs)
+    rec = score_cell(batch, cost_kwargs, pool="FINAL_EVAL 2M")
+    summary.update({k: rec[k] for k in ("dv_p99", "dv_cvar95", "estimator")})
     summary["title"] = title
-    summary["noise_seeding"] = NOISE_REGIME["monte_carlo.noise_seeding"]
-    summary["pool"] = "FINAL_EVAL 2M"
+    summary.update({k: rec[k] for k in ("noise_seeding", "pool")})
     summary["results_key"] = results_key
     (out / "stats.json").write_text(json.dumps(summary, indent=1, default=float))
     print(f"  wrote {out.relative_to(REPO)} (7 svg + stats.json)")

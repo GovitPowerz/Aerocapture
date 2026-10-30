@@ -44,6 +44,30 @@ the unseeded dense PPO scratch run bought its capture with heat flux; its 265,56
 the Section 6.1 sweep, the bank-decoder comparison) and Appendix C's kernel micro-benchmark stay
 transcribed.
 
+## Changes since v4
+
+- 2026-10-30 (#220): one sizing-tail scorer, `training/sizing_tail.py`, behind every paper script,
+  experiment and the demo. CVaR is one estimator (the mean of the worst `max(1, round((1 - level) n))`
+  captured-DV samples, the one `results.json` always carried), named by the `estimator` field every
+  record written from now on carries next to its `noise_seeding` and `pool`; `viol_pct` is the share
+  of draws exceeding at least one constraint everywhere (the probes and `far_tail_eval` already
+  scored it so; `quantize` scored the worst single constraint); a limit a config omits is the cost
+  function's default everywhere (200 kW/m^2, 15 g, 25000 kJ/m^2), where the report and the probes
+  read None and never counted it. No committed number moves: on every bundle parquet and every
+  `results.json` pair the retired inline copies agree with the one estimator (they differ at
+  half-integer `0.05 n`, 970 captured for instance), `aggregate_results` rewrites `results.json`
+  byte for byte from the bundle and its logs, and `make -C articles/paper -B figures && make check`
+  is unchanged. A re-score of `far_tail_eval.json` moves its bootstrap bounds, not its point values:
+  the record resamples the captured DV in seed order where the script resampled it sorted. Records in the bundle that an earlier estimator produced are not rewritten
+  and carry no `estimator` field: `quote_marginal.json`, `heat_load_slope.json`, `quant/`,
+  `quant_v4/quantization_results.json`, `quant_v4/finalists_results.json` and `probes/` were the
+  mean of the captured DV at or above the 95th percentile, `runs/ou_marginal/hl_mamba_p962/fresh_pool_requote.json`
+  the worst `n // 20`; `quant_v4/` and `quant/` quote the worst-constraint `viol_pct` (on the
+  quant_v4 confirmatory rows only heat load is exceeded, so union and max read the same). A
+  re-score of any of them (the `mc-*` targets) writes the one estimator and the union, and the
+  OU-marginal scorers refuse a `--only` merge into a file quoted under another estimator.
+  Provenance digest and PDF colophon recompiled.
+
 ## Changes before v4
 
 The committed `paper.pdf` is recompiled from the Typst source below (`make -C articles/paper pdf`,

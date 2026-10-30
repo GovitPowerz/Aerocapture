@@ -29,10 +29,23 @@ from aerocapture.training.reference import _MC_DISPERSION_DOMAINS
 from aerocapture.training.seeds import make_reserved_seeds
 from aerocapture.training.toml_utils import load_toml_with_bases
 
-# Final-record columns this module reads (pinned to `final_record_indices()` by tests/test_cell_eval.py).
+# The final-record column table (52 columns, `final_record.rs`): every Python reader indexes
+# through these names; pinned to the Rust `final_record_indices()` by tests/test_cell_eval.py.
+FR_VELOCITY = 3
+FR_FPA = 4
 FR_ECC = 9
+FR_MAX_HEAT_FLUX = 16
+FR_MAX_G_LOAD = 17
+FR_INTEGRATED_FLUX = 28  # heat load, MJ/m^2
+FR_PERI_ERR = 29
+FR_APO_ERR = 30
 FR_IFINAL = 31
+FR_DV1 = 37
+FR_DV2 = 38
+FR_DV3 = 39
 FR_DV_TOTAL = 41
+FR_BANK_CONSUMPTION = 45
+FR_INCL_ERR = 46
 
 
 def is_captured(final_records: npt.NDArray[np.float64]) -> npt.NDArray[np.bool_]:

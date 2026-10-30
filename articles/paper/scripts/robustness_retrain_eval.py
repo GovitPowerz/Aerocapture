@@ -31,7 +31,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 
-from aerocapture.training.paper_stats import run_stats  # noqa: E402
+from aerocapture.training.sizing_tail import score_cell  # noqa: E402
 
 # (label, run_dir under training_output/, training TOML). Same machinery as
 # robustness_stress.py; the high-trained cells point at their exp-13 configs.
@@ -54,7 +54,7 @@ OUT = REPO / "articles/paper/data/robustness_retrain.json"
 def _eval_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
+    from aerocapture.training.report import read_cost_kwargs
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
     res = evaluate_cell(
@@ -64,8 +64,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
         extra_overrides={**LEGACY_NOISE_REGIME, **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    col = {name: res.final_records[:, idx] for name, idx in zip(FINAL_COLUMNS, FINAL_RECORD_INDICES, strict=True)}
-    return {"label": label, **run_stats(col["ifinal"], col["eccentricity"], col["dv_total_m_s"], n_boot=2000)}
+    return {"label": label, **score_cell(res, read_cost_kwargs(Path(toml)), pool="STRESS_EVAL 9M", n_boot=2000)}
 
 
 def main(argv: list[str] | None = None) -> None:

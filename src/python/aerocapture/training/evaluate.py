@@ -19,6 +19,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import NetworkConfig
+from aerocapture.training.sizing_tail import constraint_exceedances
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -33,24 +34,9 @@ def constraint_violation_rates(
     final_records: npt.NDArray[np.float64],
     cost_kwargs: dict[str, Any] | None,
 ) -> dict[str, float] | None:
-    """Fractional per-constraint violation rates over a final-records matrix.
-
-    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
-    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
-    `[flight.constraints]` by `read_cost_kwargs`). Constraints without a
-    configured limit are omitted; returns None when no limit is configured at
-    all (feasibility cannot be assessed).
-    """
-    from aerocapture.training import charts  # noqa: PLC0415
-
-    kw = cost_kwargs or {}
-    # A constraint without a configured limit is not assessed, so its column is never read.
-    specs = (
-        ("heat_flux", charts._FR_MAX_HEAT_FLUX, 1.0, kw.get("heat_flux_limit")),
-        ("g_load", charts._FR_MAX_G_LOAD, 1.0, kw.get("g_load_limit")),
-        ("heat_load", charts._FR_INTEGRATED_FLUX, 1e3, kw.get("heat_load_limit")),  # MJ -> kJ
-    )
-    rates = {name: float(np.mean(final_records[:, col] * scale > float(lim))) for name, col, scale, lim in specs if isinstance(lim, (int, float))}
+    """Fractional per-constraint violation rates (`sizing_tail.constraint_exceedances` means); None
+    when no limit is configured at all (feasibility cannot be assessed)."""
+    rates = {name: float(m.mean()) for name, m in constraint_exceedances(final_records, cost_kwargs).items()}
     return rates or None
 
 

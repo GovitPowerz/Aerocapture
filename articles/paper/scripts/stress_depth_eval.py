@@ -22,7 +22,6 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "src/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from aerocapture.training.paper_stats import _r2, bootstrap_ci, capture_mask, run_stats  # noqa: E402
 from centered_depth_eval import N_BOOT, STRESS_OVERRIDES, _fly, _paired  # noqa: E402
 
 TRAINING = REPO / "training_output"
@@ -52,14 +51,12 @@ def main(argv: list[str] | None = None) -> None:
     pool: list[int] | None = None
     cells: list[dict] = []
     for label, run_dir, toml in CELLS:
-        seeds, ifinal, ecc, dv, _ = _fly(run_dir, toml, REGIME, args.n_sims)
+        seeds, cap, dv, rec = _fly(run_dir, toml, REGIME, args.n_sims)
         if pool is not None and seeds != pool:
             sys.exit(f"{label} flew a different seed pool: the comparisons are paired")
         pool = seeds
-        cap = capture_mask(ifinal, ecc)
         flown[label] = (cap, dv)
-        s = {"label": label, "run_dir": run_dir, **run_stats(ifinal, ecc, dv, n_boot=N_BOOT)}
-        s["capture_pct_ci"] = [_r2(100 * v) for v in bootstrap_ci(cap.astype(np.float64), np.mean, N_BOOT)]
+        s = {"label": label, "run_dir": run_dir, **rec}
         cells.append(s)
         print(
             f"  {REGIME:8s} {label:10s} capture {s['capture_pct']:6.2f}% [{s['capture_pct_ci'][0]:6.2f}, {s['capture_pct_ci'][1]:6.2f}]"
