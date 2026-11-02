@@ -76,7 +76,8 @@ src/rust/src/
                                        stay byte-identical to the retired fixed-field schema), NormSpec/OutputParam/DEFAULT_NORMALIZATION/apply_norm, stateful `forward(&mut NnState, &[f64])`)
                                        + `layers/` (`tensor.rs`: `Shape`, the `Tensor` trait over f64/Vec/Vec<Vec>/DVector/DMatrix (+ `Option` = flag-gated), and the `tensor_table!` macro
                                        that declares a layer's weights ONCE -- the listed fields in order ARE the flat order and the JSON keys; per-type submodules
-                                       dense/gru/lstm/window/transformer/mamba/mamba3/cfc/slstm/mlstm each declare one table (+ `zeros` constructor); `helpers.rs` shares
+                                       dense/gru/lstm/window/transformer/mamba/mamba3/cfc/slstm/mlstm each declare one table (+ `zeros` constructor); `committee.rs` nests whole member
+                                       layer lists (no table of its own; heads combined under a rule, #232, deploy-only; `forward_layer` is the per-layer step it shares with the model); `helpers.rs` shares
                                        matvec/dot_plus_bias/gelu_exact/layer_norm_biased/build_pe_table/softplus/expm1_over_x/lecun_tanh/stabilized_exp_gates) + `tests.rs`.
                                        Frozen gates: `tests/nn_flat_order_fixtures.rs` (per-type flat vector + exact save_json bytes under `tests/fixtures/flat_order/`) and
                                        `tests/nn_model_roundtrip.rs` (every committed model JSON load->save->reload; `--ignored` resave tool for byte diffs)

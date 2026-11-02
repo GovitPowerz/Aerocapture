@@ -576,6 +576,11 @@ use `--sim-timeout` against NaN hangs).
   `_resolve_normalization`) are unit-tested. CLI: `python -m aerocapture.training.calibrate_inputs
   --toml <config.toml> [--n-sims N] [--target-percentiles LO HI] [--tail-threshold T]
   [--no-force-asinh] [--write-model PATH] [--emit-toml PATH] [--output PATH]`.
+- `committee.py` — the committee builder (#232): `build_committee` / `write_committee` assemble deployed
+  v2 `best_model.json` files into one `committee`-layer model (shared `input_mask` / `normalization` /
+  `atan2_signed` enforced, member sha256s recorded, a `committee.json` sidecar the confirmatory driver
+  reads as the cell's finished marker); CLI `python -m aerocapture.training.committee --rule R --out DIR members...`.
+  Deploy-only; the campaign and its negative result are `experiments/committee/README.md`.
 - `ablation.py` — NN input importance: `NN_INPUT_NAMES` (the 35 candidate names),
   `run_ablation(toml_path, n_sims, ..., model_path=None, extra_overrides=None)` zeros out each
   input via a temp JSON model with `ablated_input` set, measures DV cost degradation vs baseline,

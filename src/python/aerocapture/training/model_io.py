@@ -61,6 +61,8 @@ def load_policy_from_json(path: str, device: str | torch.device = "cpu") -> V2Po
         raw = json.load(f)
     if raw.get("format_version") != 2:
         raise ValueError(f"Expected format_version=2 in {path}, got {raw.get('format_version')}")
+    if any(layer.get("type") == "committee" for layer in raw.get("architecture", [])):
+        raise NotImplementedError(f"{path} is a committee (#232): deploy-only, flown by aerocapture_rs; the torch mirror has no committee layer")
     arch = ArchitectureV2.model_validate(raw)
 
     # Phase 2b / Phase 3a / Phase 4a: Window-MLP, Transformer, and Mamba are PSO-only.

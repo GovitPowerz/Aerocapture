@@ -1,0 +1,8 @@
+# Committee cell (#232): the three headline Mamba 962 seeds and the three headline dense 515
+# seeds flown as one six-member artifact under the `circular_mean` rule. Base-inherits the
+# Mamba seed's TOML; the [[network.architecture]] cross-check passes on the Mamba members
+# (at least one member must match), the dense members carry their own architecture in the JSON.
+base = ["../ou_marginal/hl_mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/committee/hl_mixed6_circular_mean/best_model.json"

@@ -160,6 +160,9 @@ One deployed training run in a campaign grid (e.g. a sweep cell), pinned by its 
 **Probe**:
 A budget-matched experimental training arm comparing one architecture axis against a sweep-cell anchor.
 
+**Committee**:
+One deployed artifact that flies several trained policies (members) on the same input, each with its own state, and combines their bank heads under a rule before the one decode; assembled from deployed models, never trained (#232, negative: independently trained seeds fly different lateral plans).
+
 **Bundle**:
 The tracked `articles/paper/data` tree a paper version is computed from (results, extracts, checksums).
 

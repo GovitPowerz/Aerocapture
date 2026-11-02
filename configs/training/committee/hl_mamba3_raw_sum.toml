@@ -1,0 +1,8 @@
+# Committee cell (#232): the three headline Mamba 962 seeds flown as one artifact under the
+# `raw_sum` rule. Base-inherits the deployed seed's TOML (regime, MC settings, the
+# member architecture the [[network.architecture]] cross-check matches against); the model is
+# assembled by `python -m aerocapture.training.committee`, never trained.
+base = ["../ou_marginal/hl_mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/committee/hl_mamba3_raw_sum/best_model.json"

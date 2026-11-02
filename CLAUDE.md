@@ -199,6 +199,14 @@ every first-step reward, every timeout and the reward scale leaked across episod
 `tests/rl/test_collect_rollout.py`, `tests/rl/test_ppo.py::test_gae_episode_end_cuts_the_trace`,
 `tests/rl/test_normalizers.py::TestReturnNormalizer::test_done_step_reward_closes_its_own_episode`.
 
+### Seeds are different policies, not perturbations of one (no deploy-time averaging)
+
+Three independently trained seeds of the same cell agree on the bank magnitude and not on its sign (pairwise sign agreement 0.41-0.57, chance; 15 to 145 sign
+flips per flight), because the lateral plan is a discrete choice the search makes per run. A committee of the three headline Mamba 962 seeds (#232, 2026-11-02)
+therefore lost 18-27% of captures under every combination rule, and a sign-aligned rule recovered capture but not the policy (+26 to +41 m/s mean). Do not
+propose seed averaging, model soups or output ensembles across seeds again; the seed spread is a selection problem (a tail-aware gate) or a sample-size problem
+(more seeds). The `committee` layer type exists for ensembles whose members share a lateral plan by construction.
+
 ### Noise regimes: per-draw is the default, legacy reproduces quoted numbers
 
 `[monte_carlo] noise_seeding = "per_draw"` (ADR-0006) is the default: each dispersion draw gets its own OU-density / EKF-noise stream. `"legacy"` freezes ONE noise path across every

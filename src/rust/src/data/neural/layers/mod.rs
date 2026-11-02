@@ -7,6 +7,7 @@ pub(crate) mod helpers;
 pub(crate) mod tensor;
 
 pub(crate) mod cfc;
+pub(crate) mod committee;
 pub(crate) mod dense;
 pub(crate) mod gru;
 pub(crate) mod lstm;
@@ -18,6 +19,7 @@ pub(crate) mod transformer;
 pub(crate) mod window;
 
 pub use cfc::CfcLayer;
+pub use committee::{CommitteeLayer, CommitteeRule, combine as combine_heads};
 pub use dense::DenseLayer;
 pub use gru::GruLayer;
 pub use lstm::LstmLayer;
