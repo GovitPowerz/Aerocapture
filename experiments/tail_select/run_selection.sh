@@ -3,7 +3,7 @@
 # criterion (validation pool, then the 5000-seed tail-select pool), every pick into its own
 # run-local dir under training_output/tail_select/<run>/<arm>/. The deployed artifacts under
 # training_output/ou_marginal/ are never written (--output-dir). Run from the repo root:
-#   caffeinate -i bash experiments/tail_select/run_selection.sh 2>&1 | tee training_output/tail_select/selection.log
+#   mkdir -p training_output/tail_select && caffeinate -i bash experiments/tail_select/run_selection.sh 2>&1 | tee training_output/tail_select/selection.log
 set -euo pipefail
 RUNS=(hl_mamba_p962 hl_mamba_p962_s2 hl_mamba_p962_s3 hl_dense_p515 hl_dense_p515_s2 hl_dense_p515_s3)
 # Stop (Ctrl-C) and rerun at will: an arm whose final_selection.json exists is skipped.

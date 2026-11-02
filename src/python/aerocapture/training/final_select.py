@@ -64,6 +64,19 @@ class SelectionResult:
     winner_tail: dict[str, Any] | None = None  # cvar95 only: the winner's tail stats on that pool
 
 
+def _dedup_fresh(candidates: npt.NDArray[np.float64], known: list[KnownCandidate]) -> list[int]:
+    """Indices of the fresh rows to simulate: not byte-identical to a known row or to an earlier fresh row."""
+    seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
+    kept: list[int] = []
+    for i in range(candidates.shape[0]):
+        key = np.ascontiguousarray(candidates[i]).tobytes()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(i)
+    return kept
+
+
 def select_final_individual(
     problem: _PerSeedEvaluator,
     candidates: npt.NDArray[np.float64],
@@ -99,14 +112,7 @@ def select_final_individual(
             incumbent = k
 
     # Pass 1: dedup (identical to a known row or an earlier fresh row).
-    seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
-    kept: list[int] = []
-    for i in range(candidates.shape[0]):
-        key = np.ascontiguousarray(candidates[i]).tobytes()
-        if key in seen:
-            continue
-        seen.add(key)
-        kept.append(i)
+    kept = _dedup_fresh(candidates, known)
     n_deduped = len(kept)
 
     # Pass 2: ONE batched evaluation of all kept candidates on the validation
@@ -180,12 +186,6 @@ def select_final_individual(
     )
 
 
-def tail_stats(records: npt.NDArray[np.float64]) -> dict[str, Any]:
-    """Capture count and the captured correction-DV tail (`sizing_tail.dv_tail`) of one candidate's (n_seeds, 52) records."""
-    cap = is_captured(records)
-    return {"n": int(records.shape[0]), "n_captured": int(cap.sum()), **dv_tail(records[cap, FR_DV_TOTAL])}
-
-
 def select_tail_individual(
     problem: _PerSeedEvaluator,
     candidates: npt.NDArray[np.float64],
@@ -214,19 +214,11 @@ def select_tail_individual(
     """
     if candidates.shape[0] != len(provenances):
         raise ValueError(f"candidates/provenances length mismatch: {candidates.shape[0]} != {len(provenances)}")
-    rows: list[npt.NDArray[np.float64]] = [np.asarray(k.x, dtype=np.float64) for k in known]
-    provs: list[str] = [k.provenance for k in known]
-    fresh_index: list[int | None] = [None] * len(known)  # index into `candidates`, None for a champion row
-    seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
-    for i in range(candidates.shape[0]):
-        key = np.ascontiguousarray(candidates[i]).tobytes()
-        if key in seen:
-            continue
-        seen.add(key)
-        rows.append(candidates[i])
-        provs.append(provenances[i])
-        fresh_index.append(i)
-    n_deduped = len(rows) - len(known)
+    kept = _dedup_fresh(candidates, known)
+    rows: list[npt.NDArray[np.float64]] = [np.asarray(k.x, dtype=np.float64) for k in known] + [candidates[i] for i in kept]
+    provs: list[str] = [k.provenance for k in known] + [provenances[i] for i in kept]
+    fresh_index: list[int | None] = [None] * len(known) + list(kept)  # index into `candidates`, None for a champion row
+    n_deduped = len(kept)
     if not rows:
         raise ValueError("final selection: no candidate and no known champion")
     X = np.vstack(rows)
@@ -256,12 +248,13 @@ def select_tail_individual(
     ranked: list[tuple[tuple[int, float, float], int]] = []
     for row, r in enumerate(survivors):
         recs = np.asarray(tail_grid[row])
-        stats = tail_stats(recs)
-        stats["violation_rates"] = constraint_violation_rates(recs, cost_kwargs)  # reported, not a gate
-        records[r]["tail"] = stats
+        cap = is_captured(recs)
+        dvc = recs[cap, FR_DV_TOTAL]
+        n_captured = int(cap.sum())
+        rates = constraint_violation_rates(recs, cost_kwargs)  # the tail pool's: reported, not a gate
+        records[r]["tail"] = {"n": int(recs.shape[0]), "n_captured": n_captured, **dv_tail(dvc), "violation_rates": rates}
         # Unrounded (the record's two decimals would tie close CVaRs into the RMS break); no capture ranks last.
-        dvc = recs[is_captured(recs), FR_DV_TOTAL]
-        ranked.append(((-stats["n_captured"], cvar(dvc, 0.95) if len(dvc) else float("inf"), float(rms_all[r])), r))
+        ranked.append(((-n_captured, cvar(dvc, 0.95) if len(dvc) else float("inf"), float(rms_all[r])), r))
 
     if ranked:
         _, w = min(ranked)
@@ -276,7 +269,7 @@ def select_tail_individual(
             f"WARNING: tail-aware final selection found NO feasible candidate (ceiling {max_violation_rate:.3%}) "
             f"- deploying the best-RMS INFEASIBLE candidate {provs[w]!r} (rms {float(rms_all[w]):.4g})."
         )
-    incumbent_rms = min((k.val_rms for k in known), default=None)
+    incumbent_rms = min((k.val_rms for k in known if np.isfinite(k.val_rms)), default=None)
     return SelectionResult(
         individual=X[w].copy(),
         val_rms=float(rms_all[w]),
@@ -534,12 +527,9 @@ def run_final_select(
         label = f"{name}:" if name else ""
         assert champ.individual is not None
         if criterion == "cvar95":
-            # The tail rule scores the champion like any row (its recorded RMS pre-empts nothing). First, so
-            # the dedup keeps its label when the last generation holds the same individual (a promoted finalize).
-            population = np.vstack([np.asarray(champ.individual, dtype=np.float64)[None, :], population])
-            provenances.insert(0, f"{label}champion")
-            if island_of_row is not None:
-                island_of_row.insert(0, name)
+            # The tail rule re-flies every champion as a row (its recorded RMS pre-empts nothing): no
+            # re-validation here, and an untrusted one (val_rms inf) goes in under its plain label.
+            known.append(KnownCandidate(x=np.asarray(champ.individual, dtype=np.float64), provenance=f"{label}champion", val_rms=float(champ.val_rms)))
             continue
         # Checkpoint champions may predate the gate or a ceiling change: re-validate
         # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one
@@ -617,10 +607,10 @@ def main() -> None:
     parser.add_argument(
         "--pool",
         choices=("validation", "tail_select"),
-        default="validation",
-        help="cvar95 only: score the tail statistic on the validation pool, or on the reserved tail-select pool (TAIL_SELECT_SEED_OFFSET, --pool-n seeds)",
+        default=None,
+        help="cvar95 only: score the tail on the validation pool (default) or on the reserved tail-select pool (TAIL_SELECT_SEED_OFFSET, --pool-n seeds)",
     )
-    parser.add_argument("--pool-n", type=int, default=5000, help="cvar95 with --pool tail_select: the tail-select pool size (default 5000)")
+    parser.add_argument("--pool-n", type=int, default=None, help="cvar95 with --pool tail_select: the tail-select pool size (default 5000)")
     parser.add_argument(
         "--output-dir",
         type=str,
@@ -628,6 +618,10 @@ def main() -> None:
         help="deploy the pick (best_model.json / best_params.json, final_selection.json) here instead of into training_dir; the checkpoint is not patched",
     )
     args = parser.parse_args()
+    if args.criterion != "cvar95" and (args.pool is not None or args.pool_n is not None):
+        parser.error("--pool / --pool-n apply to --criterion cvar95 only")
+    if args.pool_n is not None and args.pool != "tail_select":
+        parser.error("--pool-n applies to --pool tail_select only")
 
     from aerocapture.training.chromosome_layout import ChromosomeLayout  # noqa: PLC0415
     from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
@@ -656,8 +650,9 @@ def main() -> None:
     tail_pool: dict[str, Any] | None = None
     if args.criterion == "cvar95":
         if args.pool == "tail_select":
-            tail_seeds = make_reserved_seeds(base_mc_seed, TAIL_SELECT_SEED_OFFSET, args.pool_n)
-            tail_pool = {"name": "tail_select", "offset": TAIL_SELECT_SEED_OFFSET, "n": args.pool_n}
+            pool_n = 5000 if args.pool_n is None else args.pool_n
+            tail_seeds = make_reserved_seeds(base_mc_seed, TAIL_SELECT_SEED_OFFSET, pool_n)
+            tail_pool = {"name": "tail_select", "offset": TAIL_SELECT_SEED_OFFSET, "n": pool_n}
         else:
             tail_seeds = val_seeds
             tail_pool = {"name": "validation", "offset": VALIDATION_SEED_OFFSET, "n": len(val_seeds)}
@@ -678,8 +673,9 @@ def main() -> None:
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
-    n_sims_estimate = state.population.shape[0] * len(val_seeds)
-    print(f"  Final selection ({args.criterion}) over {state.population.shape[0]} candidates x {len(val_seeds)} validation seeds (<= {n_sims_estimate} sims)")
+    n_rows = state.population.shape[0] + (len(state.champions) if args.criterion == "cvar95" else 0)
+    n_sims_estimate = n_rows * len(val_seeds) + (n_rows * len(tail_seeds) if tail_seeds is not None and tail_seeds != val_seeds else 0)
+    print(f"  Final selection ({args.criterion}) over {n_rows} candidates x {len(val_seeds)} validation seeds (<= {n_sims_estimate} sims)")
     if tail_pool is not None and tail_pool["name"] == "tail_select":
         print(f"  Tail statistic of the feasible survivors on the tail-select pool (offset {TAIL_SELECT_SEED_OFFSET}, n={tail_pool['n']})...")
     run_final_select(

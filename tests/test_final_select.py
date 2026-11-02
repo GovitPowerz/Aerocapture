@@ -629,7 +629,7 @@ class TestTailRule:
         assert sel.provenance == "champion" and not sel.promoted and sel.winner_index is None
         assert sel.n_deduped == 2 and sel.n_candidates == 3
         assert sel.val_rms == pytest.approx(_rms(_B, SEEDS))  # the flown RMS, not the recorded one
-        # The retro CLI passes the champion as a plain row: still "kept", not promoted.
+        # A plain row whose provenance ends in "champion" is "kept" too, not promoted.
         sel = self._select(np.vstack([_A, _B.copy(), _C]), ["last_gen[0]", "champion", "last_gen[2]"], [])
         assert sel.provenance == "champion" and not sel.promoted and sel.winner_index == 1
 
@@ -738,8 +738,9 @@ class TestTailRule:
     def test_run_final_select_champion_keeps_its_label_over_its_last_gen_twin(self, tmp_path: Path) -> None:
         """A promoted finalize leaves the champion in the last generation too: the dedup keeps the champion row."""
         sel = self._run_select(self._run_dir(tmp_path, np.vstack([_A, _B.copy(), _C]), _B), tmp_path / "pick")
-        assert sel.provenance == "champion" and not sel.promoted and sel.n_deduped == 3
+        assert sel.provenance == "champion" and not sel.promoted and sel.winner_index is None and sel.n_deduped == 2
         assert [r["provenance"] for r in sel.candidate_rms] == ["champion", "last_gen[0]", "last_gen[2]"]
+        assert sel.incumbent_val_rms == pytest.approx(_rms(_B, SEEDS))  # the checkpoint's recorded RMS, informational
 
     def test_run_final_select_refuses_output_dir_equal_to_the_run(self, tmp_path: Path) -> None:
         run = self._run_dir(tmp_path, np.vstack([_B, _C]), _A)

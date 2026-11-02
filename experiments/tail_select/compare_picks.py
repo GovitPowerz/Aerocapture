@@ -9,14 +9,14 @@
   differ from the RMS pick, for experiments/ou_marginal/confirmatory_marginal.py. The
   tail-select-pool pick is `tail_select/<run>`; the validation-pool pick, when it differs
   from both, is `tail_select/<run>_val`.
-- `--table` (default): the pre-registered read. Per run: the pick each arm made, its CVaR95 on
+- without `--manifest` (the default): the pre-registered read. Per run: the pick each arm made, its CVaR95 on
   the pool that chose it, the deployed seed's and the tail pick's pooled CVaR99.9 on the
   10 x 100,000 confirmatory pool (confirmatory_marginal.json), capture and heat-load
   exceedances beside them; the six-run paired delta (tail pick minus RMS pick, zero where the
   picks coincide) with its mean, sd, 95% t-interval, and the same over the runs whose choice
   set had more than one feasible member. Writes tail_select.json and prints the README table.
 
-Usage (repo root): uv run python experiments/tail_select/compare_picks.py [--manifest | --table]
+Usage (repo root): uv run python experiments/tail_select/compare_picks.py [--manifest]
 """
 
 from __future__ import annotations
@@ -137,6 +137,8 @@ def table(rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
     decidable: list[float] = []
     for run, r in rows.items():
         arms = r["arms"]
+        if missing := [a for a in ARMS if a not in arms]:
+            raise SystemExit(f"{run}: no final_selection.json for arm(s) {missing}; finish run_selection.sh first")
         primary = arms[PRIMARY]
         rms_row = confirmatory_row(f"ou_marginal/{run}", by_label)
         if rms_row is None or rms_row["model_sha256"] != r["deployed_sha256"]:

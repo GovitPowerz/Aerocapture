@@ -28,6 +28,12 @@ the 5000-seed pool picks `last_gen[458]`, the validation pool `last_gen[312]`). 
 `hl_mamba_p962_s2` (325 feasible) both pools keep the champion; in the three runs with no feasible
 last-generation candidate nothing could change.
 
+The arms' sidecars were written before the `tail` block took the `sizing_tail.dv_tail` keys
+(commit 06ac96ae), so their `tail` blocks carry `dv_mean / dv_p95 / dv_cvar95 / dv_max` (one arm
+also `feasible`); `tail_select.json` embeds them as written. The picks are unaffected: no two
+full-capture survivors tie on CVaR95 at two decimals in any arm, so the unrounded ranking picks
+the same rows.
+
 The three picks that differ from the RMS pick were flown on the confirmatory pool
 (`confirmatory_marginal.json`, labels `tail_select/...`, 10 x 100,000 per_draw) at commit 355a9bd9
 plus this branch's uncommitted selection code, which the flight path does not touch.
