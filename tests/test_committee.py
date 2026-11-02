@@ -80,6 +80,22 @@ def test_build_committee_rejections(tmp_path: Path) -> None:
         build_committee([a, nested], "raw_sum")
 
 
+def test_write_committee_copies_member_0_scaffolding(tmp_path: Path) -> None:
+    lead, other = tmp_path / "s1", tmp_path / "s2"
+    lead.mkdir()
+    other.mkdir()
+    a, b = _dense_v2(lead / "best_model.json", 1), _dense_v2(other / "best_model.json", 2)
+    (lead / "best_params.json").write_text('{"nav.density_filter_gain": 0.5}')
+    (other / "best_params.json").write_text('{"nav.density_filter_gain": 0.4}')
+    cell = tmp_path / "cell"
+    write_committee([a, b], "circular_mean", cell)
+    assert (cell / "best_params.json").read_text() == '{"nav.density_filter_gain": 0.5}'
+    assert json.loads((cell / "committee.json").read_text())["scaffolding"] == str(lead / "best_params.json")
+    bare = tmp_path / "bare"
+    write_committee([_dense_v2(tmp_path / "c.json", 3)], "raw_sum", bare)
+    assert not (bare / "best_params.json").exists()
+
+
 def test_torch_mirror_refuses_a_committee(tmp_path: Path) -> None:
     torch_mirror = pytest.importorskip("aerocapture.training.model_io")
     out = write_committee([_dense_v2(tmp_path / "a.json", 1)], "raw_sum", tmp_path / "cell")
@@ -91,7 +107,7 @@ def test_torch_mirror_refuses_a_committee(tmp_path: Path) -> None:
 @pytest.mark.parametrize("rule", ["raw_sum", "medoid"])
 def test_one_member_committee_flies_bit_identically(tmp_path: Path, rule: str) -> None:
     """The runtime gate: a committee of one, under a rule that returns a raw head, is the
-    member. Flown through the golden NN config (16 inputs, no mask) on two dispersed draws."""
+    member. Flown through the golden NN config (16 inputs, no mask) on its three dispersed draws."""
     aero = pytest.importorskip("aerocapture_rs")
     member = _dense_v2(tmp_path / "member.json", 7, mask=None)
     committee = write_committee([member], rule, tmp_path / "cell")

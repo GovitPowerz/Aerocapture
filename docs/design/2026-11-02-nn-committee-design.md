@@ -11,9 +11,8 @@ another: the three headline Mamba 962 seeds span 15.8 m/s of CVaR99.9 (158.5 +- 
 10 x 100,000 confirmatory pool), the deployment rule fixed seed 1 blind, and it is the worst far
 tail of its family (173.9). Read as policy-level variance, that spread invites the textbook
 reducer: fly the three seeds as one artifact and combine their commands. No training, one Rust
-layer type, one confirmatory flight; reviewer 1 of the v3 draft had asked for an ensemble number
-"only if an ensemble is genuinely deployed, including its command-combination rule and
-computational cost".
+layer type, one confirmatory flight. An ensemble number is quotable only for an ensemble that is
+genuinely deployed, with its command-combination rule and computational cost.
 
 ## 2. Design (pre-registered in #232)
 
@@ -41,8 +40,9 @@ A `committee` layer type (`src/rust/src/data/neural/layers/committee.rs`, `Layer
 untouched; the `[[network.architecture]]` cross-check passes a committee when at least one member
 matches the TOML (`toml_architecture_agrees`). Deploy-only: the torch mirror refuses the layer,
 no chromosome layout exists. The builder (`aerocapture.training.committee`) assembles the JSON
-from deployed `best_model.json` files, records their sha256s in the spec and writes a
-`committee.json` sidecar the confirmatory driver reads as the cell's finished marker.
+from deployed `best_model.json` files, records their sha256s in the spec, copies member 0's
+`best_params.json` (the cell flies the deployed seed's scaffolding) and writes a `committee.json`
+sidecar the confirmatory driver reads as the cell's finished marker.
 
 Gates: a one-member committee flies bit-identically to its member under `raw_sum` and `medoid`
 (Rust unit test and `tests/test_committee.py` through the golden NN config); `circular_mean`
@@ -51,7 +51,12 @@ atan2 and the trajectory diverges by a few 1e-2 m/s over a flight (the same-seed
 record), which is why the bit-identity gate names the two raw-head rules. The six guidance
 goldens and `rl_env_parity` are untouched.
 
-## 4. Pilot (2000 confirmatory scenarios, per_draw)
+## 4. Pilot (2000 confirmatory-range scenarios, per_draw)
+
+The pool is `make_confirmatory_pools(42, 1, 2000)` (`paired_vs_champion.py --replicates 1 --n 2000`).
+Every committee row flew the base TOML's navigation filter and command shaping, not the deployed
+seed's trained `best_params.json` (the builder copied none until review); the primary arm with the
+deployed seed's scaffolding on the same pool gives 72.15% capture, mean 144.2, CVaR95 208.5, max 314.
 
 | cell | capture | mean | CVaR95 | max | paired mean vs champion |
 |---|---|---|---|---|---|

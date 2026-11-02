@@ -675,6 +675,11 @@ impl LayerWeights for Layer {
     fn post_load(&mut self) {
         self.as_weights_mut().post_load()
     }
+
+    // Delegated so a layer that overrides `from_flat` (Committee) is reached.
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        self.as_weights_mut().from_flat(flat)
+    }
 }
 
 /// JSON file structure for neural network models (v1 schema).
@@ -1584,9 +1589,8 @@ impl NeuralNetModel {
 pub(crate) fn forward_layer(
     layer: &Layer,
     layer_state: &mut LayerState,
-    current: Vec<f64>,
+    mut current: Vec<f64>,
 ) -> Vec<f64> {
-    let mut current = current;
     match (layer, layer_state) {
         // Matches (Layer, LayerState) pairs. Construction invariant from
         // NnState::for_model: Dense pairs with None, Gru pairs with Gru{h}.
@@ -1653,7 +1657,7 @@ pub(crate) fn forward_layer(
             current = c.forward(&current, members);
         }
         _ => unreachable!(
-            "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
+            "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer, Layer::Committee -> Committee)"
         ),
     }
     current

@@ -8,3 +8,6 @@ for rule in circular_mean raw_sum medoid; do
     uv run python -m aerocapture.training.committee --rule "$rule" --out "training_output/committee/hl_mamba3_$rule" "${MAMBA[@]}"
 done
 uv run python -m aerocapture.training.committee --rule circular_mean --out training_output/committee/hl_mixed6_circular_mean "${MAMBA[@]}" "${DENSE[@]}"
+# Post hoc (not pre-registered): the sign_leader pilot arms.
+uv run python -m aerocapture.training.committee --rule sign_leader --out training_output/committee/hl_mamba3_sign_leader "${MAMBA[@]}"
+uv run python -m aerocapture.training.committee --rule sign_leader --out training_output/committee/hl_mixed6_sign_leader "${MAMBA[@]}" "${DENSE[@]}"

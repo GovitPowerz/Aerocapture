@@ -2747,6 +2747,49 @@ fn committee_of_one_matches_its_member() {
 }
 
 #[test]
+fn committee_flat_load_runs_member_post_load() {
+    // Transformer derives its PE offsets in `post_load`: the flat path must
+    // reach it through the committee, or the member flies with empty offsets.
+    let member_arch = vec![
+        LayerSpec::Dense {
+            input_size: 5,
+            output_size: 4,
+            activation: Activation::Tanh,
+        },
+        LayerSpec::Transformer {
+            d_model: 4,
+            n_heads: 2,
+            d_ffn: 6,
+            n_seq: 3,
+        },
+        LayerSpec::Dense {
+            input_size: 4,
+            output_size: 2,
+            activation: Activation::Asinh,
+        },
+    ];
+    let flat = committee_flat(spec_n_params(&member_arch), 0.2);
+    let build = |arch: &[LayerSpec]| {
+        NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap()
+    };
+    let member = build(&member_arch);
+    let committee = build(&committee_spec("medoid", vec![member_arch.clone()]));
+    let mut sm = NnState::for_model(&member);
+    let mut sc = NnState::for_model(&committee);
+    for x in committee_inputs(6) {
+        assert_eq!(member.forward(&mut sm, &x), committee.forward(&mut sc, &x));
+    }
+}
+
+#[test]
 fn committee_json_v2_save_load_roundtrip() {
     let arch = committee_spec(
         "circular_mean",

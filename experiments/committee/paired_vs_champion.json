@@ -1,0 +1,47 @@
+{
+ "committee/hl_mamba3_circular_mean": {
+  "champion": "ou_marginal/hl_mamba_p962",
+  "pool": "CONFIRMATORY 1 x 2000",
+  "noise_seeding": "per_draw",
+  "committee": {
+   "n_captured": 1454,
+   "cvar95": 203.83,
+   "cvar999": 310.68
+  },
+  "champion_stats": {
+   "n_captured": 2000,
+   "cvar95": 119.48,
+   "cvar999": 145.18
+  },
+  "paired": {
+   "n_pairs": 1454,
+   "delta_mean": 32.315,
+   "delta_mean_ci": [
+    31.305,
+    33.364
+   ],
+   "win_rate_a": 0.003,
+   "wilcoxon_p": 4.35857e-239,
+   "delta_p95": 62.44,
+   "delta_p95_ci": [
+    58.28,
+    66.24
+   ],
+   "delta_cvar95": 84.35,
+   "delta_cvar95_ci": [
+    76.44,
+    93.0
+   ],
+   "delta_capture_pts": -27.3,
+   "delta_capture_pts_ci": [
+    -29.25,
+    -25.4
+   ],
+   "delta_cvar999": 165.5,
+   "delta_cvar999_ci": [
+    115.33,
+    183.88
+   ]
+  }
+ }
+}

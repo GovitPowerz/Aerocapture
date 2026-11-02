@@ -1,9 +1,10 @@
 """Paired per-scenario delta of a committee cell against the deployed seed (#232).
 
-Flies both cells on the same confirmatory pools (`make_confirmatory_pools`, the
-10 x 100,000 scenarios of confirmatory_marginal.py, per_draw noise, the scorer's 5 s
-wall clock) and reports the paired tail deltas committee minus champion (negative =
-committee better): CVaR95 / p95 / capture from `sizing_tail.paired_tail`, plus the
+Flies both cells on the same confirmatory pools (`make_confirmatory_pools(seed,
+replicates, n)`: at the defaults the 10 x 100,000 scenarios of confirmatory_marginal.py;
+a smaller --replicates / --n is a fresh draw from the same range, not a prefix of
+those; per_draw noise, the scorer's 5 s wall clock) and reports the paired tail
+deltas committee minus champion (negative = committee better): CVaR95 / p95 / capture from `sizing_tail.paired_tail`, plus the
 far-tail CVaR99.9 delta with the same scenario-resampled bootstrap. Output:
 experiments/committee/paired_vs_champion.json, one entry per committee label.
 
@@ -24,25 +25,18 @@ import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src/python"))
+sys.path.insert(0, str(REPO / "experiments/ou_marginal"))
 
 from aerocapture.training.cell_eval import FR_DV_TOTAL, evaluate_cell  # noqa: E402
 from aerocapture.training.seeds import make_confirmatory_pools  # noqa: E402
 from aerocapture.training.sizing_tail import cvar, paired_tail  # noqa: E402
+from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: E402
+from confirmatory_marginal import read_manifest  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "paired_vs_champion.json"
 MANIFEST = Path(__file__).resolve().parent / "committee_cells.txt"
 CHAMPION = ("ou_marginal/hl_mamba_p962", "configs/training/ou_marginal/hl_mamba_p962.toml", "training_output/ou_marginal/hl_mamba_p962")
 PER_DRAW = {"monte_carlo.noise_seeding": "per_draw"}
-
-
-def manifest_cells() -> dict[str, tuple[str, str]]:
-    cells = {}
-    for raw in MANIFEST.read_text().splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if line:
-            label, toml, model_dir = line.split("|")
-            cells[label] = (toml, model_dir)
-    return cells
 
 
 def fly(toml: str, model_dir: str, pools: list[list[int]]) -> tuple[np.ndarray, np.ndarray]:
@@ -76,8 +70,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--replicates", type=int, default=10)
     parser.add_argument("--n", type=int, default=100_000)
     args = parser.parse_args(argv)
-    toml, model_dir = manifest_cells()[args.cell]
-    pools = make_confirmatory_pools(42, args.replicates, args.n)
+    cells = {label: (toml, model_dir or f"training_output/{label}") for label, toml, model_dir in read_manifest(MANIFEST)}
+    toml, model_dir = cells[args.cell]
+    # The driver's rule: both sides share the base MC seed or the pools (and the pairing) differ.
+    seeds = {load_toml_with_bases(REPO / t).get("monte_carlo", {}).get("seed", 42) for t in (toml, CHAMPION[1])}
+    assert len(seeds) == 1, f"base_mc_seed differs between {args.cell} and the champion: {seeds}"
+    pools = make_confirmatory_pools(seeds.pop(), args.replicates, args.n)
 
     print(f"== champion {CHAMPION[0]}", flush=True)
     dv_b, cap_b = fly(CHAMPION[1], CHAMPION[2], pools)

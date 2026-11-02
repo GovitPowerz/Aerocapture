@@ -8,16 +8,28 @@ pre-registered win rule on the 2000-scenario pilot; the seeds fly independent la
 
 ## Files
 
-- `build_cells.sh`: assembles the four pre-registered cells under `training_output/committee/`
-  with `python -m aerocapture.training.committee` (members = the deployed `best_model.json`
-  files, sha256s recorded in the model and in the `committee.json` sidecar).
+- `build_cells.sh`: assembles the four pre-registered cells and the two post-hoc `sign_leader`
+  cells under `training_output/committee/` with `python -m aerocapture.training.committee`
+  (members = the deployed `best_model.json` files, sha256s recorded in the model and in the
+  `committee.json` sidecar, member 0's `best_params.json` copied so the cell flies its scaffolding).
 - `committee_cells.txt`: the `label|toml|model_dir` manifest for
-  `experiments/ou_marginal/confirmatory_marginal.py` (10 x 100,000, per_draw).
+  `experiments/ou_marginal/confirmatory_marginal.py` (10 x 100,000, per_draw) and for
+  `paired_vs_champion.py --cell`; its last two rows are the post-hoc `sign_leader` cells, flown on
+  the pilot only.
 - `paired_vs_champion.py`: paired per-scenario deltas of one committee cell against the deployed
-  seed on the confirmatory pools (`sizing_tail.paired_tail` plus the CVaR99.9 delta).
+  seed on the confirmatory pools (`sizing_tail.paired_tail` plus the CVaR99.9 delta), written to
+  `paired_vs_champion.json` (tracked; holds the primary arm's pilot pairing quoted below).
 - Cell configs: `configs/training/committee/*.toml`, base-inheriting the deployed seed's TOML.
 
-## Pilot (first 2000 scenarios of confirmatory replicate 0, per_draw, 5 s wall clock)
+## Pilot (2000 confirmatory-range scenarios, per_draw, 5 s wall clock)
+
+The pool is `make_confirmatory_pools(42, 1, 2000)`, the `paired_vs_champion.py --replicates 1 --n 2000`
+draw: 2000 seeds of the 10^6 confirmatory set, not a prefix of replicate 0. Every committee row
+(and the 10^6 row below) flew the base TOML's navigation filter and command shaping
+(`density_filter_gain` 0.349, `density_gain_max_delta` 0.140, `max_bank_acceleration` 12.67), not
+the deployed seed's trained `best_params.json` (0.573 / 0.396 / 14.42) the champion flies: the
+builder copied no scaffolding until review. With the deployed seed's scaffolding the primary arm on
+the same pool gives 72.15% capture, mean 144.2, CVaR95 208.5, max 314; the verdict does not move.
 
 | cell | ms/sim (14 threads) | capture | mean | CVaR95 | max | paired mean vs champion |
 |---|---|---|---|---|---|---|

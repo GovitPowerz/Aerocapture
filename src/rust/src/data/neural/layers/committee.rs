@@ -38,15 +38,6 @@ impl CommitteeRule {
             )),
         }
     }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::CircularMean => "circular_mean",
-            Self::RawSum => "raw_sum",
-            Self::Medoid => "medoid",
-            Self::SignLeader => "sign_leader",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

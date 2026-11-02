@@ -2,7 +2,9 @@
 one committee model, a single `committee` layer whose members are the deployed
 stacks nested verbatim, their 2-output heads combined under one rule before the
 atan2 decode. Deploy-only: the Rust runtime flies it, the torch mirror refuses it
-(`model_io.load_policy_from_json`), no chromosome layout exists for it.
+(`model_io.load_policy_from_json`), no chromosome layout exists for it. The cell
+flies member 0's scaffolding (its `best_params.json`, copied next to the model):
+one committee has one navigation filter and one command shaper.
 
     uv run python -m aerocapture.training.committee --rule circular_mean \\
         --out training_output/committee/hl_mamba3_circular_mean \\
@@ -14,14 +16,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 RULES = ("circular_mean", "raw_sum", "medoid", "sign_leader")
 
-# Decoder and input contract every member must share: the committee carries one copy.
-_SHARED_KEYS = ("input_mask", "normalization", "output_param", "ablated_input", "scaled_pi_n", "delta_max")
+# Input contract every member must share: the committee carries one copy.
+_SHARED_KEYS = ("input_mask", "normalization")
 
 
 def sha256_of(path: Path) -> str:
@@ -33,7 +36,8 @@ def build_committee(member_paths: Sequence[Path], rule: str) -> dict[str, Any]:
         raise ValueError(f"rule must be one of {RULES}, got {rule!r}")
     if not member_paths:
         raise ValueError("a committee needs at least one member")
-    members = [json.loads(Path(p).read_text()) for p in member_paths]
+    raw = [Path(p).read_bytes() for p in member_paths]
+    members = [json.loads(b) for b in raw]
     first = members[0]
     for path, m in zip(member_paths, members, strict=True):
         if m.get("format_version") != 2:
@@ -54,7 +58,7 @@ def build_committee(member_paths: Sequence[Path], rule: str) -> dict[str, Any]:
                 "type": "committee",
                 "rule": rule,
                 "members": [m["architecture"] for m in members],
-                "member_sha256": [sha256_of(Path(p)) for p in member_paths],
+                "member_sha256": [hashlib.sha256(b).hexdigest() for b in raw],
             }
         ],
         "weights": {"layer_0": {"members": [m["weights"] for m in members]}},
@@ -73,11 +77,20 @@ def write_committee(member_paths: Sequence[Path], rule: str, out_dir: Path) -> P
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / "best_model.json"
     out.write_text(json.dumps(model, indent=2) + "\n")
+    # `resolve_eval_toml` routes a cell's best_params.json: without it the committee would fly
+    # the base TOML's nav / shaping knobs while the deployed seed flies its trained ones.
+    scaffolding = Path(member_paths[0]).parent / "best_params.json"
+    if scaffolding.exists():
+        shutil.copyfile(scaffolding, out_dir / "best_params.json")
     # Provenance sidecar: the cell is assembled, not trained (no checkpoints, no final
     # selection); the confirmatory driver reads it as the cell's "run finished" marker.
-    (out_dir / "committee.json").write_text(
-        json.dumps({"rule": rule, "members": [str(p) for p in member_paths], "member_sha256": model["architecture"][0]["member_sha256"]}, indent=2) + "\n"
-    )
+    sidecar = {
+        "rule": rule,
+        "members": [str(p) for p in member_paths],
+        "member_sha256": model["architecture"][0]["member_sha256"],
+        "scaffolding": str(scaffolding) if scaffolding.exists() else None,
+    }
+    (out_dir / "committee.json").write_text(json.dumps(sidecar, indent=2) + "\n")
     return out
 
 
