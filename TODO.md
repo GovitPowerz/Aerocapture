@@ -62,7 +62,7 @@
 ## Committee of the headline seeds -- NEGATIVE (2026-11-02)
 
 The three headline Mamba 962 seeds flown as one artifact (#232, `docs/design/2026-11-02-nn-committee-design.md`)
-lose 18-27% of captures: the seeds share the bank magnitude and fly independent lateral plans
+lose 20-28% of captures: the seeds share the bank magnitude and fly independent lateral plans
 (sign agreement at chance), so their commands do not average; fixing the sign recovers capture, not
 the policy. The seed spread is not reducible at deploy time. The `committee` layer type stays.
 

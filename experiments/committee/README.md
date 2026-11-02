@@ -23,27 +23,29 @@ pre-registered win rule on the 2000-scenario pilot; the seeds fly independent la
 
 ## Pilot (2000 confirmatory-range scenarios, per_draw, 5 s wall clock)
 
-The pool is `make_confirmatory_pools(42, 1, 2000)`, the `paired_vs_champion.py --replicates 1 --n 2000`
-draw: 2000 seeds of the 10^6 confirmatory set, not a prefix of replicate 0. Every committee row
-(and the 10^6 row below) flew the base TOML's navigation filter and command shaping
-(`density_filter_gain` 0.349, `density_gain_max_delta` 0.140, `max_bank_acceleration` 12.67), not
-the deployed seed's trained `best_params.json` (0.573 / 0.396 / 14.42) the champion flies: the
-builder copied no scaffolding until review. With the deployed seed's scaffolding the primary arm on
-the same pool gives 72.15% capture, mean 144.2, CVaR95 208.5, max 314; the verdict does not move.
+`pilot.py`: the pool is `make_confirmatory_pools(42, 1, 2000)` (2000 seeds of the 10^6 confirmatory
+set, not a prefix of replicate 0), every cell on its own scaffolding (the committee cells carry
+member 0's `best_params.json`; `pilot.json` holds the rows).
 
 | cell | ms/sim (14 threads) | capture | mean | CVaR95 | max | paired mean vs champion |
 |---|---|---|---|---|---|---|
-| champion `ou_marginal/hl_mamba_p962` | 0.47 | 100.00% | 110.6 | 119.5 | 151 | |
-| `hl_mamba3_circular_mean` (primary) | 0.67 | 72.70% | 143.0 | 203.8 | 311 | +32.3 m/s, committee better on 0.3% |
-| `hl_mamba3_raw_sum` | 0.65 | 79.80% | 150.3 | 190.8 | 250 | |
-| `hl_mamba3_medoid` | 0.70 | 81.90% | 155.4 | 271.0 | 296 | |
-| `hl_mixed6_circular_mean` | 1.03 | 99.95% | 118.0 | 137.6 | 198 | |
-| `hl_mamba3_sign_leader` (post hoc) | 0.84 | 99.40% | 151.7 | 266.5 | 338 | +41.2 m/s, better on 6.1% |
-| `hl_mixed6_sign_leader` (post hoc) | 0.91 | 99.45% | 136.6 | 201.0 | 314 | +26.0 m/s, better on 1.0% |
+| champion `ou_marginal/hl_mamba_p962` | 0.54 | 100.00% | 110.6 | 119.5 | 151 |  |
+| `hl_mamba3_circular_mean` (primary) | 0.64 | 72.15% | 144.2 | 208.5 | 314 | +33.5 m/s, better on 0.2% |
+| `hl_mamba3_raw_sum` | 0.67 | 79.35% | 149.2 | 188.7 | 249 | +38.6 m/s, better on 0.1% |
+| `hl_mamba3_medoid` | 0.67 | 80.30% | 156.6 | 272.1 | 300 | +46.0 m/s, better on 0.4% |
+| `hl_mixed6_circular_mean` | 1.04 | 100.00% | 118.0 | 138.3 | 198 | +7.4 m/s, better on 7.1% |
+| `hl_mamba3_sign_leader` (post hoc) | 0.84 | 99.45% | 152.9 | 267.5 | 328 | +42.4 m/s, better on 5.5% |
+| `hl_mixed6_sign_leader` (post hoc) | 0.93 | 99.40% | 137.5 | 202.0 | 290 | +26.9 m/s, better on 1.2% |
 
-Paired deltas of the primary arm (`paired_vs_champion.py --replicates 1 --n 2000`, 1454 pairs
-captured by both): mean +32.3 [31.3, 33.4], p95 +62.4, CVaR95 +84.4 [76.4, 93.0], capture
--27.3 points, CVaR99.9 +165.5.
+Paired deltas of the primary arm (`paired_vs_champion.py --replicates 1 --n 2000`, 1443 pairs
+captured by both, `paired_vs_champion.json`): mean +33.5, p95 and CVaR95 +89.0, capture
+-27.9 points, CVaR99.9 +168.4.
+
+Before review the builder copied no scaffolding, so the first pilot flew the base TOML's navigation
+filter and command shaping (`density_filter_gain` 0.349 / `density_gain_max_delta` 0.140 /
+`max_bank_acceleration` 12.67 against the deployed seed's 0.573 / 0.396 / 14.42): primary arm
+72.70% capture, CVaR95 203.8, the six-member arm 99.95% and 137.6. The corrected rows above move
+by under 1.5 points and 5 m/s; the verdict did not.
 
 Runtime check: a committee of the deployed seed three times reproduces the champion (`medoid`
 bit-identical; `raw_sum` and `circular_mean` within 1.7e-2 m/s of DV over 300 scenarios, the
@@ -82,11 +84,11 @@ The pre-registered flight of the primary arm through the confirmatory driver
 
 | cell | capture | non-captures | heat load > limit (per 10^6) | CVaR95 | CVaR99.9 +- s.e. | max |
 |---|---|---|---|---|---|---|
-| `committee/hl_mamba3_circular_mean` | 72.82% | 271,801 (500 re-flown without the wall clock: 500 crashes) | 72 | 209.3 | 338.5 +- 3.7 | 1174 |
+| `committee/hl_mamba3_circular_mean` | 72.43% | 275,749 (500 re-flown without the wall clock: 500 crashes) | 30 | 212.6 | 294.1 +- 0.8 | 373 |
 | deployed seed `ou_marginal/hl_mamba_p962` (paper Table 6) | 100.0000% | 0 | 1148 | 120.1 | 173.9 +- 2.2 | 300 |
 
 The averaged command is a lift-down command no member issued: the 27% non-captures are ground
-crashes, not skip-outs. Evaluated at commit 355a9bd9 (model sha256 41bf4dfb...). The other three
+crashes, not skip-outs. Flown on the corrected cell (member 0's scaffolding) at commit 1e8e711f, model sha256 41bf4dfb...; the first flight, without the scaffolding, gave 72.82% / 209.3 / 338.5 +- 3.7. The other three
 pre-registered 10^6 flights were not flown: every arm fails the capture clause of the win rule on
 the pilot (the champion loses 0 of 10^6), and the tail of a policy that loses one scenario in four
 is not a sizing number.

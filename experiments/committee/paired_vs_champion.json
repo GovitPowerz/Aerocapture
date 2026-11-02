@@ -4,9 +4,9 @@
   "pool": "CONFIRMATORY 1 x 2000",
   "noise_seeding": "per_draw",
   "committee": {
-   "n_captured": 1454,
-   "cvar95": 203.83,
-   "cvar999": 310.68
+   "n_captured": 1443,
+   "cvar95": 208.53,
+   "cvar999": 313.62
   },
   "champion_stats": {
    "n_captured": 2000,
@@ -14,33 +14,33 @@
    "cvar999": 145.18
   },
   "paired": {
-   "n_pairs": 1454,
-   "delta_mean": 32.315,
+   "n_pairs": 1443,
+   "delta_mean": 33.531,
    "delta_mean_ci": [
-    31.305,
-    33.364
+    32.434,
+    34.631
    ],
-   "win_rate_a": 0.003,
-   "wilcoxon_p": 4.35857e-239,
-   "delta_p95": 62.44,
+   "win_rate_a": 0.002,
+   "wilcoxon_p": 1.99856e-237,
+   "delta_p95": 66.67,
    "delta_p95_ci": [
-    58.28,
-    66.24
+    62.39,
+    71.25
    ],
-   "delta_cvar95": 84.35,
+   "delta_cvar95": 89.04,
    "delta_cvar95_ci": [
-    76.44,
-    93.0
+    81.08,
+    97.29
    ],
-   "delta_capture_pts": -27.3,
+   "delta_capture_pts": -27.85,
    "delta_capture_pts_ci": [
-    -29.25,
-    -25.4
+    -29.8,
+    -25.9
    ],
-   "delta_cvar999": 165.5,
+   "delta_cvar999": 168.44,
    "delta_cvar999_ci": [
-    115.33,
-    183.88
+    109.21,
+    186.82
    ]
   }
  }

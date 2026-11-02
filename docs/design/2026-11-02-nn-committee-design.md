@@ -53,21 +53,21 @@ goldens and `rl_env_parity` are untouched.
 
 ## 4. Pilot (2000 confirmatory-range scenarios, per_draw)
 
-The pool is `make_confirmatory_pools(42, 1, 2000)` (`paired_vs_champion.py --replicates 1 --n 2000`).
-Every committee row flew the base TOML's navigation filter and command shaping, not the deployed
-seed's trained `best_params.json` (the builder copied none until review); the primary arm with the
-deployed seed's scaffolding on the same pool gives 72.15% capture, mean 144.2, CVaR95 208.5, max 314.
+The pool is `make_confirmatory_pools(42, 1, 2000)` (`experiments/committee/pilot.py`), every cell on
+its own scaffolding (a committee flies member 0's `best_params.json`; the first pilot, before the
+builder copied it, flew the base TOML's and landed within 1.5 points and 5 m/s of these rows).
 
 | cell | capture | mean | CVaR95 | max | paired mean vs champion |
 |---|---|---|---|---|---|
-| champion `hl_mamba_p962` | 100.00% | 110.6 | 119.5 | 151 | |
-| `hl_mamba3_circular_mean` (primary) | 72.70% | 143.0 | 203.8 | 311 | +32.3, better on 0.3% |
-| `hl_mamba3_raw_sum` | 79.80% | 150.3 | 190.8 | 250 | |
-| `hl_mamba3_medoid` | 81.90% | 155.4 | 271.0 | 296 | |
-| `hl_mixed6_circular_mean` | 99.95% | 118.0 | 137.6 | 198 | |
+| champion `hl_mamba_p962` | 100.00% | 110.6 | 119.5 | 151 |  |
+| `hl_mamba3_circular_mean` (primary) | 72.15% | 144.2 | 208.5 | 314 | +33.5, better on 0.2% |
+| `hl_mamba3_raw_sum` | 79.35% | 149.2 | 188.7 | 249 | +38.6, better on 0.1% |
+| `hl_mamba3_medoid` | 80.30% | 156.6 | 272.1 | 300 | +46.0, better on 0.4% |
+| `hl_mixed6_circular_mean` | 100.00% | 118.0 | 138.3 | 198 | +7.4, better on 7.1% |
 
-Every arm fails the win rule at n = 2000 (the champion loses 0 of 2000 and 0 of 10^6); the
-pre-registered 10^6 flight was flown for the primary arm only, as the record's row.
+Every arm fails the win rule at n = 2000 (the three-Mamba arms on capture, the six-member arm on
+the tail at capture parity; the champion loses 0 of 10^6); the pre-registered 10^6 flight was
+flown for the primary arm only, as the record's row.
 
 ## 5. Mechanism: the seeds are different policies, not perturbations of one
 
@@ -76,8 +76,8 @@ On 40 shared scenarios the three Mamba seeds command the same bank magnitude (me
 0.41 (chance), sign flips per flight 25 / 145 / 15. Averaging a +130 deg and a -130 deg command
 is a lift-down command no member issued, and the capture loss follows. A post-hoc rule that
 takes the magnitude from all members and the sign from the deployed seed (`sign_leader`)
-recovers capture (99.40% / 99.45% for the two arms) and not the policy (paired mean +41 / +26
-m/s, CVaR95 266 / 201): the magnitude profile is coupled to each member's own lateral timing.
+recovers capture (99.45% / 99.40% for the two arms) and not the policy (paired mean +42 / +27
+m/s, CVaR95 268 / 202): the magnitude profile is coupled to each member's own lateral timing.
 
 ## 6. Verdict and what it closes
 

@@ -31,7 +31,7 @@ from aerocapture.training.cell_eval import FR_DV_TOTAL, evaluate_cell  # noqa: E
 from aerocapture.training.seeds import make_confirmatory_pools  # noqa: E402
 from aerocapture.training.sizing_tail import cvar, paired_tail  # noqa: E402
 from aerocapture.training.toml_utils import load_toml_with_bases  # noqa: E402
-from confirmatory_marginal import read_manifest  # noqa: E402
+from confirmatory_marginal import read_manifest  # type: ignore[import-not-found]  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "paired_vs_champion.json"
 MANIFEST = Path(__file__).resolve().parent / "committee_cells.txt"
