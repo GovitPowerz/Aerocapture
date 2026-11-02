@@ -1,0 +1,10 @@
+# #232 committee cells on the 10^6 per-scenario confirmatory pool, label|toml|model_dir. Run:
+#   uv run python -u experiments/ou_marginal/confirmatory_marginal.py --manifest experiments/committee/committee_cells.txt
+# Primary rule first (pre-registered in #232); the model dirs are assembled by experiments/committee/build_cells.sh.
+committee/hl_mamba3_circular_mean|configs/training/committee/hl_mamba3_circular_mean.toml|training_output/committee/hl_mamba3_circular_mean
+committee/hl_mamba3_raw_sum|configs/training/committee/hl_mamba3_raw_sum.toml|training_output/committee/hl_mamba3_raw_sum
+committee/hl_mamba3_medoid|configs/training/committee/hl_mamba3_medoid.toml|training_output/committee/hl_mamba3_medoid
+committee/hl_mixed6_circular_mean|configs/training/committee/hl_mixed6_circular_mean.toml|training_output/committee/hl_mixed6_circular_mean
+# Post hoc sign_leader pilot arms (paired_vs_champion.py --cell); not pre-registered, never flown at 10^6.
+committee/hl_mamba3_sign_leader|configs/training/committee/hl_mamba3_sign_leader.toml|training_output/committee/hl_mamba3_sign_leader
+committee/hl_mixed6_sign_leader|configs/training/committee/hl_mixed6_sign_leader.toml|training_output/committee/hl_mixed6_sign_leader

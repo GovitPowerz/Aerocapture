@@ -2623,3 +2623,328 @@ fn v1_json_honors_ablated_value() {
     assert_eq!(m.ablated_value, -1.0);
     assert_eq!(m.ablated_input, Some(1));
 }
+
+// ---- committee (#232) ----
+
+fn committee_member_arch(mamba: bool) -> Vec<LayerSpec> {
+    let mut arch = vec![LayerSpec::Dense {
+        input_size: 5,
+        output_size: 4,
+        activation: Activation::Tanh,
+    }];
+    if mamba {
+        arch.push(LayerSpec::Mamba {
+            input_size: 4,
+            d_state: 3,
+            dt_rank: 1,
+        });
+    }
+    arch.push(LayerSpec::Dense {
+        input_size: 4,
+        output_size: 2,
+        activation: Activation::Asinh,
+    });
+    arch
+}
+
+fn committee_spec(rule: &str, members: Vec<Vec<LayerSpec>>) -> Vec<LayerSpec> {
+    vec![LayerSpec::Committee {
+        rule: rule.to_string(),
+        members,
+        member_sha256: vec![],
+    }]
+}
+
+fn committee_inputs(n: usize) -> Vec<Vec<f64>> {
+    (0..n)
+        .map(|t| {
+            (0..5)
+                .map(|j| ((t * 7 + j * 3) as f64 * 0.37).sin())
+                .collect()
+        })
+        .collect()
+}
+
+fn spec_n_params(spec: &[LayerSpec]) -> usize {
+    spec.iter()
+        .map(|s| Layer::from_spec(s).unwrap().n_params())
+        .sum()
+}
+
+fn committee_flat(n: usize, seed: f64) -> Vec<f64> {
+    (0..n)
+        .map(|i| ((i as f64) * 0.013 + seed).sin() * 0.8)
+        .collect()
+}
+
+#[test]
+fn committee_rules_combine_heads() {
+    let heads = vec![vec![0.0, 2.0], vec![3.0, 0.0], vec![0.0, 0.0]];
+    let raw = combine_heads(CommitteeRule::RawSum, &heads);
+    assert_eq!(raw, vec![3.0, 2.0]);
+    // Unit votes: (0,1) + (1,0); the zero head casts none.
+    let unit = combine_heads(CommitteeRule::CircularMean, &heads);
+    assert_eq!(unit, vec![1.0, 1.0]);
+    // Circular mean at 45 deg; both non-zero members are 45 deg away, the
+    // first wins the tie; its raw head is returned.
+    let med = combine_heads(CommitteeRule::Medoid, &heads);
+    assert_eq!(med, vec![0.0, 2.0]);
+    let heads = vec![vec![1.0, 0.0], vec![0.6, 0.8], vec![-1.0, 0.0]];
+    let med = combine_heads(CommitteeRule::Medoid, &heads);
+    assert_eq!(med, vec![0.6, 0.8]);
+    // Sign leader: magnitudes 90, 37, 90 deg averaged in the right half-plane
+    // (|sin| = 1, 0.6, 1; cos = 0, 0.8, 0), the sign from member 0 (+).
+    let lead = combine_heads(CommitteeRule::SignLeader, &heads);
+    assert_eq!(lead, vec![2.6, 0.8]);
+    let heads = vec![vec![-1.0, 0.0], vec![0.6, 0.8]];
+    assert_eq!(
+        combine_heads(CommitteeRule::SignLeader, &heads),
+        vec![-1.6, 0.8]
+    );
+    assert!(CommitteeRule::parse("mean").is_err());
+}
+
+#[test]
+fn committee_of_one_matches_its_member() {
+    let member_arch = committee_member_arch(true);
+    let n = spec_n_params(&member_arch);
+    let flat = committee_flat(n, 0.1);
+    let member = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &member_arch,
+        None,
+        OutputParam::default(),
+        default_scaled_pi_n(),
+        default_delta_max(),
+    )
+    .unwrap();
+    for rule in ["raw_sum", "medoid", "circular_mean", "sign_leader"] {
+        let committee = NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            &committee_spec(rule, vec![member_arch.clone()]),
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap();
+        assert_eq!(committee.n_params(), member.n_params());
+        assert_eq!(committee.layer_sizes, vec![5, 2]);
+        let mut sm = NnState::for_model(&member);
+        let mut sc = NnState::for_model(&committee);
+        for x in committee_inputs(12) {
+            let a = member.forward(&mut sm, &x);
+            let b = committee.forward(&mut sc, &x);
+            if rule == "circular_mean" || rule == "sign_leader" {
+                let da = a[0].atan2(a[1]);
+                let db = b[0].atan2(b[1]);
+                assert!((da - db).abs() < 1e-12, "{rule}: {da} vs {db}");
+            } else {
+                assert_eq!(a, b, "{rule}: one-member committee must be bit-identical");
+            }
+        }
+    }
+}
+
+#[test]
+fn committee_flat_load_runs_member_post_load() {
+    // Transformer derives its PE offsets in `post_load`: the flat path must
+    // reach it through the committee, or the member flies with empty offsets.
+    let member_arch = vec![
+        LayerSpec::Dense {
+            input_size: 5,
+            output_size: 4,
+            activation: Activation::Tanh,
+        },
+        LayerSpec::Transformer {
+            d_model: 4,
+            n_heads: 2,
+            d_ffn: 6,
+            n_seq: 3,
+        },
+        LayerSpec::Dense {
+            input_size: 4,
+            output_size: 2,
+            activation: Activation::Asinh,
+        },
+    ];
+    let flat = committee_flat(spec_n_params(&member_arch), 0.2);
+    let build = |arch: &[LayerSpec]| {
+        NeuralNetModel::from_flat_weights_v2(
+            &flat,
+            arch,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .unwrap()
+    };
+    let member = build(&member_arch);
+    let committee = build(&committee_spec("medoid", vec![member_arch.clone()]));
+    let mut sm = NnState::for_model(&member);
+    let mut sc = NnState::for_model(&committee);
+    for x in committee_inputs(6) {
+        assert_eq!(member.forward(&mut sm, &x), committee.forward(&mut sc, &x));
+    }
+}
+
+#[test]
+fn committee_json_v2_save_load_roundtrip() {
+    let arch = committee_spec(
+        "circular_mean",
+        vec![committee_member_arch(true), committee_member_arch(false)],
+    );
+    let n = spec_n_params(&arch);
+    let flat = committee_flat(n, 0.4);
+    let model = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &arch,
+        None,
+        OutputParam::default(),
+        default_scaled_pi_n(),
+        default_delta_max(),
+    )
+    .unwrap();
+    assert_eq!(model.n_params(), n);
+    let path = std::env::temp_dir().join("committee_v2_roundtrip.json");
+    model.save_json(path.to_str().unwrap()).unwrap();
+    let raw = std::fs::read_to_string(&path).unwrap();
+    assert!(raw.contains("\"members\""), "{raw}");
+    assert!(
+        !raw.contains("member_sha256"),
+        "empty sha list is not written"
+    );
+    let loaded = NeuralNetModel::load(path.to_str().unwrap()).unwrap();
+    assert_eq!(loaded.architecture, model.architecture);
+    assert_eq!(loaded.to_flat_weights(), model.to_flat_weights());
+    let mut s0 = NnState::for_model(&model);
+    let mut s1 = NnState::for_model(&loaded);
+    for x in committee_inputs(6) {
+        assert_eq!(model.forward(&mut s0, &x), loaded.forward(&mut s1, &x));
+    }
+    // Stray key inside the committee block.
+    let bad = raw.replace("\"members\"", "\"member\"");
+    assert!(NeuralNetModel::from_json_str(&bad, "bad").is_err());
+}
+
+#[test]
+fn committee_from_spec_rejections() {
+    let build = |spec: Vec<LayerSpec>| {
+        let n: usize = spec
+            .iter()
+            .map(|s| Layer::from_spec(s).map(|l| l.n_params()).unwrap_or(0))
+            .sum();
+        NeuralNetModel::from_flat_weights_v2(
+            &vec![0.0; n],
+            &spec,
+            None,
+            OutputParam::default(),
+            default_scaled_pi_n(),
+            default_delta_max(),
+        )
+        .map(|_| ())
+        .unwrap_err()
+        .0
+    };
+    let e = build(committee_spec("mean", vec![committee_member_arch(false)]));
+    assert!(e.contains("rule must be"), "{e}");
+    let e = build(committee_spec("raw_sum", vec![]));
+    assert!(e.contains("at least one member"), "{e}");
+    let mut wide = committee_member_arch(false);
+    wide[0] = LayerSpec::Dense {
+        input_size: 6,
+        output_size: 4,
+        activation: Activation::Tanh,
+    };
+    let e = build(committee_spec(
+        "raw_sum",
+        vec![committee_member_arch(false), wide],
+    ));
+    assert!(e.contains("expects input=6"), "{e}");
+    let mut three = committee_member_arch(false);
+    three[1] = LayerSpec::Dense {
+        input_size: 4,
+        output_size: 3,
+        activation: Activation::Asinh,
+    };
+    let e = build(committee_spec("raw_sum", vec![three]));
+    assert!(e.contains("2-output head"), "{e}");
+    let e = build(committee_spec(
+        "raw_sum",
+        vec![committee_spec(
+            "raw_sum",
+            vec![committee_member_arch(false)],
+        )],
+    ));
+    assert!(e.contains("nests a committee"), "{e}");
+    let e = build(vec![LayerSpec::Committee {
+        rule: "raw_sum".into(),
+        members: vec![committee_member_arch(false)],
+        member_sha256: vec!["a".into(), "b".into()],
+    }]);
+    assert!(e.contains("member_sha256"), "{e}");
+    // A committee must feed the atan2 decoder: a 1-output decoder fails the size check.
+    let spec = committee_spec("raw_sum", vec![committee_member_arch(false)]);
+    let err = NeuralNetModel::from_flat_weights_v2(
+        &vec![0.0; 34],
+        &spec,
+        None,
+        OutputParam::ScaledPi,
+        default_scaled_pi_n(),
+        default_delta_max(),
+    )
+    .unwrap_err()
+    .0;
+    assert!(err.contains("output_size must be 1"), "{err}");
+}
+
+#[test]
+fn committee_state_reset_recurses_into_members() {
+    let arch = committee_spec(
+        "raw_sum",
+        vec![committee_member_arch(true), committee_member_arch(true)],
+    );
+    let flat = committee_flat(spec_n_params(&arch), 0.7);
+    let model = NeuralNetModel::from_flat_weights_v2(
+        &flat,
+        &arch,
+        None,
+        OutputParam::default(),
+        default_scaled_pi_n(),
+        default_delta_max(),
+    )
+    .unwrap();
+    let inputs = committee_inputs(5);
+    let mut fresh = NnState::for_model(&model);
+    let first: Vec<Vec<f64>> = inputs
+        .iter()
+        .map(|x| model.forward(&mut fresh, x))
+        .collect();
+    let mut used = NnState::for_model(&model);
+    for x in &inputs {
+        model.forward(&mut used, x);
+    }
+    assert_ne!(model.forward(&mut used, &inputs[0]), first[0]);
+    used.reset();
+    let again: Vec<Vec<f64>> = inputs.iter().map(|x| model.forward(&mut used, x)).collect();
+    assert_eq!(again, first);
+}
+
+#[test]
+fn toml_architecture_agrees_with_a_committee_member() {
+    let mamba = committee_member_arch(true);
+    let dense = committee_member_arch(false);
+    let committee = committee_spec("circular_mean", vec![mamba.clone(), dense.clone()]);
+    assert!(toml_architecture_agrees(&mamba, &committee));
+    assert!(toml_architecture_agrees(&dense, &committee));
+    let mut other = dense.clone();
+    other[0] = LayerSpec::Dense {
+        input_size: 5,
+        output_size: 3,
+        activation: Activation::Tanh,
+    };
+    assert!(!toml_architecture_agrees(&other, &committee));
+    assert!(toml_architecture_agrees(&mamba, &mamba));
+    assert!(!toml_architecture_agrees(&mamba, &dense));
+}

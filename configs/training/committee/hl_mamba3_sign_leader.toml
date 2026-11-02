@@ -1,0 +1,8 @@
+# Committee cell (#232, post hoc): the three headline Mamba 962 seeds flown as one artifact under the
+# `sign_leader` rule (magnitude from every member, sign from the deployed seed). Pilot only, not
+# pre-registered. Base-inherits the deployed seed's TOML; assembled by
+# `python -m aerocapture.training.committee`, never trained.
+base = ["../ou_marginal/hl_mamba_p962.toml"]
+
+[data]
+neural_network = "training_output/committee/hl_mamba3_sign_leader/best_model.json"

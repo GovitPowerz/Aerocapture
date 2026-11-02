@@ -699,7 +699,7 @@ fn build_neural_net(
             .map(|l| l.to_layer_spec())
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| DataError(e.0))?;
-        if toml_arch != nn.architecture {
+        if !neural::toml_architecture_agrees(&toml_arch, &nn.architecture) {
             return Err(DataError(format!(
                 "[[network.architecture]] disagrees with the loaded model: TOML {:?} vs model {:?}",
                 toml_arch, nn.architecture

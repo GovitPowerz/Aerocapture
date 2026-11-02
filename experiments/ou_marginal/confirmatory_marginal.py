@@ -267,8 +267,12 @@ def main(argv: list[str] | None = None) -> None:
             # Quotable only once the run is over (an RL dir carries a best_model.json from the first
             # promotion): its final eval, or a population run's end-only final selection, written after
             # its last checkpoint (a run extended past its target keeps the old final_selection.json).
+            # A committee cell (#232, `committee.json` sidecar) is assembled from finished runs, never trained.
             last_checkpoint = max((f.stat().st_mtime_ns for f in cell_dir.glob("checkpoint*")), default=0)
-            if not any((cell_dir / f).exists() and (cell_dir / f).stat().st_mtime_ns > last_checkpoint for f in ("final_eval.parquet", "final_selection.json")):
+            finished = (cell_dir / "committee.json").exists() or any(
+                (cell_dir / f).exists() and (cell_dir / f).stat().st_mtime_ns > last_checkpoint for f in ("final_eval.parquet", "final_selection.json")
+            )
+            if not finished:
                 print(f"{label}: run not finished (no final_eval.parquet or final_selection.json after its last checkpoint), skipping")
                 continue
             print(f"== {label} ({toml})", flush=True)

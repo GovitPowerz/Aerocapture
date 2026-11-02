@@ -10,8 +10,9 @@ use serde::{Deserialize, Serialize};
 mod layers;
 use layers::json_to_flat;
 pub use layers::{
-    CfcLayer, DenseLayer, GruLayer, LstmLayer, Mamba3Layer, MambaLayer, MlstmLayer, Shape,
-    SlstmLayer, Tensor, TensorField, TransformerLayer, WindowLayer,
+    CfcLayer, CommitteeLayer, CommitteeRule, DenseLayer, GruLayer, LstmLayer, Mamba3Layer,
+    MambaLayer, MlstmLayer, Shape, SlstmLayer, Tensor, TensorField, TransformerLayer, WindowLayer,
+    combine_heads,
 };
 // Surface the shared numerical helpers at the module root so the `use super::*`
 // test module reaches them by their bare names. Test-only: production code in
@@ -363,6 +364,8 @@ pub enum Layer {
     Slstm(SlstmLayer),
     // Boxed for enum-variant size uniformity (4 matrix + 4 bias + 2 gate vectors).
     Mlstm(Box<MlstmLayer>),
+    /// N member stacks on one input, heads combined (#232). Deploy-only.
+    Committee(Box<CommitteeLayer>),
 }
 
 impl Layer {
@@ -385,6 +388,7 @@ impl Layer {
             Layer::Cfc(l) => l.input_size,
             Layer::Slstm(l) => l.input_size,
             Layer::Mlstm(l) => l.input_size,
+            Layer::Committee(c) => c.input_size,
         }
     }
 }
@@ -451,6 +455,7 @@ impl Layer {
             Layer::Cfc(l) => l.as_ref(),
             Layer::Slstm(l) => l,
             Layer::Mlstm(l) => l.as_ref(),
+            Layer::Committee(l) => l.as_ref(),
         }
     }
 
@@ -466,6 +471,7 @@ impl Layer {
             Layer::Cfc(l) => l.as_mut(),
             Layer::Slstm(l) => l,
             Layer::Mlstm(l) => l.as_mut(),
+            Layer::Committee(l) => l.as_mut(),
         }
     }
 
@@ -597,6 +603,62 @@ impl Layer {
                 )?;
                 Layer::Mlstm(Box::new(MlstmLayer::zeros(*input_size, *hidden_size)))
             }
+            LayerSpec::Committee {
+                rule,
+                members,
+                member_sha256,
+            } => {
+                let rule = CommitteeRule::parse(rule).map_err(|e| format!("({kind}) {e}"))?;
+                if members.is_empty() {
+                    return Err(format!("({kind}) needs at least one member"));
+                }
+                if !member_sha256.is_empty() && member_sha256.len() != members.len() {
+                    return Err(format!(
+                        "({kind}) member_sha256 has {} entries for {} members",
+                        member_sha256.len(),
+                        members.len()
+                    ));
+                }
+                let input_size = spec.io().0;
+                let mut built = Vec::with_capacity(members.len());
+                for (k, arch) in members.iter().enumerate() {
+                    if arch.is_empty() {
+                        return Err(format!("({kind}) member {k} has an empty architecture"));
+                    }
+                    if arch
+                        .iter()
+                        .any(|l| matches!(l, LayerSpec::Committee { .. }))
+                    {
+                        return Err(format!("({kind}) member {k} nests a committee"));
+                    }
+                    NeuralNetModel::validate_layer_chain(arch, &format!("committee member {k}"))
+                        .map_err(|e| e.0)?;
+                    let sizes = layer_sizes_of(arch);
+                    if sizes[0] != input_size {
+                        return Err(format!(
+                            "({kind}) member {k} expects input={} but member 0 expects {input_size}",
+                            sizes[0]
+                        ));
+                    }
+                    if *sizes.last().unwrap() != 2 {
+                        return Err(format!(
+                            "({kind}) member {k} must end in a 2-output head, got {}",
+                            sizes.last().unwrap()
+                        ));
+                    }
+                    let layers = arch
+                        .iter()
+                        .map(Layer::from_spec)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| format!("({kind}) member {k}: {e}"))?;
+                    built.push(layers);
+                }
+                Layer::Committee(Box::new(CommitteeLayer {
+                    rule,
+                    input_size,
+                    members: built,
+                }))
+            }
         })
     }
 }
@@ -612,6 +674,11 @@ impl LayerWeights for Layer {
 
     fn post_load(&mut self) {
         self.as_weights_mut().post_load()
+    }
+
+    // Delegated so a layer that overrides `from_flat` (Committee) is reached.
+    fn from_flat(&mut self, flat: &[f64]) -> usize {
+        self.as_weights_mut().from_flat(flat)
     }
 }
 
@@ -705,6 +772,16 @@ pub enum LayerSpec {
         input_size: usize,
         hidden_size: usize,
     },
+    /// N member stacks (each a full layer list ending in a 2-output head) on one
+    /// input, heads combined under `rule` (#232). `member_sha256` records the
+    /// deployed files the builder assembled it from (informational; empty or one
+    /// per member).
+    Committee {
+        rule: String,
+        members: Vec<Vec<LayerSpec>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        member_sha256: Vec<String>,
+    },
 }
 
 fn default_discretization() -> String {
@@ -778,7 +855,27 @@ impl LayerSpec {
                 input_size,
                 hidden_size,
             } => (*input_size, *hidden_size, "mlstm"),
+            // Input = member 0's fan-in (from_spec rejects a disagreeing member);
+            // output = the one 2-vector head the decoder sees.
+            LayerSpec::Committee { members, .. } => (
+                members
+                    .first()
+                    .and_then(|m| m.first())
+                    .map_or(0, |l| l.io().0),
+                2,
+                "committee",
+            ),
         }
+    }
+}
+
+/// The `[[network.architecture]]` cross-check (#128 B): a TOML block must
+/// describe the loaded model. A committee's TOML describes the family it was
+/// drawn from, so at least one member must match it.
+pub fn toml_architecture_agrees(toml_arch: &[LayerSpec], model_arch: &[LayerSpec]) -> bool {
+    match model_arch {
+        [LayerSpec::Committee { members, .. }] => members.iter().any(|m| m.as_slice() == toml_arch),
+        _ => toml_arch == model_arch,
     }
 }
 
@@ -802,6 +899,38 @@ const JSON_KEYS_LAST: &[&str] = &["a_imag", "lambda_logit"];
 /// (table, then `JSON_KEYS_LAST`) order.
 #[derive(Debug)]
 struct LayerWeightsJson(Vec<(&'static str, serde_json::Value)>);
+
+/// The `weights` block of a layer list: `layer_<i>` -> the layer's tensors in
+/// table order; a zero-parameter layer (Window) writes no entry; a committee
+/// writes `{"members": [<this same block per member>]}`.
+fn weights_json(layers: &[Layer]) -> std::collections::BTreeMap<String, LayerWeightsJson> {
+    let mut weights = std::collections::BTreeMap::new();
+    for (i, layer) in layers.iter().enumerate() {
+        if let Layer::Committee(c) = layer {
+            let members: Vec<serde_json::Value> = c
+                .members
+                .iter()
+                .map(|m| serde_json::to_value(weights_json(m)).expect("weights block serializes"))
+                .collect();
+            weights.insert(
+                format!("layer_{i}"),
+                LayerWeightsJson(vec![("members", serde_json::Value::Array(members))]),
+            );
+            continue;
+        }
+        let mut entries: Vec<(&'static str, serde_json::Value)> = layer
+            .tensors()
+            .iter()
+            .map(|(name, t)| (*name, t.to_json()))
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        entries.sort_by_key(|(name, _)| JSON_KEYS_LAST.contains(name));
+        weights.insert(format!("layer_{i}"), LayerWeightsJson(entries));
+    }
+    weights
+}
 
 impl Serialize for LayerWeightsJson {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -1141,6 +1270,50 @@ impl NeuralNetModel {
             let kind = spec.io().2;
             let mut layer = Layer::from_spec(spec)
                 .map_err(|e| DataError(format!("Layer {i} {e} in {path}")))?;
+            if let (LayerSpec::Committee { members: specs, .. }, Layer::Committee(c)) =
+                (spec, &mut layer)
+            {
+                // Nested codec: `layer_<i>` = {"members": [<member weights block>, ...]},
+                // each block the same `layer_<j>` map a plain model carries.
+                let key = format!("layer_{i}");
+                let lw = weights
+                    .get(&key)
+                    .ok_or_else(|| DataError(format!("Missing {key} in weights in {path}")))?;
+                owned_keys.insert(key);
+                if let Some(stray) = lw.keys().find(|k| k.as_str() != "members") {
+                    return Err(DataError(format!(
+                        "Layer {i} ({kind}) has unknown weight {stray:?} in {path}"
+                    )));
+                }
+                let blocks = lw
+                    .get("members")
+                    .and_then(|v| v.as_array())
+                    .ok_or_else(|| {
+                        DataError(format!(
+                            "Layer {i} ({kind}) needs a members array in {path}"
+                        ))
+                    })?;
+                if blocks.len() != specs.len() {
+                    return Err(DataError(format!(
+                        "Layer {i} ({kind}) has {} weight blocks for {} members in {path}",
+                        blocks.len(),
+                        specs.len()
+                    )));
+                }
+                for (k, (arch, block)) in specs.iter().zip(blocks).enumerate() {
+                    let member_weights: WeightsJson = serde_json::from_value(block.clone())
+                        .map_err(|e| {
+                            DataError(format!("Layer {i} ({kind}) member {k}: {e} in {path}"))
+                        })?;
+                    c.members[k] = Self::load_layers(
+                        arch,
+                        &member_weights,
+                        &format!("{path} (committee member {k})"),
+                    )?;
+                }
+                layers.push(layer);
+                continue;
+            }
             let shapes: Vec<(&'static str, Shape)> = layer
                 .tensors()
                 .iter()
@@ -1220,20 +1393,7 @@ impl NeuralNetModel {
 
     /// Save to JSON format (v2 schema: tagged-layer list).
     pub fn save_json(&self, path: &str) -> Result<(), DataError> {
-        let mut weights = std::collections::BTreeMap::new();
-        for (i, layer) in self.layers.iter().enumerate() {
-            let mut entries: Vec<(&'static str, serde_json::Value)> = layer
-                .tensors()
-                .iter()
-                .map(|(name, t)| (*name, t.to_json()))
-                .collect();
-            if entries.is_empty() {
-                // Zero-parameter layer (Window): no weights entry.
-                continue;
-            }
-            entries.sort_by_key(|(name, _)| JSON_KEYS_LAST.contains(name));
-            weights.insert(format!("layer_{i}"), LayerWeightsJson(entries));
-        }
+        let weights = weights_json(&self.layers);
 
         let file = NnJsonFileV2 {
             format_version: 2,
@@ -1278,72 +1438,7 @@ impl NeuralNetModel {
         );
         let mut current = input.to_vec();
         for (layer, layer_state) in self.layers.iter().zip(state.layer_states.iter_mut()) {
-            // Matches (Layer, LayerState) pairs. Construction invariant from
-            // NnState::for_model: Dense pairs with None, Gru pairs with Gru{h}.
-            // The catch-all below catches mismatches caused by future refactors
-            // that accidentally break the invariant.
-            match (layer, layer_state) {
-                (Layer::Dense(d), LayerState::None) => {
-                    // Load paths chain-validate widths; this guards direct
-                    // struct construction (zip would silently truncate).
-                    debug_assert!(
-                        d.w.is_empty() || d.w[0].len() == current.len(),
-                        "dense layer expects input width {}, got {}",
-                        d.w[0].len(),
-                        current.len(),
-                    );
-                    let n_out = d.b.len();
-                    let mut next = Vec::with_capacity(n_out);
-                    for j in 0..n_out {
-                        let sum: f64 = d.w[j].iter().zip(&current).map(|(w, x)| w * x).sum();
-                        next.push(d.activation.apply(sum + d.b[j]));
-                    }
-                    current = next;
-                }
-                (Layer::Gru(g), LayerState::Gru { h }) => {
-                    let h_new = g.forward(h, &current);
-                    *h = h_new.clone();
-                    current = h_new;
-                }
-                (Layer::Lstm(l), LayerState::Lstm { h, c }) => {
-                    let (h_new, c_new) = l.forward(h, c, &current);
-                    *h = h_new.clone();
-                    *c = c_new;
-                    current = h_new;
-                }
-                (Layer::Window(w), LayerState::Window { buffer }) => {
-                    current = w.forward(&current, buffer);
-                }
-                (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
-                    current = t.forward(&current, k_cache, v_cache);
-                }
-                (Layer::Mamba(m), LayerState::Mamba { h }) => {
-                    current = m.forward(&current, h);
-                }
-                (
-                    Layer::Mamba3(m),
-                    LayerState::Mamba3 {
-                        h_re,
-                        h_im,
-                        x_prev,
-                        b_prev,
-                    },
-                ) => {
-                    current = m.forward(&current, h_re, h_im, x_prev, b_prev);
-                }
-                (Layer::Cfc(l), LayerState::Cfc { h }) => {
-                    current = l.forward(&current, h);
-                }
-                (Layer::Slstm(l), LayerState::Slstm { h, c, n, m }) => {
-                    current = l.forward(&current, h, c, n, m);
-                }
-                (Layer::Mlstm(l), LayerState::Mlstm { c, n, m }) => {
-                    current = l.forward(&current, c, n, m);
-                }
-                _ => unreachable!(
-                    "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer)"
-                ),
-            }
+            current = forward_layer(layer, layer_state, current);
         }
         current
     }
@@ -1487,6 +1582,85 @@ impl NeuralNetModel {
             normalization: DEFAULT_NORMALIZATION.to_vec(),
         })
     }
+}
+
+/// One layer's tick: `current` in, the layer's output out, its state advanced.
+/// Shared by `NeuralNetModel::forward` and the committee's member stacks.
+pub(crate) fn forward_layer(
+    layer: &Layer,
+    layer_state: &mut LayerState,
+    mut current: Vec<f64>,
+) -> Vec<f64> {
+    match (layer, layer_state) {
+        // Matches (Layer, LayerState) pairs. Construction invariant from
+        // NnState::for_model: Dense pairs with None, Gru pairs with Gru{h}.
+        // The catch-all below catches mismatches caused by future refactors
+        // that accidentally break the invariant.
+        (Layer::Dense(d), LayerState::None) => {
+            // Load paths chain-validate widths; this guards direct
+            // struct construction (zip would silently truncate).
+            debug_assert!(
+                d.w.is_empty() || d.w[0].len() == current.len(),
+                "dense layer expects input width {}, got {}",
+                d.w[0].len(),
+                current.len(),
+            );
+            let n_out = d.b.len();
+            let mut next = Vec::with_capacity(n_out);
+            for j in 0..n_out {
+                let sum: f64 = d.w[j].iter().zip(&current).map(|(w, x)| w * x).sum();
+                next.push(d.activation.apply(sum + d.b[j]));
+            }
+            current = next;
+        }
+        (Layer::Gru(g), LayerState::Gru { h }) => {
+            let h_new = g.forward(h, &current);
+            *h = h_new.clone();
+            current = h_new;
+        }
+        (Layer::Lstm(l), LayerState::Lstm { h, c }) => {
+            let (h_new, c_new) = l.forward(h, c, &current);
+            *h = h_new.clone();
+            *c = c_new;
+            current = h_new;
+        }
+        (Layer::Window(w), LayerState::Window { buffer }) => {
+            current = w.forward(&current, buffer);
+        }
+        (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
+            current = t.forward(&current, k_cache, v_cache);
+        }
+        (Layer::Mamba(m), LayerState::Mamba { h }) => {
+            current = m.forward(&current, h);
+        }
+        (
+            Layer::Mamba3(m),
+            LayerState::Mamba3 {
+                h_re,
+                h_im,
+                x_prev,
+                b_prev,
+            },
+        ) => {
+            current = m.forward(&current, h_re, h_im, x_prev, b_prev);
+        }
+        (Layer::Cfc(l), LayerState::Cfc { h }) => {
+            current = l.forward(&current, h);
+        }
+        (Layer::Slstm(l), LayerState::Slstm { h, c, n, m }) => {
+            current = l.forward(&current, h, c, n, m);
+        }
+        (Layer::Mlstm(l), LayerState::Mlstm { c, n, m }) => {
+            current = l.forward(&current, c, n, m);
+        }
+        (Layer::Committee(c), LayerState::Committee { members }) => {
+            current = c.forward(&current, members);
+        }
+        _ => unreachable!(
+            "layer/state variant mismatch (construction invariant -- LayerState::for_layer maps Layer::Dense -> None, Layer::Gru -> Gru, Layer::Lstm -> Lstm, Layer::Window -> Window, Layer::Transformer -> Transformer, Layer::Committee -> Committee)"
+        ),
+    }
+    current
 }
 
 #[cfg(test)]

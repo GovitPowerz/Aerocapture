@@ -61,6 +61,10 @@ pub enum LayerState {
         n: Vec<f64>,
         m: f64,
     },
+    /// One state chain per committee member (#232). Reset recurses.
+    Committee {
+        members: Vec<Vec<LayerState>>,
+    },
 }
 
 impl LayerState {
@@ -109,6 +113,13 @@ impl LayerState {
                 c: nalgebra::DMatrix::<f64>::zeros(l.hidden_size, l.hidden_size),
                 n: vec![0.0; l.hidden_size],
                 m: 0.0,
+            },
+            Layer::Committee(c) => LayerState::Committee {
+                members: c
+                    .members
+                    .iter()
+                    .map(|layers| layers.iter().map(LayerState::for_layer).collect())
+                    .collect(),
             },
         }
     }
@@ -172,6 +183,13 @@ impl LayerState {
                     *v = 0.0;
                 }
                 *m = 0.0;
+            }
+            LayerState::Committee { members } => {
+                for member in members.iter_mut() {
+                    for state in member.iter_mut() {
+                        state.reset();
+                    }
+                }
             }
         }
     }

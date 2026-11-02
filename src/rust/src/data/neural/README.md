@@ -132,6 +132,7 @@ cross-language bit-identity.
 | `cfc` | one lecun_tanh backbone + ff1 / ff2 / t_a / t_b heads | `(H,)` | closed-form continuous-time cell (ncps "default" mode): `h' = (1-g)*tanh(ff1) + g*tanh(ff2)`, `g = sigmoid(-t_a*dt + t_b)`, dt = 1 guidance tick |
 | `slstm` | full recurrent matrices, single bias | `(h, c, n, m)` | xLSTM sLSTM: exponential gating with max-stabilizer, gate order i/f/z/o |
 | `mlstm` | projections, no recurrent weights | `C (HxH)`, `n (H,)`, scalar `m` | xLSTM mLSTM: matrix memory, covariance update, single head `d_qk = d_v = H` |
+| `committee` | none of its own: `members` = whole layer lists nested in the spec, weights `layer_<i> = {"members": [<member weights block>, ...]}`; `member_sha256` optional provenance | `Committee { members: Vec<Vec<LayerState>> }`, one chain per member, reset recurses | #232, deploy-only: every member (same fan-in, 2-output head, no nested committee) advances on the shared input through `forward_layer`; the heads combine under `rule` into one 2-vector for `atan2_signed`: `circular_mean` (sum of unit heads), `raw_sum`, `medoid` (the raw head nearest the circular mean), `sign_leader` (magnitude from all, sign from member 0). `toml_architecture_agrees`: a `[[network.architecture]]` block must match at least one member. Built by `aerocapture.training.committee`; the torch mirror refuses it |
 
 Rust names per type: `Layer::Gru` / `Layer::Lstm` / `Layer::Window` / `Layer::Transformer(Box<TransformerLayer>)` /
 `Layer::Mamba(Box<MambaLayer>)` (boxed to keep the enum's variants balanced, `large_enum_variant`), the specs
@@ -150,6 +151,7 @@ match), `LayerState::Transformer { k_cache: VecDeque<Vec<f64>>, v_cache: VecDequ
 `docs/design/2026-04-24-phase-4a-mamba-ssm-mvp-design.md`, `docs/design/2026-07-07-mamba3-ablation-design.md`,
 `docs/design/2026-07-07-cfc-xlstm-probes-design.md`.
 
+`committee` is deploy-only (no mirror, no chromosome layout; `model_io.load_policy_from_json` raises).
 `mamba3`, `cfc`, `slstm`, `mlstm` are PSO-only probe cells (no `torch_mirror/layers/` module for
 BPTT; `build_layer` / `load_policy_from_json` raise `NotImplementedError`; their unbatched torch
 mirrors exist only for the equivalence gates; `MAMBA3_EVAL_SEED_OFFSET` is an alias of `PROBE_EVAL_SEED_OFFSET`). Deployed training configs per cell type are in
