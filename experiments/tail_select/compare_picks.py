@@ -142,6 +142,10 @@ def table(rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
         if rms_row is None or rms_row["model_sha256"] != r["deployed_sha256"]:
             raise SystemExit(f"{run}: the deployed seed's confirmatory row is missing or was scored on another model")
         tail_row = rms_row if primary["same_as_rms_pick"] else confirmatory_row(f"tail_select/{run}", by_label)
+        if tail_row is not None and tail_row["model_sha256"] != primary["sha256"]:
+            raise SystemExit(f"{run}: the tail pick's confirmatory row was scored on another model; re-fly the manifest")
+        if arms["rms_validation"]["provenance"] != "champion":
+            raise SystemExit(f"{run}: the RMS arm did not keep the champion; pool_cvar95_rms_pick (the champion's tail) would mislabel it")
         entry: dict[str, Any] = {
             "run": run,
             "n_feasible_last_gen": arms["rms_validation"]["n_feasible"],
@@ -150,8 +154,8 @@ def table(rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "tail_pick_differs": not primary["same_as_rms_pick"],
             "val_pick": arms["cvar95_validation"]["provenance"],
             "val_pick_differs": not arms["cvar95_validation"]["same_as_rms_pick"],
-            "pool_cvar95_tail_pick": primary["tail"]["dv_cvar95"] if primary.get("tail") else None,
-            "pool_cvar95_rms_pick": primary["champion_tail"]["dv_cvar95"] if primary.get("champion_tail") else None,
+            "pool_cvar95_tail_pick": primary["tail"].get("dv_cvar95") if primary.get("tail") else None,
+            "pool_cvar95_rms_pick": primary["champion_tail"].get("dv_cvar95") if primary.get("champion_tail") else None,
             "pool_n_captured_tail_pick": primary["tail"]["n_captured"] if primary.get("tail") else None,
             "rms_confirmatory": rms_row,
             "tail_confirmatory": tail_row,
@@ -170,6 +174,8 @@ def table(rows: dict[str, dict[str, Any]]) -> dict[str, Any]:
         if not val["same_as_rms_pick"]:
             label = f"tail_select/{run}" if val["sha256"] == primary["sha256"] else f"tail_select/{run}_val"
             entry["val_confirmatory"] = confirmatory_row(label, by_label)
+            if entry["val_confirmatory"] is not None and entry["val_confirmatory"]["model_sha256"] != val["sha256"]:
+                raise SystemExit(f"{run}: the validation-pool pick's confirmatory row was scored on another model; re-fly the manifest")
         per_run.append(entry)
     flown = len(deltas) == len(rows)
     result: dict[str, Any] = {

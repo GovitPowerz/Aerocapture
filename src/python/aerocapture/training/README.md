@@ -219,13 +219,15 @@ UNCONDITIONAL even on champion-kept, so legacy dirs are rewritten to the validat
 `--criterion cvar95` (#234, `select_tail_individual`; design `docs/design/2026-11-02-tail-aware-selection-design.md`)
 is a retro study tool the trainer's `finalize` never uses: the ADR-0005 gate on the validation pool
 first, then among the feasible the most scenarios captured, then the lowest CVaR95 of the captured
-correction DV (`sizing_tail.cvar`), then the lowest validation RMS; the champion is scored like any
-row. `--pool validation` scores the tail on the validation pool; `--pool tail_select --pool-n N`
+correction DV (`sizing_tail.cvar`, unrounded; a survivor with no capture ranks last), then the lowest
+validation RMS; the champion is scored like any row, placed first so the dedup keeps its label over an
+identical last-generation row. `--pool validation` scores the tail on the validation pool; `--pool tail_select --pool-n N`
 (default 5000) flies the feasible survivors on the reserved `TAIL_SELECT_SEED_OFFSET` stream and ranks
 on that pool; the gate is the validation pool's at its size, the tail pool's violation rates are
-recorded on each survivor's `tail` block and do not exclude (the sidecar records `criterion`,
-`tail_pool` and the winner's `tail` block; the `rms` sidecar is unchanged). `--output-dir DIR` deploys the pick and its
-sidecar into DIR and never patches the checkpoint, so a retro pick never overwrites the run's
+recorded on each survivor's `tail` block (`sizing_tail.dv_tail` plus the capture count) and do not
+exclude (the sidecar records `criterion`, `tail_pool` and the winner's `tail` block; the `rms` sidecar
+is unchanged). `--output-dir DIR` deploys the pick and its sidecar into DIR and never patches the
+checkpoint (DIR equal to the training dir is refused), so a retro pick never overwrites the run's
 deployed artifacts (`experiments/tail_select/` is the headline-run study).
 
 **Artifacts and reports.** The winner's `best_model.json` / `best_params.json` are written to

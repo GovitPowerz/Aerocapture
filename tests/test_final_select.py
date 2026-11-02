@@ -678,21 +678,51 @@ class TestTailRule:
         assert "criterion" not in data and "tail_pool" not in data and "tail" not in data["winner"]
         assert "cvar95" in format_selection_summary(sel) and "cvar95" not in format_selection_summary(rms)
 
-    def test_run_final_select_output_dir_leaves_the_run_untouched(self, tmp_path: Path) -> None:
+    def test_survivors_without_a_capture_still_outrank_an_infeasible_row(self, capsys) -> None:  # type: ignore[no-untyped-def]
+        """Zero captures on the tail pool ranks a feasible survivor last, never out of the choice set:
+        the infeasible lowest-RMS D must not deploy through the no-feasible fallback."""
+
+        class _NoCaptureOnTailPool(_TailMockProblem):
+            def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+                from aerocapture.training.cell_eval import FR_IFINAL
+
+                costs, records = super().evaluate_population_records_per_seed(X, seeds)
+                if seeds != SEEDS:
+                    records[:, :, FR_IFINAL] = 1
+                return costs, records
+
+        sel = self._select(np.vstack([_A, _B, _D]), ["last_gen[0]", "last_gen[1]", "last_gen[2]"], [], [11, 12, 13, 14], _NoCaptureOnTailPool())
+        assert sel.provenance == "last_gen[0]" and sel.winner_feasible  # A: the lower val RMS of the two zero-capture survivors
+        assert sel.winner_tail is not None and sel.winner_tail["n_captured"] == 0 and "dv_cvar95" not in sel.winner_tail
+        assert "NO feasible candidate" not in capsys.readouterr().out
+
+    def test_ranks_on_the_unrounded_cvar95(self) -> None:
+        """CVaR95 80.0002 (P, lower RMS) against 80.0000 (Q): both record as 80.0, Q has the better tail."""
+        p, q = np.array([0.49999, 0.100004]), np.array([0.5, 0.1])
+        sel = self._select(np.vstack([p, q]), ["last_gen[0]", "last_gen[1]"], [])
+        assert sel.candidate_rms[0]["tail"]["dv_cvar95"] == sel.candidate_rms[1]["tail"]["dv_cvar95"] == 80.0
+        assert sel.candidate_rms[0]["val_rms"] < sel.candidate_rms[1]["val_rms"]
+        assert sel.provenance == "last_gen[1]"
+
+    @staticmethod
+    def _run_dir(tmp_path: Path, population: np.ndarray, champion: np.ndarray) -> Path:
+        run = tmp_path / "run"
+        run.mkdir()
+        meta = {"generation": 7, "best_cost": 1.5, "best_val_cost": _rms(champion, SEEDS), "cost_history": [], "rng_state": None}
+        (run / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        np.savez(run / "checkpoint_g00007.npz", population=population, costs=np.zeros(population.shape[0]), best_individual=champion)
+        return run
+
+    @staticmethod
+    def _run_select(run: Path, output_dir: Path) -> SelectionResult:
         from aerocapture.training.config import TrainingConfig
         from aerocapture.training.final_select import run_final_select
         from aerocapture.training.param_spaces import ParamSpec
 
-        run = tmp_path / "run"
-        run.mkdir()
-        meta = {"generation": 7, "best_cost": 1.5, "best_val_cost": _rms(_A, SEEDS), "cost_history": [], "rng_state": None}
-        (run / "checkpoint_g00007.json").write_text(json.dumps(meta))
-        np.savez(run / "checkpoint_g00007.npz", population=np.vstack([_B, _C]), costs=np.array([1.0, 2.0]), best_individual=_A)
         cfg = TrainingConfig()
         cfg.guidance_type = "equilibrium_glide"
         specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
-        pick = tmp_path / "pick"
-        sel = run_final_select(
+        return run_final_select(
             training_dir=run,
             config=cfg,
             param_specs=specs,
@@ -702,8 +732,24 @@ class TestTailRule:
             criterion="cvar95",
             tail_seeds=SEEDS,
             tail_pool=_POOL,
-            output_dir=pick,
+            output_dir=output_dir,
         )
+
+    def test_run_final_select_champion_keeps_its_label_over_its_last_gen_twin(self, tmp_path: Path) -> None:
+        """A promoted finalize leaves the champion in the last generation too: the dedup keeps the champion row."""
+        sel = self._run_select(self._run_dir(tmp_path, np.vstack([_A, _B.copy(), _C]), _B), tmp_path / "pick")
+        assert sel.provenance == "champion" and not sel.promoted and sel.n_deduped == 3
+        assert [r["provenance"] for r in sel.candidate_rms] == ["champion", "last_gen[0]", "last_gen[2]"]
+
+    def test_run_final_select_refuses_output_dir_equal_to_the_run(self, tmp_path: Path) -> None:
+        run = self._run_dir(tmp_path, np.vstack([_B, _C]), _A)
+        with pytest.raises(ValueError, match="output_dir is training_dir"):
+            self._run_select(run, run / ".")
+
+    def test_run_final_select_output_dir_leaves_the_run_untouched(self, tmp_path: Path) -> None:
+        run = self._run_dir(tmp_path, np.vstack([_B, _C]), _A)
+        pick = tmp_path / "pick"
+        sel = self._run_select(run, pick)
         assert sel.provenance == "last_gen[0]" and sel.promoted  # B beats the champion A on the tail
         assert json.loads((pick / "best_params.json").read_text())["a"] == 1.0
         assert json.loads((pick / "final_selection.json").read_text())["criterion"] == "cvar95"

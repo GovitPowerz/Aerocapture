@@ -34,7 +34,7 @@ from aerocapture.training.cell_eval import FR_DV_TOTAL, is_captured
 from aerocapture.training.champion import Champion, revalidate
 from aerocapture.training.champion import KnownCandidate as KnownCandidate  # re-export: the rule's public candidate type
 from aerocapture.training.evaluate import _SupportsPerSeedEval, constraint_violation_rates, is_feasible
-from aerocapture.training.sizing_tail import cvar
+from aerocapture.training.sizing_tail import cvar, dv_tail
 
 
 class _PerSeedEvaluator(Protocol):
@@ -58,7 +58,7 @@ class SelectionResult:
     n_deduped: int  # fresh rows actually simulated
     incumbent_val_rms: float | None = None  # best known (champion) val RMS; None when no champion existed
     candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms", "feasible"?, "tail"?}]
-    winner_feasible: bool = True  # False only on the no-champion, all-infeasible fallback
+    winner_feasible: bool = True  # False only on the all-infeasible fallback (the RMS rule's: only without a champion)
     criterion: str = "rms"  # "rms" (the rule above) | "cvar95" (`select_tail_individual`)
     tail_pool: dict[str, Any] | None = None  # cvar95 only: {"name", "offset", "n"} of the pool the tail statistic was scored on
     winner_tail: dict[str, Any] | None = None  # cvar95 only: the winner's tail stats on that pool
@@ -181,20 +181,9 @@ def select_final_individual(
 
 
 def tail_stats(records: npt.NDArray[np.float64]) -> dict[str, Any]:
-    """Capture count and the captured correction-DV tail of one candidate's (n_seeds, 52) records."""
+    """Capture count and the captured correction-DV tail (`sizing_tail.dv_tail`) of one candidate's (n_seeds, 52) records."""
     cap = is_captured(records)
-    dvc = records[cap, FR_DV_TOTAL]
-    out: dict[str, Any] = {"n": int(records.shape[0]), "n_captured": int(cap.sum())}
-    if len(dvc):
-        out.update(
-            dv_mean=round(float(dvc.mean()), 2),
-            dv_p95=round(float(np.percentile(dvc, 95)), 2),
-            dv_cvar95=round(cvar(dvc, 0.95), 2),
-            dv_max=round(float(dvc.max()), 2),
-        )
-    else:
-        out["dv_cvar95"] = None
-    return out
+    return {"n": int(records.shape[0]), "n_captured": int(cap.sum()), **dv_tail(records[cap, FR_DV_TOTAL])}
 
 
 def select_tail_individual(
@@ -270,8 +259,9 @@ def select_tail_individual(
         stats = tail_stats(recs)
         stats["violation_rates"] = constraint_violation_rates(recs, cost_kwargs)  # reported, not a gate
         records[r]["tail"] = stats
-        if stats["dv_cvar95"] is not None:
-            ranked.append(((-stats["n_captured"], stats["dv_cvar95"], float(rms_all[r])), r))
+        # Unrounded (the record's two decimals would tie close CVaRs into the RMS break); no capture ranks last.
+        dvc = recs[is_captured(recs), FR_DV_TOTAL]
+        ranked.append(((-stats["n_captured"], cvar(dvc, 0.95) if len(dvc) else float("inf"), float(rms_all[r])), r))
 
     if ranked:
         _, w = min(ranked)
@@ -334,7 +324,7 @@ def format_selection_summary(result: SelectionResult) -> str:
     tail = ""
     if result.winner_tail is not None and result.tail_pool is not None:
         pool, wt = result.tail_pool, result.winner_tail
-        tail = f"; {result.criterion} on {pool['name']} pool n={pool['n']}: captured {wt['n_captured']}, cvar95={wt['dv_cvar95']}"
+        tail = f"; {result.criterion} on {pool['name']} pool n={pool['n']}: captured {wt['n_captured']}, cvar95={wt.get('dv_cvar95')}"
     return (
         f"  Final selection: {verdict} -> {result.provenance} "
         f"(val_rms={result.val_rms:.4e}; {result.n_deduped}/{result.n_candidates} fresh candidates simulated{spread}{tail})"
@@ -533,6 +523,8 @@ def run_final_select(
         raise ValueError(f"unknown selection criterion {criterion!r}")
     if criterion == "cvar95" and (tail_seeds is None or tail_pool is None):
         raise ValueError("criterion cvar95 needs tail_seeds and tail_pool")
+    if output_dir is not None and output_dir.resolve() == training_dir.resolve():
+        raise ValueError("output_dir is training_dir: drop it to deploy in place (that path also patches the checkpoint)")
     state = load_selection_state(training_dir)
     ceiling = float(config.optimizer.max_violation_rate)
     known: list[KnownCandidate] = []
@@ -542,11 +534,12 @@ def run_final_select(
         label = f"{name}:" if name else ""
         assert champ.individual is not None
         if criterion == "cvar95":
-            # The tail rule scores the champion like any row (its recorded RMS pre-empts nothing).
-            population = np.vstack([population, np.asarray(champ.individual, dtype=np.float64)[None, :]])
-            provenances.append(f"{label}champion")
+            # The tail rule scores the champion like any row (its recorded RMS pre-empts nothing). First, so
+            # the dedup keeps its label when the last generation holds the same individual (a promoted finalize).
+            population = np.vstack([np.asarray(champ.individual, dtype=np.float64)[None, :], population])
+            provenances.insert(0, f"{label}champion")
             if island_of_row is not None:
-                island_of_row.append(name)
+                island_of_row.insert(0, name)
             continue
         # Checkpoint champions may predate the gate or a ceiling change: re-validate
         # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one

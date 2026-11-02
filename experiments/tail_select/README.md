@@ -28,9 +28,9 @@ the 5000-seed pool picks `last_gen[458]`, the validation pool `last_gen[312]`). 
 `hl_mamba_p962_s2` (325 feasible) both pools keep the champion; in the three runs with no feasible
 last-generation candidate nothing could change.
 
-Three confirmatory flights (`confirmatory_marginal.json`, labels `tail_select/...`, 10 x 100,000
-per_draw, flown at commit 355a9bd9 plus this branch's uncommitted selection code, which the flight
-path does not touch).
+The three picks that differ from the RMS pick were flown on the confirmatory pool
+(`confirmatory_marginal.json`, labels `tail_select/...`, 10 x 100,000 per_draw) at commit 355a9bd9
+plus this branch's uncommitted selection code, which the flight path does not touch.
 
 ## Result (`compare_picks.py`, `tail_select.json`)
 
@@ -58,7 +58,7 @@ What the table says beyond the rule:
 
 - Where the criterion could choose, it chose a better far tail both times, by 35 to 39 m/s, each
   more than fifteen replicate standard errors; the 5000-pool CVaR95 ordered the 10^6 CVaR99.9
-  correctly in both runs, and the champion is never the pool's best CVaR95 among the feasible.
+  correctly in both runs, and in neither was the champion the pool's best CVaR95 among the feasible.
 - The far tail it buys is not free on the Mamba side: the pick that cuts CVaR99.9 by 39 m/s crashes
   one flight in 100,000. A 5000-seed pool cannot see a 1e-5 event; CVaR95 on captured scenarios
   does not price it. Any deployment rule built on this criterion needs the capture clause scored on

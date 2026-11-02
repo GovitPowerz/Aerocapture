@@ -31,7 +31,8 @@ from aerocapture.training.evaluate import GateResult, GateStatus, _SupportsPerSe
 
 @dataclass
 class KnownCandidate:
-    """A pre-scored final-selection candidate (a trusted champion); never re-simulated.
+    """A pre-scored final-selection candidate (a trusted champion); the RMS rule never re-simulates
+    it, the tail rule (`final_select.select_tail_individual`) re-flies it as an ordinary row.
 
     `provenance` is structured, not just display text: the islands call sites
     use the grammar "<island>:champion" / "<island>:last_gen[i]" and parse the
