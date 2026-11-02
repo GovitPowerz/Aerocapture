@@ -63,6 +63,7 @@ below) was retired into `TODO.md`; the March implementation plans that accompani
 | 2026-06-10 | [QPSO Optimizer — Design](2026-06-10-qpso-optimizer-design.md) | Approved (brainstorming complete, awaiting implementation plan) |
 | 2026-06-29 | [Worst-case objective-shaping is regime-matched (centered training under adversarial dispersions)](2026-06-29-objective-centering-regime-matched-design.md) | — |
 | 2026-10-30 | [Two-phase regime curriculum: centered high-regime anchors fine-tuned under the deployed medium objective behind a regime guard](2026-10-30-two-phase-regime-curriculum-design.md) | Closed at Step 0 (2026-10-30): the anchors hold the medium tail, nothing built |
+| 2026-11-02 | [Tail-aware final selection on the headline populations](2026-11-02-tail-aware-selection-design.md) | Closed, negative under the pre-registered rule (2026-11-02); two picks improved, the gate leaves nothing to choose |
 
 ## Simulation & GNC
 
