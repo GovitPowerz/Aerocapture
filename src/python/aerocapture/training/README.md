@@ -215,7 +215,20 @@ all-infeasible fallback winner is stored untrusted); `patch_checkpoint` atomical
 temp files `.tmp_`-prefixed so a crashed patch never shadows the real checkpoint in the
 `checkpoint_g*` resume globs); non-NN winners also get `optimized_<scheme>.toml` rewritten and,
 for joint-ref runs, the reference table regenerated via `deploy_optimized_artifacts`. Writes are
-UNCONDITIONAL even on champion-kept, so legacy dirs are rewritten to the validation-pool champion.
+UNCONDITIONAL even on champion-kept, so legacy dirs are rewritten to the validation-pool champion. The CLI's
+`--criterion cvar95` (#234, `select_tail_individual`; design `docs/design/2026-11-02-tail-aware-selection-design.md`)
+is a retro study tool the trainer's `finalize` never uses: the ADR-0005 gate on the validation pool
+first, then among the feasible the most scenarios captured, then the lowest CVaR95 of the captured
+correction DV (`sizing_tail.cvar`, unrounded; a survivor with no capture ranks last), then the lowest
+validation RMS; the champion is scored like any row, placed first so the dedup keeps its label over an
+identical last-generation row. `--pool validation` scores the tail on the validation pool; `--pool tail_select --pool-n N`
+(default 5000) flies the feasible survivors on the reserved `TAIL_SELECT_SEED_OFFSET` stream and ranks
+on that pool; the gate is the validation pool's at its size, the tail pool's violation rates are
+recorded on each survivor's `tail` block (`sizing_tail.dv_tail` plus the capture count) and do not
+exclude (the sidecar records `criterion`, `tail_pool` and the winner's `tail` block; the `rms` sidecar
+is unchanged). `--output-dir DIR` deploys the pick and its sidecar into DIR and never patches the
+checkpoint (DIR equal to the training dir is refused), so a retro pick never overwrites the run's
+deployed artifacts (`experiments/tail_select/` is the headline-run study).
 
 **Artifacts and reports.** The winner's `best_model.json` / `best_params.json` are written to
 `training_output/<scheme>/` via the shared `write_best_artifacts` (when an NN scheme is trained
@@ -497,7 +510,8 @@ use `--sim-timeout` against NaN hangs).
 - `seeds.py` — the reserved seed-pool registry: every `*_SEED_OFFSET` (`VALIDATION_SEED_OFFSET` 1M,
   `FINAL_EVAL_SEED_OFFSET` 2M, `RL_TRAINING_SEED_OFFSET` 3M, `WARM_START_SEED_OFFSET` 4M,
   `NN_INPUT_REPORT_SEED_OFFSET` 5M, `CALIBRATION_SEED_OFFSET` 6M, `SWEEP_EVAL_SEED_OFFSET` 7M, headline
-  requote 8M, stress 9M, `PROBE_EVAL_SEED_OFFSET` 10M, `WORLD_MODEL_SEED_OFFSET` 11M, `CONFIRM_EVAL_SEED_OFFSET` 20M; `tests/test_seed_offsets.py` asserts the
+  requote 8M, stress 9M, `PROBE_EVAL_SEED_OFFSET` 10M, `WORLD_MODEL_SEED_OFFSET` 11M, `TAIL_SELECT_SEED_OFFSET` 12M (the
+  `final_select --pool tail_select` scoring pool, #234), `CONFIRM_EVAL_SEED_OFFSET` 20M; `tests/test_seed_offsets.py` asserts the
   list AND that no other module defines one), `make_reserved_seeds(base_mc_seed, offset, n)`, and
   `make_confirmatory_pools(base, n_replicates=10, n=100_000)` (`CONFIRM_EVAL_SEED_OFFSET` names
   the stream; duplicate-free seeds from `[2^31, 2^32)`, structurally disjoint from every

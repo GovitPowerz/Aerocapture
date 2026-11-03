@@ -12,6 +12,12 @@ Three call sites share `select_final_individual`:
 - the standalone CLI (`python -m aerocapture.training.final_select`), which
   re-applies the rule to an existing training directory from its latest
   checkpoint and patches the checkpoint so resume cannot revert the artifacts.
+
+The CLI also offers the tail-aware criterion of #234 (`--criterion cvar95`,
+`select_tail_individual`): the ADR-0005 gate first, then capture count and
+CVaR95 of the captured correction DV on the validation pool or on the larger
+reserved tail-select pool. It is a retro study tool: the trainer's own
+finalize always applies the RMS rule.
 """
 
 from __future__ import annotations
@@ -24,9 +30,11 @@ from typing import Any, Protocol
 import numpy as np
 import numpy.typing as npt
 
+from aerocapture.training.cell_eval import FR_DV_TOTAL, is_captured
 from aerocapture.training.champion import Champion, revalidate
 from aerocapture.training.champion import KnownCandidate as KnownCandidate  # re-export: the rule's public candidate type
 from aerocapture.training.evaluate import _SupportsPerSeedEval, constraint_violation_rates, is_feasible
+from aerocapture.training.sizing_tail import cvar, dv_tail
 
 
 class _PerSeedEvaluator(Protocol):
@@ -49,8 +57,24 @@ class SelectionResult:
     n_candidates: int  # fresh rows offered (pre-dedup)
     n_deduped: int  # fresh rows actually simulated
     incumbent_val_rms: float | None = None  # best known (champion) val RMS; None when no champion existed
-    candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms", "feasible"?}]
-    winner_feasible: bool = True  # False only on the no-champion, all-infeasible fallback
+    candidate_rms: list[dict[str, Any]] = field(default_factory=list)  # [{"provenance", "val_rms", "feasible"?, "tail"?}]
+    winner_feasible: bool = True  # False only on the all-infeasible fallback (the RMS rule's: only without a champion)
+    criterion: str = "rms"  # "rms" (the rule above) | "cvar95" (`select_tail_individual`)
+    tail_pool: dict[str, Any] | None = None  # cvar95 only: {"name", "offset", "n"} of the pool the tail statistic was scored on
+    winner_tail: dict[str, Any] | None = None  # cvar95 only: the winner's tail stats on that pool
+
+
+def _dedup_fresh(candidates: npt.NDArray[np.float64], known: list[KnownCandidate]) -> list[int]:
+    """Indices of the fresh rows to simulate: not byte-identical to a known row or to an earlier fresh row."""
+    seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
+    kept: list[int] = []
+    for i in range(candidates.shape[0]):
+        key = np.ascontiguousarray(candidates[i]).tobytes()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(i)
+    return kept
 
 
 def select_final_individual(
@@ -88,14 +112,7 @@ def select_final_individual(
             incumbent = k
 
     # Pass 1: dedup (identical to a known row or an earlier fresh row).
-    seen: set[bytes] = {np.ascontiguousarray(k.x).tobytes() for k in known}
-    kept: list[int] = []
-    for i in range(candidates.shape[0]):
-        key = np.ascontiguousarray(candidates[i]).tobytes()
-        if key in seen:
-            continue
-        seen.add(key)
-        kept.append(i)
+    kept = _dedup_fresh(candidates, known)
     n_deduped = len(kept)
 
     # Pass 2: ONE batched evaluation of all kept candidates on the validation
@@ -169,20 +186,126 @@ def select_final_individual(
     )
 
 
+def select_tail_individual(
+    problem: _PerSeedEvaluator,
+    candidates: npt.NDArray[np.float64],
+    provenances: list[str],
+    known: list[KnownCandidate],
+    val_seeds: list[int],
+    tail_seeds: list[int],
+    tail_pool: dict[str, Any],
+    max_violation_rate: float = 0.0,
+    cost_kwargs: dict[str, Any] | None = None,
+) -> SelectionResult:
+    """The tail-aware criterion of #234, lexicographic over fresh candidates + champions.
+
+    (1) ADR-0005 on the validation pool: a candidate infeasible there cannot win.
+    (2) The survivors are scored on `tail_seeds` (the validation pool itself, or the
+    reserved tail-select pool; one batched evaluation, skipped when the two pools
+    are the same list). (3) Most scenarios captured on the tail pool, then (4) lowest
+    CVaR95 of the captured correction DV, then (5) lowest validation RMS. The tail
+    pool's violation rates are recorded on every survivor's `tail` block but do not
+    exclude: the gate is the validation pool's at its size (ADR-0005: the ceiling is
+    a sample-size question; at ceiling 0 a five-times larger pool would reject every
+    policy with a 0.1% exceedance rate, #234's first run). Champions are ordinary
+    rows here (their recorded RMS pre-empts nothing); dedup is the RMS rule's. With
+    no feasible candidate at all the best-RMS infeasible row deploys with a loud
+    warning and `winner_feasible = False`, as the RMS rule does without a champion.
+    """
+    if candidates.shape[0] != len(provenances):
+        raise ValueError(f"candidates/provenances length mismatch: {candidates.shape[0]} != {len(provenances)}")
+    kept = _dedup_fresh(candidates, known)
+    rows: list[npt.NDArray[np.float64]] = [np.asarray(k.x, dtype=np.float64) for k in known] + [candidates[i] for i in kept]
+    provs: list[str] = [k.provenance for k in known] + [provenances[i] for i in kept]
+    fresh_index: list[int | None] = [None] * len(known) + list(kept)  # index into `candidates`, None for a champion row
+    n_deduped = len(kept)
+    if not rows:
+        raise ValueError("final selection: no candidate and no known champion")
+    X = np.vstack(rows)
+
+    # Stage 1: the gate on the validation pool (and the RMS tie-break).
+    costs, grid = problem.evaluate_population_records_per_seed(X, val_seeds)
+    rms_all = np.sqrt(np.mean(np.asarray(costs, dtype=np.float64) ** 2, axis=1))
+    records: list[dict[str, Any]] = []
+    survivors: list[int] = []
+    for r in range(X.shape[0]):
+        rms = float(rms_all[r])
+        if not np.isfinite(rms):
+            records.append({"provenance": provs[r], "val_rms": None})
+            continue
+        rates = constraint_violation_rates(np.asarray(grid[r]), cost_kwargs)
+        feasible = is_feasible(rates, max_violation_rate)
+        records.append({"provenance": provs[r], "val_rms": rms, "feasible": feasible, "violation_rates": rates})
+        if feasible:
+            survivors.append(r)
+
+    # Stage 2: the tail statistic of the survivors on the tail pool.
+    if survivors:
+        if list(tail_seeds) == list(val_seeds):
+            tail_grid = grid[survivors]
+        else:
+            _, tail_grid = problem.evaluate_population_records_per_seed(X[survivors], tail_seeds)
+    ranked: list[tuple[tuple[int, float, float], int]] = []
+    for row, r in enumerate(survivors):
+        recs = np.asarray(tail_grid[row])
+        cap = is_captured(recs)
+        dvc = recs[cap, FR_DV_TOTAL]
+        n_captured = int(cap.sum())
+        rates = constraint_violation_rates(recs, cost_kwargs)  # the tail pool's: reported, not a gate
+        records[r]["tail"] = {"n": int(recs.shape[0]), "n_captured": n_captured, **dv_tail(dvc), "violation_rates": rates}
+        # Unrounded (the record's two decimals would tie close CVaRs into the RMS break); no capture ranks last.
+        ranked.append(((-n_captured, cvar(dvc, 0.95) if len(dvc) else float("inf"), float(rms_all[r])), r))
+
+    if ranked:
+        _, w = min(ranked)
+        winner_feasible = True
+    else:
+        finite = [r for r in range(X.shape[0]) if records[r]["val_rms"] is not None]
+        if not finite:
+            raise ValueError("final selection: no finite candidate")
+        w = min(finite, key=lambda r: float(rms_all[r]))
+        winner_feasible = False
+        print(
+            f"WARNING: tail-aware final selection found NO feasible candidate (ceiling {max_violation_rate:.3%}) "
+            f"- deploying the best-RMS INFEASIBLE candidate {provs[w]!r} (rms {float(rms_all[w]):.4g})."
+        )
+    incumbent_rms = min((k.val_rms for k in known if np.isfinite(k.val_rms)), default=None)
+    return SelectionResult(
+        individual=X[w].copy(),
+        val_rms=float(rms_all[w]),
+        provenance=provs[w],
+        promoted=not provs[w].endswith("champion"),  # a champion row is the incumbent kept, trusted or not
+        winner_index=fresh_index[w],
+        n_candidates=int(candidates.shape[0]),
+        n_deduped=n_deduped,
+        incumbent_val_rms=incumbent_rms,
+        candidate_rms=records,
+        winner_feasible=winner_feasible,
+        criterion="cvar95",
+        tail_pool=dict(tail_pool),
+        winner_tail=records[w].get("tail"),
+    )
+
+
 def write_final_selection_json(save_dir: Path, result: SelectionResult, n_val_seeds: int) -> None:
-    payload = {
-        "winner": {
-            "provenance": result.provenance,
-            "val_rms": result.val_rms,
-            "promoted": result.promoted,
-            "feasible": result.winner_feasible,
-        },
+    winner: dict[str, Any] = {
+        "provenance": result.provenance,
+        "val_rms": result.val_rms,
+        "promoted": result.promoted,
+        "feasible": result.winner_feasible,
+    }
+    payload: dict[str, Any] = {
+        "winner": winner,
         "champion_val_rms": result.incumbent_val_rms,
         "n_candidates": result.n_candidates,
         "n_deduped": result.n_deduped,
         "validation_n_sims": n_val_seeds,
         "candidate_rms": result.candidate_rms,
     }
+    if result.criterion != "rms":
+        payload["criterion"] = result.criterion
+        payload["tail_pool"] = result.tail_pool
+        winner["tail"] = result.winner_tail
     with open(save_dir / "final_selection.json", "w") as fp:
         json.dump(payload, fp, indent=2)
 
@@ -191,9 +314,13 @@ def format_selection_summary(result: SelectionResult) -> str:
     finite = [e["val_rms"] for e in result.candidate_rms if e["val_rms"] is not None]
     spread = f", candidate val-rms [{min(finite):.4e}, {max(finite):.4e}]" if finite else ""
     verdict = "PROMOTED" if result.promoted else "champion kept"
+    tail = ""
+    if result.winner_tail is not None and result.tail_pool is not None:
+        pool, wt = result.tail_pool, result.winner_tail
+        tail = f"; {result.criterion} on {pool['name']} pool n={pool['n']}: captured {wt['n_captured']}, cvar95={wt.get('dv_cvar95')}"
     return (
         f"  Final selection: {verdict} -> {result.provenance} "
-        f"(val_rms={result.val_rms:.4e}; {result.n_deduped}/{result.n_candidates} fresh candidates simulated{spread})"
+        f"(val_rms={result.val_rms:.4e}; {result.n_deduped}/{result.n_candidates} fresh candidates simulated{spread}{tail})"
     )
 
 
@@ -364,9 +491,18 @@ def run_final_select(
     patch: bool = True,
     base_toml: Path | None = None,
     toml_data: dict | None = None,
+    criterion: str = "rms",
+    tail_seeds: list[int] | None = None,
+    tail_pool: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
 ) -> SelectionResult:
     """Load the latest checkpoint in training_dir, run the selection rule,
     rewrite best artifacts (+ sidecar), and (optionally) patch the checkpoint.
+
+    `criterion="cvar95"` runs `select_tail_individual` on `tail_seeds` (#234); every
+    checkpoint champion then competes as an ordinary row. `output_dir` deploys the
+    winner and its sidecar there instead of into `training_dir`, and never patches
+    the checkpoint: the run's deployed artifacts stay as they are.
 
     When `base_toml`/`toml_data` are provided (the CLI always passes them),
     non-NN winners also get their optimized_<scheme>.toml rewritten and — for
@@ -376,16 +512,28 @@ def run_final_select(
     mismatched table invalidates every downstream evaluation)."""
     from aerocapture.training.artifacts import deploy_winner  # noqa: PLC0415
 
+    if criterion not in ("rms", "cvar95"):
+        raise ValueError(f"unknown selection criterion {criterion!r}")
+    if criterion == "cvar95" and (tail_seeds is None or tail_pool is None):
+        raise ValueError("criterion cvar95 needs tail_seeds and tail_pool")
+    if output_dir is not None and output_dir.resolve() == training_dir.resolve():
+        raise ValueError("output_dir is training_dir: drop it to deploy in place (that path also patches the checkpoint)")
     state = load_selection_state(training_dir)
     ceiling = float(config.optimizer.max_violation_rate)
-    # Checkpoint champions may predate the gate or a ceiling change: re-validate
-    # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one
-    # competes as an ordinary candidate instead.
     known: list[KnownCandidate] = []
     population, provenances = state.population, list(state.provenances)
     island_of_row = list(state.island_of_row) if state.island_of_row is not None else None
     for name, champ in state.champions.items():
         label = f"{name}:" if name else ""
+        assert champ.individual is not None
+        if criterion == "cvar95":
+            # The tail rule re-flies every champion as a row (its recorded RMS pre-empts nothing): no
+            # re-validation here, and an untrusted one (val_rms inf) goes in under its plain label.
+            known.append(KnownCandidate(x=np.asarray(champ.individual, dtype=np.float64), provenance=f"{label}champion", val_rms=float(champ.val_rms)))
+            continue
+        # Checkpoint champions may predate the gate or a ceiling change: re-validate
+        # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one
+        # competes as an ordinary candidate instead.
         revalidate(champ, problem, val_seeds, problem.cost_kwargs, ceiling, verbose=True, label=label)
         if (trusted := champ.known(label)) is not None:
             known.append(trusted)
@@ -396,17 +544,35 @@ def run_final_select(
         provenances.append(untrusted[1])
         if island_of_row is not None:
             island_of_row.append(name)
-    sel = select_final_individual(
-        problem,
-        population,
-        provenances,
-        known,
-        val_seeds,
-        max_violation_rate=ceiling,
-        cost_kwargs=problem.cost_kwargs,
-    )
-    deploy_winner(sel.individual, config, param_specs, training_dir, toml_data=toml_data, base_toml=base_toml, cwd=None)
-    if patch:
+    if criterion == "cvar95":
+        assert tail_seeds is not None and tail_pool is not None
+        sel = select_tail_individual(
+            problem,
+            population,
+            provenances,
+            known,
+            val_seeds,
+            tail_seeds,
+            tail_pool,
+            max_violation_rate=ceiling,
+            cost_kwargs=problem.cost_kwargs,
+        )
+    else:
+        sel = select_final_individual(
+            problem,
+            population,
+            provenances,
+            known,
+            val_seeds,
+            max_violation_rate=ceiling,
+            cost_kwargs=problem.cost_kwargs,
+        )
+    deploy_dir = training_dir if output_dir is None else output_dir
+    deploy_dir.mkdir(parents=True, exist_ok=True)
+    deploy_winner(sel.individual, config, param_specs, deploy_dir, toml_data=toml_data, base_toml=base_toml, cwd=None)
+    if output_dir is not None:
+        print(f"  --output-dir: winner deployed to {output_dir}; {training_dir} and its checkpoint untouched.")
+    elif patch:
         island_name: str | None = None
         if state.kind == "islands":
             if sel.winner_index is not None:
@@ -419,7 +585,7 @@ def run_final_select(
         print("  --no-checkpoint-patch: checkpoint untouched; a later resume will revert these artifacts at its next checkpoint save.")
     # Sidecar AFTER the checkpoint patch, as in the trainer's finalize: the campaign
     # runners read "sidecar newer than the latest checkpoint" as "selection done".
-    write_final_selection_json(training_dir, sel, len(val_seeds))
+    write_final_selection_json(deploy_dir, sel, len(val_seeds))
     print(format_selection_summary(sel))
     return sel
 
@@ -432,12 +598,35 @@ def main() -> None:
     parser.add_argument("--toml", type=str, required=True, help="Training TOML the run used (base inheritance resolved)")
     parser.add_argument("--no-checkpoint-patch", action="store_true", help="Do not write the re-selected best back into the checkpoint")
     parser.add_argument("--sim-timeout", type=float, default=None, help="Per-sim wall-clock timeout (seconds)")
+    parser.add_argument(
+        "--criterion",
+        choices=("rms", "cvar95"),
+        default="rms",
+        help="rms: the ADR-0002 rule (default). cvar95 (#234): the ADR-0005 gate, then most captured, then lowest CVaR95 of the captured correction DV",
+    )
+    parser.add_argument(
+        "--pool",
+        choices=("validation", "tail_select"),
+        default=None,
+        help="cvar95 only: score the tail on the validation pool (default) or on the reserved tail-select pool (TAIL_SELECT_SEED_OFFSET, --pool-n seeds)",
+    )
+    parser.add_argument("--pool-n", type=int, default=None, help="cvar95 with --pool tail_select: the tail-select pool size (default 5000)")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="deploy the pick (best_model.json / best_params.json, final_selection.json) here instead of into training_dir; the checkpoint is not patched",
+    )
     args = parser.parse_args()
+    if args.criterion != "cvar95" and (args.pool is not None or args.pool_n is not None):
+        parser.error("--pool / --pool-n apply to --criterion cvar95 only")
+    if args.pool_n is not None and args.pool != "tail_select":
+        parser.error("--pool-n applies to --pool tail_select only")
 
     from aerocapture.training.chromosome_layout import ChromosomeLayout  # noqa: PLC0415
     from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
-    from aerocapture.training.seeds import VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
+    from aerocapture.training.seeds import TAIL_SELECT_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
     from aerocapture.training.training_config import run_param_specs  # noqa: PLC0415
 
     training_dir = Path(args.training_dir)
@@ -457,6 +646,16 @@ def main() -> None:
             f"ERROR: checkpoint base_mc_seed={base_mc_seed} != TOML monte_carlo.seed={toml_data['monte_carlo']['seed']} -- wrong TOML for this training dir?"
         )
     val_seeds = make_reserved_seeds(base_mc_seed, VALIDATION_SEED_OFFSET, config.optimizer.validation_n_sims)
+    tail_seeds: list[int] | None = None
+    tail_pool: dict[str, Any] | None = None
+    if args.criterion == "cvar95":
+        if args.pool == "tail_select":
+            pool_n = 5000 if args.pool_n is None else args.pool_n
+            tail_seeds = make_reserved_seeds(base_mc_seed, TAIL_SELECT_SEED_OFFSET, pool_n)
+            tail_pool = {"name": "tail_select", "offset": TAIL_SELECT_SEED_OFFSET, "n": pool_n}
+        else:
+            tail_seeds = val_seeds
+            tail_pool = {"name": "validation", "offset": VALIDATION_SEED_OFFSET, "n": len(val_seeds)}
 
     layout = ChromosomeLayout.from_specs(param_specs, config.guidance_type)
     try:
@@ -474,8 +673,11 @@ def main() -> None:
         nn_config=config.network if config.guidance_type == "neural_network" else None,
     )
 
-    n_sims_estimate = state.population.shape[0] * len(val_seeds)
-    print(f"  Final selection over {state.population.shape[0]} candidates x {len(val_seeds)} validation seeds (<= {n_sims_estimate} sims)...")
+    n_rows = state.population.shape[0] + (len(state.champions) if args.criterion == "cvar95" else 0)
+    n_sims_estimate = n_rows * len(val_seeds) + (n_rows * len(tail_seeds) if tail_seeds is not None and tail_seeds != val_seeds else 0)
+    print(f"  Final selection ({args.criterion}) over {n_rows} candidates x {len(val_seeds)} validation seeds (<= {n_sims_estimate} sims)")
+    if tail_pool is not None and tail_pool["name"] == "tail_select":
+        print(f"  Tail statistic of the feasible survivors on the tail-select pool (offset {TAIL_SELECT_SEED_OFFSET}, n={tail_pool['n']})...")
     run_final_select(
         training_dir=training_dir,
         config=config,
@@ -485,6 +687,10 @@ def main() -> None:
         patch=not args.no_checkpoint_patch,
         base_toml=Path(args.toml),
         toml_data=toml_data,
+        criterion=args.criterion,
+        tail_seeds=tail_seeds,
+        tail_pool=tail_pool,
+        output_dir=Path(args.output_dir) if args.output_dir else None,
     )
 
 

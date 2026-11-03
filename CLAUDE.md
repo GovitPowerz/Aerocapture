@@ -39,6 +39,8 @@ lessons, conventions).
   per-generation profile, the per-scheme guidance bench (`src/rust/benches/tick.rs`), memory, the accelerator-port feasibility note.
 - `experiments/world_model/README.md`: the learned-dynamics experiment (#113), the seam's timing contract, the six evaluations, where the model
   fails (driver `world_model.py`, results `world_model.json`).
+- `experiments/tail_select/README.md`: the tail-aware final-selection study (#234): the `final_select --criterion cvar95` arms, the picks, the
+  confirmatory table and why the gate's choice set, not the statistic, is the binding constraint.
 
 ## Build & Development Commands
 

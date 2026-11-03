@@ -40,6 +40,10 @@ MAMBA3_EVAL_SEED_OFFSET = PROBE_EVAL_SEED_OFFSET
 # World-model experiment (experiments/world_model/, #113): the train / validation / test flights
 # its dynamics models learn from and its planning pool, consecutive slices of one stream.
 WORLD_MODEL_SEED_OFFSET = 11_000_000
+# Tail-aware final selection (#234, `final_select --pool tail_select`): the larger pool a
+# retro selection ranks its feasible survivors' CVaR95 on; the gate itself stays on the
+# validation pool. Never drawn by training, validation, final eval or the confirmatory pools.
+TAIL_SELECT_SEED_OFFSET = 12_000_000
 
 
 def base_mc_seed_from_toml(toml: dict) -> int:

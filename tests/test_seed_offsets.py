@@ -13,6 +13,7 @@ from aerocapture.training.seeds import (
     RL_TRAINING_SEED_OFFSET,
     STRESS_EVAL_SEED_OFFSET,
     SWEEP_EVAL_SEED_OFFSET,
+    TAIL_SELECT_SEED_OFFSET,
     VALIDATION_SEED_OFFSET,
     WARM_START_SEED_OFFSET,
     WORLD_MODEL_SEED_OFFSET,
@@ -32,6 +33,7 @@ def test_offsets_distinct_and_documented() -> None:
         "stress_eval": STRESS_EVAL_SEED_OFFSET,
         "probe_eval": PROBE_EVAL_SEED_OFFSET,
         "world_model": WORLD_MODEL_SEED_OFFSET,
+        "tail_select": TAIL_SELECT_SEED_OFFSET,
         "confirm_eval": CONFIRM_EVAL_SEED_OFFSET,
     }
     assert list(offsets.values()) == [
@@ -46,6 +48,7 @@ def test_offsets_distinct_and_documented() -> None:
         9_000_000,
         10_000_000,
         11_000_000,
+        12_000_000,
         20_000_000,
     ]
     assert len(set(offsets.values())) == len(offsets)  # all disjoint

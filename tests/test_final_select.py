@@ -555,3 +555,204 @@ class TestIslandsPromotionPersistence:
         assert model.islands[2].champion.individual is None
         # checkpoint re-saved at the final generation's path
         assert model.saved == [(tmp_path / "checkpoint_g00007.npz", 7, None)]
+
+
+class _TailMockProblem(_MockProblem):
+    """Captured records (ifinal 3, ecc 0.5) whose correction DV is 100 * x[0] + 100 * x[1] * k on
+    the k-th seed: x[0] sets the level, x[1] the spread. x == (0, 0) loses its first scenario;
+    x[0] == 0.9 with x[1] == 0 exceeds the heat-load limit on every draw. Records every call's
+    (n_rows, seeds)."""
+
+    cost_kwargs = {"heat_load_limit": 25000.0}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[int, list[int]]] = []
+
+    def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, FR_INTEGRATED_FLUX
+
+        self.calls.append((int(X.shape[0]), list(seeds)))
+        costs, records = super().evaluate_population_records_per_seed(X, seeds)
+        records[:, :, FR_IFINAL] = 3
+        records[:, :, FR_ECC] = 0.5
+        for i, x in enumerate(X):
+            records[i, :, FR_DV_TOTAL] = 100 * x[0] + 100 * x[1] * np.arange(len(seeds))
+            if x[0] == 0 and x[1] == 0:
+                records[i, 0, FR_IFINAL] = 1
+            if x[0] == 0.9 and x[1] == 0:
+                records[i, :, FR_INTEGRATED_FLUX] = 26.0
+        return costs, records
+
+
+_A = np.array([0.2, 0.9])  # lowest RMS of the feasible full-capture rows, fattest tail (DV 20..290)
+_B = np.array([1.0, 0.3])  # higher RMS, tightest tail (DV 100..190)
+_C = np.array([0.0, 0.0])  # lowest RMS of all, DV 0, loses one scenario
+_D = np.array([0.9, 0.0])  # best tail of all (DV 90 flat), infeasible on heat load
+_POOL = {"name": "validation", "offset": 1_000_000, "n": len(SEEDS)}
+
+
+class TestTailRule:
+    def _select(
+        self,
+        cands: np.ndarray,
+        provs: list[str],
+        known: list[KnownCandidate],
+        tail_seeds: list[int] | None = None,
+        problem: _TailMockProblem | None = None,
+    ) -> SelectionResult:
+        from aerocapture.training.final_select import select_tail_individual
+
+        problem = problem or _TailMockProblem()
+        return select_tail_individual(problem, cands, provs, known, SEEDS, tail_seeds or SEEDS, _POOL, max_violation_rate=0.0, cost_kwargs=problem.cost_kwargs)
+
+    def test_gate_then_capture_then_cvar95(self) -> None:
+        provs = ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"]
+        sel = self._select(np.vstack([_A, _B, _C, _D]), provs, [])
+        assert sel.criterion == "cvar95" and sel.provenance == "last_gen[1]" and sel.winner_index == 1 and sel.promoted and sel.winner_feasible
+        assert sel.winner_tail is not None and sel.winner_tail["dv_cvar95"] == 190.0 and sel.winner_tail["n_captured"] == 4
+        by = {r["provenance"]: r for r in sel.candidate_rms}
+        assert by["last_gen[3]"]["feasible"] is False and "tail" not in by["last_gen[3]"]  # gated out before the tail flight
+        assert by["last_gen[2]"]["tail"]["n_captured"] == 3 and by["last_gen[2]"]["tail"]["dv_cvar95"] == 0.0  # fewer captures: never wins
+        assert by["last_gen[0]"]["tail"]["dv_cvar95"] == 290.0
+        assert sel.tail_pool == _POOL
+
+    def test_rms_rule_disagrees_on_the_same_rows(self) -> None:
+        problem = _TailMockProblem()
+        provs = ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"]
+        sel = select_final_individual(problem, np.vstack([_A, _B, _C, _D]), provs, [], SEEDS, max_violation_rate=0.0, cost_kwargs=problem.cost_kwargs)
+        assert sel.provenance == "last_gen[2]" and sel.criterion == "rms" and sel.tail_pool is None and sel.winner_tail is None
+
+    def test_champion_is_scored_as_a_row_and_deduped(self) -> None:
+        known = [KnownCandidate(x=_B.copy(), provenance="champion", val_rms=0.001)]  # the recorded RMS pre-empts nothing
+        sel = self._select(np.vstack([_A, _B, _C]), ["last_gen[0]", "last_gen[1]", "last_gen[2]"], known)
+        assert sel.provenance == "champion" and not sel.promoted and sel.winner_index is None
+        assert sel.n_deduped == 2 and sel.n_candidates == 3
+        assert sel.val_rms == pytest.approx(_rms(_B, SEEDS))  # the flown RMS, not the recorded one
+        # A plain row whose provenance ends in "champion" is "kept" too, not promoted.
+        sel = self._select(np.vstack([_A, _B.copy(), _C]), ["last_gen[0]", "champion", "last_gen[2]"], [])
+        assert sel.provenance == "champion" and not sel.promoted and sel.winner_index == 1
+
+    def test_tail_pool_flies_only_the_survivors(self) -> None:
+        problem = _TailMockProblem()
+        tail_seeds = [11, 12, 13, 14, 15, 16]
+        sel = self._select(np.vstack([_A, _B, _C, _D]), ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"], [], tail_seeds, problem)
+        assert problem.calls == [(4, SEEDS), (3, tail_seeds)]  # D gated out on the validation pool
+        assert sel.provenance == "last_gen[1]" and sel.winner_tail is not None and sel.winner_tail["n"] == 6
+        assert sel.winner_tail["dv_cvar95"] == 250.0  # B on six seeds: 100..250
+        assert sel.winner_tail["violation_rates"] == {"heat_load": 0.0} and "feasible" not in sel.winner_tail
+
+    def test_tail_pool_violations_are_reported_not_gated(self) -> None:
+        """The gate is the validation pool's (ADR-0005 at its size): a survivor that exceeds a limit
+        on the larger tail pool keeps its rank, with the rate on its record."""
+
+        class _TailOnlyViolation(_TailMockProblem):
+            def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+                from aerocapture.training.cell_eval import FR_INTEGRATED_FLUX
+
+                costs, records = super().evaluate_population_records_per_seed(X, seeds)
+                if seeds != SEEDS:  # the tail pool only
+                    for i, x in enumerate(X):
+                        if np.array_equal(x, _B):
+                            records[i, 0, FR_INTEGRATED_FLUX] = 26.0
+                return costs, records
+
+        sel = self._select(np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [], [11, 12, 13, 14], _TailOnlyViolation())
+        assert sel.provenance == "last_gen[1]" and sel.winner_feasible
+        assert sel.winner_tail is not None and sel.winner_tail["violation_rates"] == {"heat_load": 0.25}
+
+    def test_no_feasible_row_deploys_best_rms_with_warning(self, capsys) -> None:  # type: ignore[no-untyped-def]
+        sel = self._select(np.vstack([_D]), ["last_gen[0]"], [])
+        assert not sel.winner_feasible and sel.provenance == "last_gen[0]" and sel.winner_tail is None
+        assert "NO feasible candidate" in capsys.readouterr().out
+
+    def test_sidecar_carries_criterion_and_pool_only_under_cvar95(self, tmp_path: Path) -> None:
+        sel = self._select(np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [])
+        write_final_selection_json(tmp_path, sel, len(SEEDS))
+        data = json.loads((tmp_path / "final_selection.json").read_text())
+        assert data["criterion"] == "cvar95" and data["tail_pool"] == _POOL and data["winner"]["tail"]["dv_cvar95"] == 190.0
+        problem = _TailMockProblem()
+        rms = select_final_individual(problem, np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [], SEEDS, cost_kwargs=problem.cost_kwargs)
+        write_final_selection_json(tmp_path, rms, len(SEEDS))
+        data = json.loads((tmp_path / "final_selection.json").read_text())
+        assert "criterion" not in data and "tail_pool" not in data and "tail" not in data["winner"]
+        assert "cvar95" in format_selection_summary(sel) and "cvar95" not in format_selection_summary(rms)
+
+    def test_survivors_without_a_capture_still_outrank_an_infeasible_row(self, capsys) -> None:  # type: ignore[no-untyped-def]
+        """Zero captures on the tail pool ranks a feasible survivor last, never out of the choice set:
+        the infeasible lowest-RMS D must not deploy through the no-feasible fallback."""
+
+        class _NoCaptureOnTailPool(_TailMockProblem):
+            def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
+                from aerocapture.training.cell_eval import FR_IFINAL
+
+                costs, records = super().evaluate_population_records_per_seed(X, seeds)
+                if seeds != SEEDS:
+                    records[:, :, FR_IFINAL] = 1
+                return costs, records
+
+        sel = self._select(np.vstack([_A, _B, _D]), ["last_gen[0]", "last_gen[1]", "last_gen[2]"], [], [11, 12, 13, 14], _NoCaptureOnTailPool())
+        assert sel.provenance == "last_gen[0]" and sel.winner_feasible  # A: the lower val RMS of the two zero-capture survivors
+        assert sel.winner_tail is not None and sel.winner_tail["n_captured"] == 0 and "dv_cvar95" not in sel.winner_tail
+        assert "NO feasible candidate" not in capsys.readouterr().out
+
+    def test_ranks_on_the_unrounded_cvar95(self) -> None:
+        """CVaR95 80.0002 (P, lower RMS) against 80.0000 (Q): both record as 80.0, Q has the better tail."""
+        p, q = np.array([0.49999, 0.100004]), np.array([0.5, 0.1])
+        sel = self._select(np.vstack([p, q]), ["last_gen[0]", "last_gen[1]"], [])
+        assert sel.candidate_rms[0]["tail"]["dv_cvar95"] == sel.candidate_rms[1]["tail"]["dv_cvar95"] == 80.0
+        assert sel.candidate_rms[0]["val_rms"] < sel.candidate_rms[1]["val_rms"]
+        assert sel.provenance == "last_gen[1]"
+
+    @staticmethod
+    def _run_dir(tmp_path: Path, population: np.ndarray, champion: np.ndarray) -> Path:
+        run = tmp_path / "run"
+        run.mkdir()
+        meta = {"generation": 7, "best_cost": 1.5, "best_val_cost": _rms(champion, SEEDS), "cost_history": [], "rng_state": None}
+        (run / "checkpoint_g00007.json").write_text(json.dumps(meta))
+        np.savez(run / "checkpoint_g00007.npz", population=population, costs=np.zeros(population.shape[0]), best_individual=champion)
+        return run
+
+    @staticmethod
+    def _run_select(run: Path, output_dir: Path) -> SelectionResult:
+        from aerocapture.training.config import TrainingConfig
+        from aerocapture.training.final_select import run_final_select
+        from aerocapture.training.param_spaces import ParamSpec
+
+        cfg = TrainingConfig()
+        cfg.guidance_type = "equilibrium_glide"
+        specs = [ParamSpec(name="a", p_min=0.0, p_max=1.0, default=0.5), ParamSpec(name="b", p_min=0.0, p_max=1.0, default=0.5)]
+        return run_final_select(
+            training_dir=run,
+            config=cfg,
+            param_specs=specs,
+            problem=_TailMockProblem(),
+            val_seeds=SEEDS,
+            patch=True,
+            criterion="cvar95",
+            tail_seeds=SEEDS,
+            tail_pool=_POOL,
+            output_dir=output_dir,
+        )
+
+    def test_run_final_select_champion_keeps_its_label_over_its_last_gen_twin(self, tmp_path: Path) -> None:
+        """A promoted finalize leaves the champion in the last generation too: the dedup keeps the champion row."""
+        sel = self._run_select(self._run_dir(tmp_path, np.vstack([_A, _B.copy(), _C]), _B), tmp_path / "pick")
+        assert sel.provenance == "champion" and not sel.promoted and sel.winner_index is None and sel.n_deduped == 2
+        assert [r["provenance"] for r in sel.candidate_rms] == ["champion", "last_gen[0]", "last_gen[2]"]
+        assert sel.incumbent_val_rms == pytest.approx(_rms(_B, SEEDS))  # the checkpoint's recorded RMS, informational
+
+    def test_run_final_select_refuses_output_dir_equal_to_the_run(self, tmp_path: Path) -> None:
+        run = self._run_dir(tmp_path, np.vstack([_B, _C]), _A)
+        with pytest.raises(ValueError, match="output_dir is training_dir"):
+            self._run_select(run, run / ".")
+
+    def test_run_final_select_output_dir_leaves_the_run_untouched(self, tmp_path: Path) -> None:
+        run = self._run_dir(tmp_path, np.vstack([_B, _C]), _A)
+        pick = tmp_path / "pick"
+        sel = self._run_select(run, pick)
+        assert sel.provenance == "last_gen[0]" and sel.promoted  # B beats the champion A on the tail
+        assert json.loads((pick / "best_params.json").read_text())["a"] == 1.0
+        assert json.loads((pick / "final_selection.json").read_text())["criterion"] == "cvar95"
+        assert not (run / "best_params.json").exists() and not (run / "final_selection.json").exists()
+        assert np.array_equal(np.load(run / "checkpoint_g00007.npz")["best_individual"], _A)  # not patched
