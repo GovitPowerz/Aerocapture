@@ -514,7 +514,7 @@ cargo test --release --workspace --all-targets --manifest-path src/rust/Cargo.to
 uv run pytest tests/
 
 # Linting + type checking
-./lint_code.sh        # ruff (imports, format, lint) + mypy
+./lint_code.sh        # ruff (imports, format, lint) + mypy + bash -n over tracked shell scripts
 
 # Full Rust check (test + fmt + clippy + release build)
 ./check_all.sh
@@ -529,7 +529,7 @@ uv run pytest tests/
 GitHub Actions runs on every push to `main`, every PR to `main`, and manual dispatch:
 
 - **Rust**: `cargo fmt --check`, `cargo clippy --workspace`, `cargo test --release --workspace --all-targets` (both crates: the simulator and the `aerocapture-py` seam; the benches run once in criterion's test mode)
-- **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments` (the same scope as `./lint_code.sh`)
+- **Python (lint)**: `ruff check`, `ruff format --check`, `mypy src/python tests experiments`, `bash -n` over every tracked `.sh` (the same scope as `./lint_code.sh`)
 - **Python (test)**: builds the CLI binary and the PyO3 extension, then runs every file under `tests/` (fast and slow) in one job. There is no allowlist: a test file added to the tree runs in CI, and an import step before pytest proves the extension is present, so no `importorskip` can silently skip. The rule that the training modules must import without the extension is itself a test (`tests/test_soft_import.py`).
 
 ### Build Commands
@@ -537,7 +537,7 @@ GitHub Actions runs on every push to `main`, every PR to `main`, and manual disp
 ```bash
 ./build.sh              # Build Rust binary + PyO3 bindings (-c to clean artifacts)
 ./setup_env.sh          # Create fresh .venv + install deps
-./lint_code.sh          # Run ruff (imports, format, lint) + mypy
+./lint_code.sh          # Run ruff (imports, format, lint) + mypy + bash -n over tracked shell scripts
 ./check_all.sh          # Rust: test + fmt --check + clippy + release build
 ./upgrade_dependencies.sh   # uv sync --upgrade
 ```

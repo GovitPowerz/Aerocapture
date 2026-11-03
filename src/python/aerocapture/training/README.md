@@ -355,7 +355,10 @@ use `--sim-timeout` against NaN hangs).
   stress levels, guidance type) win over the cell, the seed is applied last; `cell_dir=None` flies
   the bare TOML. A cell holding `best_params.json` but neither `optimized_<scheme>.toml` nor
   `best_model.json` (an undeployed classical cell) is refused unless `model=` is given: only its
-  prefixed scaffolding keys would route and the gains would fly at TOML defaults. `fly_mc` is the same
+  prefixed scaffolding keys would route and the gains would fly at TOML defaults. The mirror case is
+  refused too: a cell holding `best_model.json` but no `best_params.json` under a TOML whose
+  `[guidance.neural_network] scaffolding` is not `"off"` would fly the co-trained filter gain and
+  shaper limit at TOML defaults (#232 flew every committee cell that way until review). `fly_mc` is the same
   resolution through `run_mc` (the config's own Monte Carlo: `compare_guidance`, `ablation`,
   `animate`), `fly_nominal` the undispersed nominal (every `_MC_DISPERSION_DOMAINS` level off).
   `CellResult` carries `final_records (N,52)`, `dispersions (N,26)`, `trajectories` (only when

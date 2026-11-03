@@ -97,6 +97,16 @@ def _resolve_cell(cell_dir: Path | None, base_toml: Path, model: Path | None) ->
             raise FileNotFoundError(
                 f"{cell} has best_params.json but no optimized_<scheme>.toml: re-deploy the cell (train.py writes it at the end of training)"
             )
+        if (cell / "best_model.json").exists() and not (cell / "best_params.json").exists():
+            # An NN cell trained with scaffolding co-optimizes the filter gain and the shaper limit;
+            # without its best_params.json the model would fly the base TOML's defaults (#232 flew
+            # every committee cell that way until review).
+            nn_section = load_toml_with_bases(Path(base_toml)).get("guidance", {}).get("neural_network", {})
+            if nn_section.get("scaffolding", "off") != "off":
+                raise FileNotFoundError(
+                    f"{cell} has best_model.json but no best_params.json while {base_toml} sets scaffolding = {nn_section['scaffolding']!r}: "
+                    "the model would fly the TOML's default scaffolding; copy the trained best_params.json into the cell"
+                )
     if model is not None:
         if not Path(model).exists():
             raise FileNotFoundError(f"model {model} does not exist (refusing to fly the TOML's shared [data] neural_network instead)")
