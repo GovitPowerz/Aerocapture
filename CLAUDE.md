@@ -63,7 +63,7 @@ pytest tests/test_foo.py::test_bar -v
 # ── Utility Scripts (from repo root) ──
 ./build.sh                         # Build Rust binary + PyO3 bindings (-c to clean artifacts)
 ./setup_env.sh                     # Create fresh .venv + install deps
-./lint_code.sh                     # Run ruff (imports, format, lint; also over articles/paper/scripts) + mypy
+./lint_code.sh                     # ruff (imports, format, lint; also over articles/paper/scripts) + mypy + bash -n over tracked .sh; exits on the first failure
 ./check_all.sh                     # Rust: test + fmt --check + clippy + release build
 make -C articles/paper             # Paper figures from the committed bundle (no Rust, no run logs); `paper` = fetch-logs -> check-logs -> results -> confirmatory-marginal -> quote-marginal -> heat-load-slope -> quant-v4 -> figures -> provenance -> pdf
 make -C articles/paper check       # Bundle SHA256SUMS + results.json schema + the four per-scenario extracts (confirmatory_marginal.json, quote_marginal.json, heat_load_slope.json, quant_v4/confirmatory_marginal.json) current + figures/results.json unchanged in git (CI runs `-B figures` then this on every PR)
@@ -77,7 +77,7 @@ uv run python -m aerocapture.training.compare_guidance --n-sims 500 --schemes ft
 uv run python -m aerocapture.training.report training_output/equilibrium_glide/ --toml configs/training/msr_aller_eqglide_train.toml
 ```
 
-Gates before declaring a change done: `./lint_code.sh` (read ruff's and mypy's own output, the script has no `set -e`), `./check_all.sh`, `uv run pytest tests -q -m "not slow"`;
+Gates before declaring a change done: `./lint_code.sh`, `./check_all.sh`, `uv run pytest tests -q -m "not slow"`;
 the slow PyO3 suite (`tests/test_pyo3.py`, `tests/test_run_grid.py`) after any change that touches the seam or the version; the slow `tests/test_external_validation.py` after
 any physics, aerodynamics, atmosphere or integrator change (tolerance gate against frozen AMAT outputs, and it fails when `docs/validation.md` quotes stale tables). Numbers must not move: the six guidance goldens
 (`tests/reference_data/rust_golden/`), `tests/test_pyo3.py::test_pyo3_matches_subprocess`, `tests/test_run_grid.py`, `tests/test_thread_invariance.py` (`run_grid` byte-identical at any thread count); name any additional bit-identity gate a change touches.
@@ -234,7 +234,7 @@ cell (`centered_depth_eval.py` flies both and labels each cell).
 - **Testing (Rust)**: Three-tier pyramid — unit tests (inline `#[cfg(test)]` modules with proptest property tests), integration tests (`src/rust/tests/`), E2E subprocess tests. Shared test
   infrastructure in `tests/common/` (fixtures.rs, assertions.rs). Dev-dependencies: `approx`, `rstest`, `proptest`, `tempfile`. Run with `cargo test` or `./check_all.sh`.
 - **CI**: GitHub Actions (`.github/workflows/ci.yml`) - Rust (fmt, `clippy --workspace`, `test --workspace --all-targets`: both crates, benches once in criterion test mode), Python lint (ruff lint + ruff format over
-  `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
+  `src/python tests experiments articles/paper/scripts`, mypy over `src/python tests experiments`, `bash -n` over every tracked `.sh` -- the `lint_code.sh` scope; the paper scripts are untyped), ONE Python test job that builds the CLI
   binary and the PyO3 extension, installs Typst 0.15.1 (so the report compile gate in `tests/test_report_render.py` runs instead of skipping) and runs every file under `tests/`, fast and
   slow (an import step before pytest proves the extension is present), and a pure-Python `paper` job (`make -C articles/paper -B figures` + `check` + `pdf` to /tmp, pinned Typst 0.15.1) that
   proves the 19 figures are byte-identical to git; `paper-results` (workflow_dispatch only) fetches the run logs (the Release asset named in `data/provenance.json`; the arxiv-v4 asset exists once #183 uploads it), runs `make paper` end to end and requires `results.json` unchanged.

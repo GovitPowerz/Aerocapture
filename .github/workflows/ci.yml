@@ -60,6 +60,8 @@ jobs:
             command: uv run ruff format --check src/python tests experiments articles/paper/scripts
           - check: typecheck
             command: uv run mypy src/python tests experiments
+          - check: shell-syntax
+            command: git ls-files -z '*.sh' | xargs -0 -n1 bash -n
 
     steps:
       - uses: actions/checkout@v4

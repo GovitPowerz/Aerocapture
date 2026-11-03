@@ -158,6 +158,34 @@ def test_undeployed_classical_cell_is_refused(fake_rs: FakeRs, tmp_path: Path) -
     assert fake_rs.calls == []
 
 
+def test_scaffolded_nn_cell_without_best_params_is_refused(fake_rs: FakeRs, tmp_path: Path) -> None:
+    """best_model.json alone under a scaffolding = "live" TOML would fly the TOML's default filter gain
+    and shaper limit instead of the co-trained ones (#232) -- refuse before flying."""
+    base = tmp_path / "base.toml"
+    base.write_text('[guidance.neural_network]\nscaffolding = "live"\n')
+    cell = tmp_path / "mamba"
+    cell.mkdir()
+    (cell / "best_model.json").write_text("{}")
+    with pytest.raises(FileNotFoundError, match="scaffolding = 'live'"):
+        evaluate_cell(cell, base, [1])
+    with pytest.raises(FileNotFoundError, match="no best_params.json"):
+        evaluate_cell(cell, base, [1], model=cell / "best_model.json")
+    assert fake_rs.calls == []
+    (cell / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
+    evaluate_cell(cell, base, [1])
+    assert fake_rs.calls[0]["overrides_list"][0]["navigation.density_filter_gain"] == 0.9
+
+
+def test_unscaffolded_nn_cell_flies_without_best_params(fake_rs: FakeRs, tmp_path: Path) -> None:
+    base = tmp_path / "base.toml"
+    base.write_text('[guidance.neural_network]\nscaffolding = "off"\n')
+    cell = tmp_path / "dense"
+    cell.mkdir()
+    (cell / "best_model.json").write_text("{}")
+    evaluate_cell(cell, base, [1])
+    assert fake_rs.calls[0]["overrides_list"][0]["data.neural_network"] == str((cell / "best_model.json").resolve())
+
+
 def test_explicit_model_uses_a_model_less_cell_for_scaffolding_only(fake_rs: FakeRs, tmp_path: Path) -> None:
     base = tmp_path / "base.toml"
     base.write_text("")
