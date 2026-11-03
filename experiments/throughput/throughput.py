@@ -78,7 +78,7 @@ class Cell:
         cell = BUNDLE / self.bundle
         if self.scheme is not None:
             return overrides_from_params(json.loads((cell / "best_params.json").read_text()), self.scheme)
-        return {**load_scaffolding_overrides(cell), "data.neural_network": str(cell / "best_model.json")}
+        return {**load_scaffolding_overrides(cell, REPO / self.toml), "data.neural_network": str(cell / "best_model.json")}
 
 
 FNPAG = Cell("FNPAG", "configs/training/msr_aller_fnpag_train.toml", "classical_baselines/fnpag", "fnpag")

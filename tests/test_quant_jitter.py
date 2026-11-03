@@ -52,7 +52,10 @@ def test_run_flies_every_eps_for_both_granularities_on_the_sweep_pool(tmp_path: 
 
     assert [(r["granularity"], r["eps"]) for r in out["rows"]] == [("per_tensor", 0.0), ("per_tensor", 0.05), ("per_channel", 0.0), ("per_channel", 0.05)]
     assert len(flown) == 5 and flown[0]["model"] == model  # fp baseline first
-    assert all(f["seeds"] == [7, 8, 9] and f["noise_seeding"] == "per_draw" and f["extra"] == quantize._scaffolding_overrides(champ) != {} for f in flown)
+    assert all(
+        f["seeds"] == [7, 8, 9] and f["noise_seeding"] == "per_draw" and f["extra"] == quantize._scaffolding_overrides(champ, "unused.toml") != {}
+        for f in flown
+    )
     assert flown[1]["model"] == quantize.quantize_model_weights(model, 4, "per_tensor", "proj_only")  # eps 0 is the PTQ sweep's own cell
     assert flown[2]["model"] == quantize.quantize_model_weights(model, 4, "per_tensor", "proj_only", scale_factor=1.05)
     assert out["tensors"] == ["layer_0.w"] and len(out["model_sha256"]) == 64

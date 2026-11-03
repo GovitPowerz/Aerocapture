@@ -67,8 +67,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: astral-sh/setup-uv@v5
+        if: matrix.check != 'shell-syntax'
 
       - name: Install dependencies
+        if: matrix.check != 'shell-syntax'
         run: uv sync --group dev
 
       - name: ${{ matrix.check }}

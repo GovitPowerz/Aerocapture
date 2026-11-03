@@ -23,6 +23,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from aerocapture.training.param_spaces import _NN_SCAFFOLDING_PARAMS, PARAM_SPACES, SCAFFOLDING_PREFIXES, route_param_path
+from aerocapture.training.toml_utils import load_toml_with_bases
 
 # Every ParamSpec flagged is_integer across all schemes + the NN scaffolding pack.
 # `lateral.max_reversals` today; extend a ParamSpec, not this module, to add one.
@@ -61,27 +62,37 @@ def overrides_from_params(params: Mapping[str, object], scheme: str, *, scaffold
     return overrides
 
 
-def load_scaffolding_overrides(cell_dir: Path) -> dict[str, object]:
+def load_scaffolding_overrides(cell_dir: Path, toml_path: Path | None = None) -> dict[str, object]:
     """Overrides for the scaffolding pack in `<cell_dir>/best_params.json`; `{}` if absent.
 
     NN cells trained with `scaffolding = "live" | "full"` write `best_model.json`
     plus `best_params.json`; with `scaffolding = "off"` the params file is absent.
+    `toml_path` declares an NN flight under that TOML: when its
+    `[guidance.neural_network] scaffolding` is not "off" and the cell routes nothing,
+    refuse, since the model would fly the TOML's default filter gain and shaper limit
+    instead of its co-trained ones (#232 flew every committee cell that way until review).
     """
     scaff_path = cell_dir / "best_params.json"
-    if not scaff_path.exists():
-        return {}
-    params: dict[str, object] = json.loads(scaff_path.read_text())
-    return overrides_from_params(params, "", scaffolding_only=True)
+    overrides = overrides_from_params(json.loads(scaff_path.read_text()), "", scaffolding_only=True) if scaff_path.exists() else {}
+    if toml_path is not None and not overrides:
+        scaffolding = load_toml_with_bases(Path(toml_path)).get("guidance", {}).get("neural_network", {}).get("scaffolding", "off")
+        if scaffolding != "off":
+            raise FileNotFoundError(
+                f"{cell_dir} routes no scaffolding (best_params.json missing or empty) while {toml_path} sets scaffolding = {scaffolding!r}: "
+                "the model would fly the TOML's default scaffolding; copy the trained best_params.json into the cell"
+            )
+    return overrides
 
 
-def resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str, object]]:
+def resolve_eval_toml(toml_path: Path, scheme_dir: Path, *, nn_flight: bool = False) -> tuple[Path, dict[str, object]]:
     """The TOML to evaluate a cell with, plus its scaffolding overrides.
 
     Non-NN schemes bake their tuned params into `optimized_<scheme>.toml`, which
     wins when present (the file is named after the guidance type, which differs
     from the dir name for custom --output-dir runs, hence the single-match glob
     fallback) and needs no overrides. Otherwise the base TOML is used with the
-    cell's `best_params.json` scaffolding routed as overrides.
+    cell's `best_params.json` scaffolding routed as overrides; `nn_flight` applies
+    `load_scaffolding_overrides`'s refusal against that TOML.
     """
     optimized = scheme_dir / f"optimized_{scheme_dir.name}.toml"
     if not optimized.exists():
@@ -90,4 +101,4 @@ def resolve_eval_toml(toml_path: Path, scheme_dir: Path) -> tuple[Path, dict[str
             optimized = candidates[0]
     if optimized.exists():
         return optimized, {}
-    return toml_path, load_scaffolding_overrides(scheme_dir)
+    return toml_path, load_scaffolding_overrides(scheme_dir, toml_path if nn_flight else None)

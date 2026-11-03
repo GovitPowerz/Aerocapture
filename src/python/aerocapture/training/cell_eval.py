@@ -89,24 +89,15 @@ def _resolve_cell(cell_dir: Path | None, base_toml: Path, model: Path | None) ->
     overrides: dict[str, object] = {}
     eval_toml = Path(base_toml)
     if cell_dir is not None:
-        eval_toml, overrides = resolve_eval_toml(eval_toml, Path(cell_dir))
         cell = Path(cell_dir)
+        # An NN flight refuses a cell that routes no scaffolding under a scaffolded TOML.
+        eval_toml, overrides = resolve_eval_toml(eval_toml, cell, nn_flight=model is not None or (cell / "best_model.json").exists())
         if model is None and eval_toml == Path(base_toml) and (cell / "best_params.json").exists() and not (cell / "best_model.json").exists():
             # A classical cell deploys as optimized_<scheme>.toml; without it only the prefixed
             # scaffolding keys of best_params.json would route and the gains would fly at TOML defaults.
             raise FileNotFoundError(
                 f"{cell} has best_params.json but no optimized_<scheme>.toml: re-deploy the cell (train.py writes it at the end of training)"
             )
-        if (cell / "best_model.json").exists() and not (cell / "best_params.json").exists():
-            # An NN cell trained with scaffolding co-optimizes the filter gain and the shaper limit;
-            # without its best_params.json the model would fly the base TOML's defaults (#232 flew
-            # every committee cell that way until review).
-            nn_section = load_toml_with_bases(Path(base_toml)).get("guidance", {}).get("neural_network", {})
-            if nn_section.get("scaffolding", "off") != "off":
-                raise FileNotFoundError(
-                    f"{cell} has best_model.json but no best_params.json while {base_toml} sets scaffolding = {nn_section['scaffolding']!r}: "
-                    "the model would fly the TOML's default scaffolding; copy the trained best_params.json into the cell"
-                )
     if model is not None:
         if not Path(model).exists():
             raise FileNotFoundError(f"model {model} does not exist (refusing to fly the TOML's shared [data] neural_network instead)")

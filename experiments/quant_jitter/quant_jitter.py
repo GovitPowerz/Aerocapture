@@ -59,7 +59,7 @@ def run(champion_dir: Path, toml: str, noise_seeding: str, bits: int, tensor_pol
     model = json.loads(model_path.read_text())
     keys = [k for k, *_ in qz._quantizable_tensors(model, tensor_policy)]
     seeds, pool = qz._resolve_pool(toml, HEADLINE_REQUOTE_SEED_OFFSET, n_sims)
-    scaff = qz._scaffolding_overrides(champion_dir, require=True)
+    scaff = qz._scaffolding_overrides(champion_dir, toml)
     cost_kwargs = _load_cost_kwargs(toml, cost_transform="linear")
     baseline = qz._score_variant(toml, model_path, seeds, cost_kwargs, scaff, 120.0, noise_seeding)
     print(f"fp baseline: capture {baseline['capture_rate']:.3f} cvar95 {baseline['dv_cvar95']:.1f}", flush=True)

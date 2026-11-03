@@ -275,7 +275,7 @@ def main() -> None:
     model = args.model
     if model is None and (training_dir / "best_model.json").exists():
         model = str(training_dir / "best_model.json")
-    scaffolding = load_scaffolding_overrides(training_dir)
+    scaffolding = load_scaffolding_overrides(training_dir, Path(args.toml))
     if model:
         print(f"Model: {model}")
     if scaffolding:

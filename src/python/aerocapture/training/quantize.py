@@ -285,18 +285,12 @@ def _resolve_pool(toml_path: str, pool_offset: int, n_sims: int) -> tuple[list[i
     return make_reserved_seeds(base_mc_seed, pool_offset, n_sims), {"base_mc_seed": base_mc_seed, "offset": pool_offset, "n": n_sims}
 
 
-def _scaffolding_overrides(params_dir: str | Path | None, require: bool = False) -> dict[str, Any]:
+def _scaffolding_overrides(params_dir: str | Path | None, toml_path: str | Path) -> dict[str, Any]:
     if params_dir is None:
         return {}
     from aerocapture.training.deploy_overrides import load_scaffolding_overrides
 
-    d = Path(params_dir)
-    overrides = dict(load_scaffolding_overrides(d))
-    if require and not overrides:
-        raise ValueError(
-            f"params_dir {d} yielded no scaffolding overrides (missing/empty best_params.json) -- scoring without co-trained scaffolding mis-ranks the model"
-        )
-    return overrides
+    return dict(load_scaffolding_overrides(Path(params_dir), Path(toml_path)))
 
 
 def _pick_verdict(variants: list[dict[str, Any]], bits: int) -> dict[str, Any]:
@@ -343,7 +337,7 @@ def run_quant_sweep(
 
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)
-    scaff = _scaffolding_overrides(params_dir)
+    scaff = _scaffolding_overrides(params_dir, toml_path)
     cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
     model_json = json.loads(Path(model_path).read_text())
 
@@ -434,7 +428,7 @@ def run_finalists(
                     json.dumps(quantize_model_weights(json.loads(model_path.read_text()), int(q["bits"]), str(q["granularity"]), str(q["tensor_policy"])))
                 )
                 model_path = tmp
-            scaff = _scaffolding_overrides(e.get("params_dir"), require=True)
+            scaff = _scaffolding_overrides(e.get("params_dir"), toml_path)
             m = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
             rows.append(
                 {

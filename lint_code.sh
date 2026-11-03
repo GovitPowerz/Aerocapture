@@ -1,6 +1,7 @@
 #!/bin/bash
 # Python lint (ruff imports, format, lint; mypy) plus a syntax pass over every tracked shell
-# script. Exits non-zero on the first failing tool (CI runs the same commands as separate jobs).
+# script. Exits non-zero on the first failing tool. Fixes imports and formatting in place; CI runs
+# the check-only equivalents (ruff format --check, no --fix) as separate jobs.
 set -euo pipefail
 
 echo "ruff: Sorting imports..."

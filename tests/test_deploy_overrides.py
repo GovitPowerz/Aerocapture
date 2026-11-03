@@ -62,6 +62,33 @@ def test_load_scaffolding_overrides_reads_best_params(tmp_path: Path) -> None:
     }
 
 
+def test_load_scaffolding_overrides_refuses_an_nn_flight_routing_nothing(tmp_path: Path) -> None:
+    live = tmp_path / "live.toml"
+    live.write_text('[guidance.neural_network]\nscaffolding = "live"\n')
+    off = tmp_path / "off.toml"
+    off.write_text('[guidance.neural_network]\nscaffolding = "off"\n')
+    cell = tmp_path / "cell"
+    cell.mkdir()
+    assert load_scaffolding_overrides(cell, off) == {}
+    with pytest.raises(FileNotFoundError, match="scaffolding = 'live'"):
+        load_scaffolding_overrides(cell, live)
+    (cell / "best_params.json").write_text(json.dumps({"w0": 1.0}))  # present but no prefixed key routes
+    with pytest.raises(FileNotFoundError, match="routes no scaffolding"):
+        load_scaffolding_overrides(cell, live)
+    (cell / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
+    assert load_scaffolding_overrides(cell, live) == {"navigation.density_filter_gain": 0.9}
+
+
+def test_resolve_eval_toml_refuses_only_an_nn_flight(tmp_path: Path) -> None:
+    base = tmp_path / "base.toml"
+    base.write_text('[guidance.neural_network]\nscaffolding = "live"\n')
+    cell = tmp_path / "mamba"
+    cell.mkdir()
+    assert resolve_eval_toml(base, cell) == (base, {})
+    with pytest.raises(FileNotFoundError, match="routes no scaffolding"):
+        resolve_eval_toml(base, cell, nn_flight=True)
+
+
 def test_resolve_eval_toml_prefers_optimized_toml(tmp_path: Path) -> None:
     cell = tmp_path / "ftc"
     cell.mkdir()

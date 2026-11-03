@@ -327,6 +327,10 @@ use `--sim-timeout` against NaN hangs).
 - `deploy_overrides.py` — `overrides_from_params` (the full deploy rule: routing + `shaping.* =>
   guidance.command_shaping.enabled = true` + `ParamSpec.is_integer` coercion + `ref_bank` skip),
   `load_scaffolding_overrides` / `resolve_eval_toml` (consumed by `cell_eval`), `LEGACY_NOISE_REGIME`.
+  Given the flown TOML (`toml_path`, or `resolve_eval_toml(..., nn_flight=True)`),
+  `load_scaffolding_overrides` refuses a cell that routes no scaffolding under a TOML whose
+  `[guidance.neural_network] scaffolding` is not `"off"`; every deploy-side NN path passes it
+  (`cell_eval`, the ablation and NN-input CLIs, `quantize`, the probe and throughput drivers).
 - `sizing_tail.py` - the ONE sizing-tail scorer (design `docs/design/2026-10-30-sizing-tail-scorer-design.md`,
   #220): `score_cell(result, cost_kwargs, *, pool, n_boot)` turns a `CellResult` into the tail record
   every report, paper script and experiment writes (`n`, `n_captured`, `capture_pct`; `dv_mean`,
@@ -356,9 +360,10 @@ use `--sim-timeout` against NaN hangs).
   the bare TOML. A cell holding `best_params.json` but neither `optimized_<scheme>.toml` nor
   `best_model.json` (an undeployed classical cell) is refused unless `model=` is given: only its
   prefixed scaffolding keys would route and the gains would fly at TOML defaults. The mirror case is
-  refused too: a cell holding `best_model.json` but no `best_params.json` under a TOML whose
-  `[guidance.neural_network] scaffolding` is not `"off"` would fly the co-trained filter gain and
-  shaper limit at TOML defaults (#232 flew every committee cell that way until review). `fly_mc` is the same
+  refused too: an NN flight (the cell's `best_model.json` or `model=`) whose cell routes no scaffolding
+  (`best_params.json` missing or empty) under a TOML whose `[guidance.neural_network] scaffolding` is
+  not `"off"` would fly the co-trained filter gain and shaper limit at TOML defaults (#232 flew every
+  committee cell that way until review). `fly_mc` is the same
   resolution through `run_mc` (the config's own Monte Carlo: `compare_guidance`, `ablation`,
   `animate`), `fly_nominal` the undispersed nominal (every `_MC_DISPERSION_DOMAINS` level off).
   `CellResult` carries `final_records (N,52)`, `dispersions (N,26)`, `trajectories` (only when

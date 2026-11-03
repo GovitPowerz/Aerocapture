@@ -168,12 +168,26 @@ def test_scaffolded_nn_cell_without_best_params_is_refused(fake_rs: FakeRs, tmp_
     (cell / "best_model.json").write_text("{}")
     with pytest.raises(FileNotFoundError, match="scaffolding = 'live'"):
         evaluate_cell(cell, base, [1])
-    with pytest.raises(FileNotFoundError, match="no best_params.json"):
+    with pytest.raises(FileNotFoundError, match="routes no scaffolding"):
         evaluate_cell(cell, base, [1], model=cell / "best_model.json")
+    (cell / "best_params.json").write_text("{}")  # present but routes nothing
+    with pytest.raises(FileNotFoundError, match="routes no scaffolding"):
+        evaluate_cell(cell, base, [1])
     assert fake_rs.calls == []
     (cell / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
     evaluate_cell(cell, base, [1])
     assert fake_rs.calls[0]["overrides_list"][0]["navigation.density_filter_gain"] == 0.9
+
+
+def test_explicit_model_with_a_params_less_cell_is_refused_under_inherited_scaffolding(fake_rs: FakeRs, tmp_path: Path) -> None:
+    (tmp_path / "nn.toml").write_text('[guidance.neural_network]\nscaffolding = "live"\n')
+    base = tmp_path / "base.toml"
+    base.write_text('base = "nn.toml"\n')
+    model = tmp_path / "bundle.json"
+    model.write_text("{}")
+    with pytest.raises(FileNotFoundError, match="scaffolding = 'live'"):
+        evaluate_cell(tmp_path / "missing_cell", base, [1], model=model)
+    assert fake_rs.calls == []
 
 
 def test_unscaffolded_nn_cell_flies_without_best_params(fake_rs: FakeRs, tmp_path: Path) -> None:
