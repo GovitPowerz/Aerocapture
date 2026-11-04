@@ -467,17 +467,21 @@ def test_run_quant_sweep_rejects_loo_bits_outside_grid() -> None:
         run_quant_sweep("unused.toml", "unused.json", bits=(8, 6), loo_bits=4)
 
 
-def test_scaffolding_overrides_require_raises_on_empty(tmp_path: Path) -> None:
+def test_scaffolding_overrides_refuses_empty_under_scaffolded_toml(tmp_path: Path) -> None:
     from aerocapture.training.quantize import _scaffolding_overrides
 
-    with pytest.raises(ValueError, match="scaffolding"):
-        _scaffolding_overrides(tmp_path, require=True)  # empty dir: no best_params.json
+    toml = tmp_path / "live.toml"
+    toml.write_text('[guidance.neural_network]\nscaffolding = "live"\n')
+    cell = tmp_path / "cell"
+    cell.mkdir()  # empty dir: no best_params.json
+    with pytest.raises(FileNotFoundError, match="routes no scaffolding"):
+        _scaffolding_overrides(cell, toml)
 
 
 def test_scaffolding_overrides_none_params_dir_is_empty() -> None:
     from aerocapture.training.quantize import _scaffolding_overrides
 
-    assert _scaffolding_overrides(None, require=True) == {}
+    assert _scaffolding_overrides(None, "unused.toml") == {}
 
 
 def test_regime_overrides_pin_the_requested_noise_seeding() -> None:

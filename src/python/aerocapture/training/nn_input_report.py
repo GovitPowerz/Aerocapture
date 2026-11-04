@@ -194,7 +194,7 @@ def main() -> None:
     model = args.model
     if model is None and (training_dir / "best_model.json").exists():
         model = str(training_dir / "best_model.json")
-    overrides: dict[str, object] = dict(load_scaffolding_overrides(training_dir))
+    overrides: dict[str, object] = dict(load_scaffolding_overrides(training_dir, Path(args.toml)))
     if model:
         overrides["data.neural_network"] = model
         print(f"Model: {model}")

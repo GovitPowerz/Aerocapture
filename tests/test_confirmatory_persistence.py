@@ -115,7 +115,7 @@ def test_assembly_matches_the_pre_change_record(tmp_path: Path, sim: ToySim, ce:
 def test_store_refuses_a_replicate_flown_under_another_config(tmp_path: Path, sim: ToySim, ce: ModuleType) -> None:
     kw = {"cell_dir": tmp_path, "sim_timeout": 5.0, "store": tmp_path / "store"}
     (tmp_path / "best_model.json").write_text('{"v": 1}')
-    (tmp_path / "best_params.json").write_text("{}")  # the toy TOML sets scaffolding = "live"
+    (tmp_path / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))  # the toy TOML sets scaffolding = "live"
     ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="per_draw", **kw)
     with pytest.raises(SystemExit, match="r00 was flown under another"):
         ce._eval_cell("toy", TOY_TOML, TOY_POOLS, None, {}, noise_seeding="legacy", **kw)
@@ -252,7 +252,7 @@ def test_a_finished_run_is_scored_without_its_final_eval(tmp_path: Path, sim: To
         (tmp_path / name / "checkpoint_g00010.json").write_text("{}")
     (tmp_path / "done/final_selection.json").write_text("{}")
     (tmp_path / "running/best_model.json").write_text("{}")
-    (tmp_path / "running/best_params.json").write_text("{}")
+    (tmp_path / "running/best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
     (tmp_path / "extended/final_selection.json").write_text("{}")
     os.utime(tmp_path / "done/checkpoint_g00010.json", ns=(1, 1))
     os.utime(tmp_path / "extended/final_selection.json", ns=(1, 1))
@@ -335,7 +335,7 @@ def test_non_capture_reflight_refuses_a_changed_model(tmp_path: Path, cm: Module
     sim, argv = outcomes
     model = tmp_path / "toy/best_model.json"
     model.write_text('{"v": 1}')
-    (tmp_path / "toy/best_params.json").write_text("{}")
+    (tmp_path / "toy/best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
     cm.main(argv)
     d = json.loads(cm.OUT.read_text())
     (rec,) = d["cells"]

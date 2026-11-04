@@ -258,7 +258,7 @@ def eval_arms(
                 continue
             # scaffolding = "live" arms deploy best_params.json (nav/shaping);
             # scoring without those overrides mis-ranks (param_sweep lesson).
-            extra = load_scaffolding_overrides(out_dir)
+            extra = load_scaffolding_overrides(out_dir, config)
             per_rep.append(score_model(config, model, seeds, read_cost_kwargs(config), sim_timeout, extra_overrides=extra))
         out[arm] = aggregate(per_rep)
     return out
@@ -283,7 +283,7 @@ def score_references(
             missing = model if not model.exists() else toml_path
             print(f"  reference {name}: skipped (missing {missing})")
             continue
-        extra = load_scaffolding_overrides(scheme_dir)
+        extra = load_scaffolding_overrides(scheme_dir, toml_path)
         out[name] = score_model(toml_path, model, seeds, read_cost_kwargs(toml_path), sim_timeout, extra_overrides=extra)
     return out
 
