@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.logger import TrainingLogger
 
 
@@ -159,7 +160,7 @@ class TestTrainingLogger:
         from aerocapture.training.trainer import _build_validation_payload
 
         costs = np.array([10.0, 20.0, 30.0, 40.0])
-        metrics, summary = _build_validation_payload(costs, None, 4, {"cost_transform": "linear"}, feasible=True, violation_rates={"heat_load": 0.0})
+        metrics, summary = _build_validation_payload(costs, None, 4, CostSettings(), feasible=True, violation_rates={"heat_load": 0.0})
         assert summary is None  # no final records
         expected_keys = ["rms_cost", "mean_cost", "median_cost", "std_cost", "p95_cost", "worst_cost", "capture_rate", "n_sims", "feasible", "violation_rates"]
         assert list(metrics) == expected_keys
@@ -183,7 +184,7 @@ class TestTrainingLogger:
             | {"val_rms": metrics["rms_cost"], "val_costs": costs, "val_records": None, "stagnation": 1}
         ]
         t.val_seeds = [1, 2, 3, 4]
-        t.problem = types.SimpleNamespace(cost_kwargs={"cost_transform": "linear"})  # type: ignore[assignment]
+        t.problem = types.SimpleNamespace(cost_settings=CostSettings(cost_transform="linear"))  # type: ignore[assignment]
         t.decode_fn = _decode_fn
         t._events = []
         t.config = types.SimpleNamespace(optimizer=types.SimpleNamespace(n_gen=10))  # type: ignore[assignment]

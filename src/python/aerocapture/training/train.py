@@ -13,14 +13,13 @@ from __future__ import annotations
 import hashlib
 import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from aerocapture.training.artifacts import deploy_winner, owned_deploy_path, piecewise_artifact_dir
 from aerocapture.training.config import TrainingConfig
 from aerocapture.training.corridor import CorridorAccumulator
-from aerocapture.training.cost import build_cost_kwargs
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.display import create_display
 from aerocapture.training.encoding import decode_normalized
 from aerocapture.training.logger import TrainingLogger
@@ -89,13 +88,12 @@ def train(
 
     # Load TOML config once (used for cost function params, curator config)
     _toml: dict = {}
-    cost_kwargs: dict[str, Any] = {}
     toml_abs_path = ""
     if config.sim.toml_config:
         toml_path = Path(cwd or config.sim.exec_dir) / config.sim.toml_config
         _toml = load_toml_with_bases(toml_path)
-        cost_kwargs = build_cost_kwargs(_toml)
         toml_abs_path = str(toml_path.resolve())
+    cost_settings = CostSettings.from_toml(_toml)
 
     param_specs = _setup_param_specs(config, _toml, verbose)
 
@@ -106,7 +104,7 @@ def train(
         param_specs=param_specs,
         toml_path=toml_abs_path,
         seeds=[base_mc_seed_from_toml(_toml)],
-        cost_kwargs=cost_kwargs,
+        cost_settings=cost_settings,
         scheme=config.guidance_type,
         sim_timeout=config.sim.sim_timeout_secs,
         nn_config=config.network if config.guidance_type == "neural_network" else None,
@@ -146,7 +144,7 @@ def train(
         run=0,
         output_dir=save_dir,
         config_hash=config_hash,
-        cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear")),
+        cost_transform=problem.cost_settings.cost_transform,
     )
 
     return run_loop(trainer, config=config, logger=logger, display=display)

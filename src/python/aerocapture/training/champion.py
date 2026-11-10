@@ -21,12 +21,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.evaluate import GateResult, GateStatus, _SupportsPerSeedEval, constraint_violation_rates, format_violation_rates, is_feasible
+
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
 
 
 @dataclass
@@ -76,8 +79,8 @@ class Champion:
         self.violation_rates = gate.violation_rates
         return True
 
-    def reanchor(self, val_rms: float, violation_rates: dict[str, float] | None, ceiling: float) -> bool:
-        """Re-anchor under the current cost kwargs and ceiling: feasible anchors a finite
+    def reanchor(self, val_rms: float, violation_rates: dict[str, float], ceiling: float) -> bool:
+        """Re-anchor under the current cost settings and ceiling: feasible anchors a finite
         `val_rms`, infeasible (or a non-finite RMS, which no `<` could ever beat) sets it to
         inf; the individual becomes last-validated either way. Returns the feasibility verdict."""
         assert self.individual is not None
@@ -163,7 +166,7 @@ def revalidate(
     champion: Champion,
     problem: _SupportsPerSeedEval,
     val_seeds: list[int],
-    cost_kwargs: dict[str, Any] | None,
+    cost_settings: CostSettings,
     ceiling: float,
     verbose: bool,
     label: str = "",
@@ -176,7 +179,7 @@ def revalidate(
     assert champion.individual is not None
     val_costs, val_records = problem.evaluate_individual_records_per_seed(champion.individual, val_seeds)
     rms = float(np.sqrt(np.mean(val_costs**2)))
-    rates = constraint_violation_rates(val_records, cost_kwargs)
+    rates = constraint_violation_rates(val_records, cost_settings)
     feasible = champion.reanchor(rms, rates, ceiling)
     if verbose and not champion.trusted:
         why = f"INFEASIBLE on the validation pool ({format_violation_rates(rates)} > ceiling {ceiling:.3%})" if not feasible else "non-finite validation RMS"

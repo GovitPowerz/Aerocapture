@@ -17,7 +17,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -26,6 +26,9 @@ from aerocapture.training import charts
 from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 from aerocapture.training.report_render import render_pdf, staged_assets
+
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
 
 # Percentiles for summary table
 _PERCENTILES = [5, 25, 50, 75, 95]
@@ -145,7 +148,7 @@ def run_final_evaluation(
 def compute_eval_summary(
     final_records: npt.NDArray[np.float64],
     n_sims: int,
-    cost_kwargs: dict[str, Any] | None = None,
+    cost_settings: CostSettings,
 ) -> dict[str, Any]:
     """Compute the same statistics `print_eval_summary` prints, as a dict.
 
@@ -163,13 +166,13 @@ def compute_eval_summary(
       } (None when n_captured == 0),
       constraints: {heat_flux, g_load, heat_load} -> {p50, p95, max, limit, viol_pct}
     """
-    from aerocapture.training.cost import compute_cost
+    from aerocapture.training.cost import per_sim_cost
 
     captured_mask = charts.is_captured(final_records)
     n_captured = int(np.sum(captured_mask))
     cap = final_records[captured_mask]
 
-    per_sim_costs = np.array([compute_cost(final_records[i : i + 1], **(cost_kwargs or {})) for i in range(len(final_records))])
+    per_sim_costs = per_sim_cost(final_records, cost_settings)
     rms_cost = float(np.sqrt(np.mean(per_sim_costs**2)))
 
     captured_stats: dict[str, dict[str, float]] | None = None
@@ -207,22 +210,14 @@ def compute_eval_summary(
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m2 -> kJ/m2
 
-    def _limit(key: str) -> float | None:
-        v = (cost_kwargs or {}).get(key)
-        return float(v) if isinstance(v, (int, float)) else None
-
-    q_limit = _limit("heat_flux_limit")
-    g_limit = _limit("g_load_limit")
-    hl_limit = _limit("heat_load_limit")
-
-    def _con_block(arr: npt.NDArray[np.float64], lim: float | None) -> dict[str, float | None]:
+    def _con_block(arr: npt.NDArray[np.float64], lim: float) -> dict[str, float]:
         return {
             "p50": float(np.median(arr)),
             "p95": float(np.percentile(arr, 95)),
             "s3sigma": float(np.percentile(arr, 99.87)),
             "max": float(np.max(arr)),
-            "limit": lim,
-            "viol_pct": (float(np.mean(arr > lim) * 100.0) if lim is not None else None),
+            "limit": float(lim),
+            "viol_pct": float(np.mean(arr > lim) * 100.0),
         }
 
     return {
@@ -238,7 +233,11 @@ def compute_eval_summary(
             "max": float(np.max(per_sim_costs)),
         },
         "captured": captured_stats,
-        "constraints": {"heat_flux": _con_block(all_q, q_limit), "g_load": _con_block(all_g, g_limit), "heat_load": _con_block(all_hl, hl_limit)},
+        "constraints": {
+            "heat_flux": _con_block(all_q, cost_settings.heat_flux_limit),
+            "g_load": _con_block(all_g, cost_settings.g_load_limit),
+            "heat_load": _con_block(all_hl, cost_settings.heat_load_limit),
+        },
     }
 
 
@@ -289,9 +288,9 @@ def format_eval_summary(summary: dict[str, Any], indent: str = "    ") -> list[s
     return lines
 
 
-def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_kwargs: dict[str, Any] | None = None) -> None:
+def print_eval_summary(final_records: npt.NDArray[np.float64], n_sims: int, cost_settings: CostSettings) -> None:
     """Print a human-readable summary of the final MC evaluation to stdout."""
-    summary = compute_eval_summary(final_records, n_sims, cost_kwargs)
+    summary = compute_eval_summary(final_records, n_sims, cost_settings)
     print()  # blank line preserves the prior visual spacing
     for line in format_eval_summary(summary, indent="    "):
         print(f"  {line}" if not line.startswith(" ") else line)
@@ -313,19 +312,19 @@ def _read_mission_name(toml_path: Path) -> str:
 
 
 def _read_constraint_limits(toml_path: Path) -> tuple[float, float, float]:
-    """(heat flux kW/m^2, g-load g, heat load kJ/m^2) of a config: `cost.build_cost_kwargs`' limits,
+    """(heat flux kW/m^2, g-load g, heat load kJ/m^2) of a config: `CostSettings.from_toml`'s limits,
     so trajectory classification, the stats block, the cost and the gate score every config at
     the same limits (a missing `[flight.constraints]` key is the cost function's default)."""
-    kw = read_cost_kwargs(toml_path)
-    return kw["heat_flux_limit"], kw["g_load_limit"], kw["heat_load_limit"]
+    cs = read_cost_settings(toml_path)
+    return cs.heat_flux_limit, cs.g_load_limit, cs.heat_load_limit
 
 
-def read_cost_kwargs(toml_path: Path) -> dict[str, Any]:
-    """Cost-function kwargs for a config path: `load_toml_with_bases` + the one `cost.build_cost_kwargs` reader."""
-    from aerocapture.training.cost import build_cost_kwargs
+def read_cost_settings(toml_path: Path) -> CostSettings:
+    """Cost settings of a config path: `load_toml_with_bases` + the one `CostSettings.from_toml` reader."""
+    from aerocapture.training.cost import CostSettings
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    return build_cost_kwargs(load_toml_with_bases(toml_path))
+    return CostSettings.from_toml(load_toml_with_bases(toml_path))
 
 
 # ---------------------------------------------------------------------------
@@ -378,10 +377,10 @@ def _build_metadata(
 # ---------------------------------------------------------------------------
 def _build_summary_table(
     final_records: npt.NDArray[np.float64],
+    cost_settings: CostSettings,
     heat_flux_limit: float | None = None,
     g_load_limit: float | None = None,
     heat_load_limit: float | None = None,
-    cost_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """Build the performance summary table dict for Typst.
 
@@ -428,9 +427,9 @@ def _build_summary_table(
     ]
 
     # Objective cost (over ALL sims)
-    from aerocapture.training.cost import compute_cost
+    from aerocapture.training.cost import per_sim_cost
 
-    per_sim_costs = np.array([compute_cost(final_records[i : i + 1], **(cost_kwargs or {})) for i in range(n_total)])
+    per_sim_costs = per_sim_cost(final_records, cost_settings)
     rms_cost = float(np.sqrt(np.mean(per_sim_costs**2)))
 
     # Constraint statistics (over ALL sims, not just captured)
@@ -647,11 +646,11 @@ def _generate_trajectory_charts(
     trajectories: list[npt.NDArray[np.float64]],
     dispersions: npt.NDArray[np.float64],
     out_dir: Path,
+    cost_settings: CostSettings,
     scheme_dir: Path | None = None,
     toml_path: Path | None = None,
     corridor_data: dict[str, Any] | None = None,
     undispersed: npt.NDArray[np.float64] | None = None,
-    cost_kwargs: dict[str, Any] | None = None,
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     # Load constraint limits and classify trajectories
@@ -680,7 +679,7 @@ def _generate_trajectory_charts(
     charts.chart_nav_density_ratio(trajectories, traj_class, out_dir / "nav_density_ratio.svg", **nominal_kwargs)
 
     # Distribution panels
-    charts.chart_cost_objective(final_records, out_dir / "cost_objective.svg", **(cost_kwargs or {}))
+    charts.chart_cost_objective(final_records, out_dir / "cost_objective.svg", cost_settings)
     charts.chart_dv_distribution(final_records, out_dir / "dv_distribution.svg")
     charts.chart_dv_individual_burns(final_records, out_dir / "dv_individual_burns.svg")
 
@@ -700,7 +699,7 @@ class ReportPayload:
     records: list[dict]
     resume_gens: list[int]
     n_sims: int
-    cost_kwargs: dict[str, Any] | None
+    cost_settings: CostSettings | None
     has_trajectories: bool
     final_records: npt.NDArray[np.float64] | None
     trajectories: list[npt.NDArray[np.float64]] | None
@@ -729,21 +728,20 @@ def _compute_report_payload(
 
     n_sims = n_sims_override if n_sims_override is not None else 1000
 
-    # Read cost function config from TOML (needed for cost stats)
-    cost_kwargs = read_cost_kwargs(toml_path) if toml_path is not None else None
-
     # Final evaluation (optional)
     has_trajectories = False
     final_records: npt.NDArray[np.float64] | None = None
     trajectories: list[npt.NDArray[np.float64]] | None = None
     dispersions: npt.NDArray[np.float64] | None = None
+    cost_settings: CostSettings | None = None  # read with the final evaluation it scores
     if not skip_final_eval and toml_path is not None:
+        cost_settings = read_cost_settings(toml_path)
         print(f"\nRunning {n_sims}-sim final evaluation...")
         eval_result = run_final_evaluation(toml_path, scheme_dir, n_sims=n_sims, sim_timeout_secs=sim_timeout_secs)
         if eval_result is not None:
             final_records_arr, trajectories, dispersions = eval_result
             has_trajectories = True
-            print_eval_summary(final_records_arr, n_sims, cost_kwargs=cost_kwargs)
+            print_eval_summary(final_records_arr, n_sims, cost_settings=cost_settings)
             final_records = final_records_arr
 
             # Write Parquet output for analysis
@@ -775,7 +773,7 @@ def _compute_report_payload(
         records=records,
         resume_gens=resume_gens,
         n_sims=n_sims,
-        cost_kwargs=cost_kwargs,
+        cost_settings=cost_settings,
         has_trajectories=has_trajectories,
         final_records=final_records,
         trajectories=trajectories,
@@ -802,7 +800,13 @@ def _render_report_assets(
     # Part 2: mission performance charts (only when eval produced trajectories).
     # has_trajectories is True iff the triple was set together (see compute phase),
     # so the explicit non-None checks below just narrow the types for mypy.
-    if payload.has_trajectories and payload.final_records is not None and payload.trajectories is not None and payload.dispersions is not None:
+    if (
+        payload.has_trajectories
+        and payload.final_records is not None
+        and payload.cost_settings is not None
+        and payload.trajectories is not None
+        and payload.dispersions is not None
+    ):
         _generate_trajectory_charts(
             payload.final_records,
             payload.trajectories,
@@ -812,7 +816,7 @@ def _render_report_assets(
             toml_path=toml_path,
             corridor_data=payload.corridor_data,
             undispersed=payload.undispersed,
-            cost_kwargs=payload.cost_kwargs,
+            cost_settings=payload.cost_settings,
         )
 
     # Part 3: Sensitivity Analysis
@@ -841,12 +845,12 @@ def _render_report_assets(
     summary = (
         _build_summary_table(
             payload.final_records,
+            payload.cost_settings,
             heat_flux_limit=heat_flux_limit,
             g_load_limit=g_load_limit,
             heat_load_limit=heat_load_limit,
-            cost_kwargs=payload.cost_kwargs,
         )
-        if payload.final_records is not None
+        if payload.final_records is not None and payload.cost_settings is not None
         else {"rows": [], "violation_rows": []}
     )
     (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
@@ -888,9 +892,9 @@ def render_mission_performance_charts(
     trajectories: list[npt.NDArray[np.float64]],
     dispersions: npt.NDArray[np.float64],
     tmp_dir: Path,
+    cost_settings: CostSettings,
     toml_path: Path | None = None,
     scheme_dir: Path | None = None,
-    cost_kwargs: dict[str, Any] | None = None,
     sim_timeout_secs: float | None = None,
 ) -> tuple[bool, dict]:
     """Generate Part 2 SVG charts and summary_table.json into *tmp_dir*.
@@ -911,14 +915,14 @@ def render_mission_performance_charts(
         toml_path=toml_path,
         corridor_data=corridor_data,
         undispersed=undispersed,
-        cost_kwargs=cost_kwargs,
+        cost_settings=cost_settings,
     )
     summary = _build_summary_table(
         final_records,
+        cost_settings,
         heat_flux_limit=heat_flux_limit,
         g_load_limit=g_load_limit,
         heat_load_limit=heat_load_limit,
-        cost_kwargs=cost_kwargs,
     )
     (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
     return True, summary

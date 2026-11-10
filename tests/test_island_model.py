@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 from aerocapture.training.champion import Champion
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.island_model import Island, IslandModel, MigrationEvent, inject_into_pso, migrate
 from aerocapture.training.optimizer import DESettings, GASettings, IslandSettings, OptimizerConfig, PSOSettings
 from pymoo.algorithms.soo.nonconvex.pso import PSO
@@ -189,7 +190,7 @@ class _UnitCubeProblem(Problem):
 
     def __init__(self) -> None:
         super().__init__(n_var=4, n_obj=1, xl=0.0, xu=1.0)
-        self.cost_kwargs: dict[str, Any] = {}
+        self.cost_settings = CostSettings()
         self.seeds: list[int] = [0]
 
     def evaluate_population_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
@@ -300,7 +301,7 @@ class _MockProblem:
 
     def __init__(self, n_var: int = 4) -> None:
         self.n_var = n_var
-        self.cost_kwargs: dict[str, Any] = {}
+        self.cost_settings = CostSettings()
 
     def evaluate_individual_per_seed(self, X: np.ndarray, seeds: list[int]) -> np.ndarray:
         # F = sum(X) + 0.01 * seed_idx (so different islands get different rms).

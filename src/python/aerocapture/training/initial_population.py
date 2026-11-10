@@ -228,7 +228,7 @@ def _make_warm_start_eval_callback(
             sim_timeout_secs=problem.sim_timeout,
         )
         final_records = np.asarray(result.final_records, dtype=np.float64)
-        return compute_eval_summary(final_records, len(seeds), problem.cost_kwargs)
+        return compute_eval_summary(final_records, len(seeds), problem.cost_settings)
 
     def _callback(epoch: int, policy: Any) -> None:
         if config.network.architecture is None:

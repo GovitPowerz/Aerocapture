@@ -69,7 +69,7 @@ class _ScriptedEnv:
 
 
 class _RecordingShaper:
-    cost_kwargs = None
+    cost_settings = None
 
     def __init__(self) -> None:
         self.calls: list[tuple[npt.NDArray[Any], ...]] = []
@@ -80,7 +80,7 @@ class _RecordingShaper:
 
 
 def test_collect_rollout_pairs_each_step_with_its_own_episode(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rl_train, "compute_terminal_cost", lambda fr, cost_kwargs: 0.0)
+    monkeypatch.setattr(rl_train, "compute_terminal_cost", lambda fr, cost_settings: 0.0)
     cfg = RLConfig(n_envs=2, ppo=PPOConfig(rollout_steps=3))
     policy = V2Policy(architecture=[DenseSpec(type="dense", input_size=OBS_DIM, output_size=2, activation="linear")], input_mask=list(range(OBS_DIM)))
     value = ValueNetwork(OBS_DIM, [4], ["tanh", "linear"])

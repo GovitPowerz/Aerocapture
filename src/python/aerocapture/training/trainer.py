@@ -64,6 +64,7 @@ from aerocapture.training.weight_stats import compute_weight_stats
 if TYPE_CHECKING:
     from aerocapture.training.config import TrainingConfig
     from aerocapture.training.corridor import CorridorAccumulator
+    from aerocapture.training.cost import CostSettings
     from aerocapture.training.display import DisplayProtocol
     from aerocapture.training.logger import TrainingLogger
     from aerocapture.training.param_spaces import ParamSpec
@@ -73,7 +74,7 @@ def _build_validation_payload(
     costs: npt.NDArray[np.float64],
     final_records: npt.NDArray[np.float64] | None,
     n_sims: int,
-    cost_kwargs: dict[str, Any] | None,
+    cost_settings: CostSettings,
     *,
     feasible: bool,
     violation_rates: dict[str, float] | None,
@@ -92,7 +93,7 @@ def _build_validation_payload(
         "std_cost": float(np.std(costs)),
         "p95_cost": float(np.percentile(costs, 95)),
         "worst_cost": float(np.max(costs)),
-        "capture_rate": capture_rate(costs, cost_transform=(cost_kwargs or {}).get("cost_transform", "linear")),
+        "capture_rate": capture_rate(costs, cost_transform=cost_settings.cost_transform),
         "n_sims": n_sims,
         "feasible": feasible,
         "violation_rates": violation_rates,
@@ -101,7 +102,7 @@ def _build_validation_payload(
     if final_records is not None:
         from aerocapture.training.report import compute_eval_summary  # noqa: PLC0415
 
-        summary = compute_eval_summary(final_records, n_sims, cost_kwargs)
+        summary = compute_eval_summary(final_records, n_sims, cost_settings)
     return metrics, summary
 
 
@@ -449,7 +450,7 @@ class SingleAlgoTrainer:
             # (gated on val_seeds), so its val_rms is already recomputed under
             # the current transform; this is just an informative notice.
             saved_transform = resumed.get("cost_transform")
-            current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+            current_transform = problem.cost_settings.cost_transform
             if saved_transform is None or saved_transform != current_transform:
                 will_revalidate = config.optimizer.validation_n_sims > 0 and bool(problem.toml_path)
                 suffix = "; re-validating best under new metric" if will_revalidate else ""
@@ -602,13 +603,13 @@ class SingleAlgoTrainer:
             return
         ceiling = self.config.optimizer.max_violation_rate
         init_val_costs, init_val_records, init_feasible = revalidate(
-            self.champion, self.problem, self.val_seeds, self.problem.cost_kwargs, ceiling, self.verbose
+            self.champion, self.problem, self.val_seeds, self.problem.cost_settings, ceiling, self.verbose
         )
         init_val_metrics, init_val_summary = _build_validation_payload(
             init_val_costs,
             init_val_records,
             len(self.val_seeds),
-            self.problem.cost_kwargs,
+            self.problem.cost_settings,
             feasible=init_feasible,
             violation_rates=self.champion.violation_rates,
         )
@@ -682,7 +683,7 @@ class SingleAlgoTrainer:
                 self.problem,
                 self.val_seeds,
                 max_violation_rate=ceiling,
-                cost_kwargs=self.problem.cost_kwargs,
+                cost_settings=self.problem.cost_settings,
             )
             if gate.status is GateStatus.VALIDATED:
                 assert gate.val_costs is not None and gate.val_rms is not None
@@ -690,7 +691,7 @@ class SingleAlgoTrainer:
                     gate.val_costs,
                     gate.val_records,
                     len(self.val_seeds),
-                    self.problem.cost_kwargs,
+                    self.problem.cost_settings,
                     feasible=gate.feasible,
                     violation_rates=gate.violation_rates,
                 )
@@ -765,7 +766,7 @@ class SingleAlgoTrainer:
                 self.param_specs,
                 seed_curator=self.seed_curator,
                 corridor_acc=self.corridor_acc,
-                cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
+                cost_transform=self.problem.cost_settings.cost_transform,
             )
             if self.verbose:
                 print(f"  Checkpoint saved: g{gen + 1:05d}")
@@ -796,7 +797,7 @@ class SingleAlgoTrainer:
                     known,
                     self.val_seeds,
                     max_violation_rate=self.config.optimizer.max_violation_rate,
-                    cost_kwargs=self.problem.cost_kwargs,
+                    cost_settings=self.problem.cost_settings,
                 )
             except ValueError:
                 # Pathological all-inf run with no champion: nothing to select.
@@ -827,7 +828,7 @@ class SingleAlgoTrainer:
                 self.param_specs,
                 seed_curator=self.seed_curator,
                 corridor_acc=self.corridor_acc,
-                cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
+                cost_transform=self.problem.cost_settings.cost_transform,
             )
             if self.verbose:
                 print(f"  Final checkpoint saved: g{last_gen:05d}")
@@ -861,7 +862,7 @@ class SingleAlgoTrainer:
             self.param_specs,
             seed_curator=self.seed_curator,
             corridor_acc=self.corridor_acc,
-            cost_transform=self.problem.cost_kwargs.get("cost_transform", "linear"),
+            cost_transform=self.problem.cost_settings.cost_transform,
         )
         logger.close()
 
@@ -1041,7 +1042,7 @@ class IslandsTrainer:
             # Re-validate each island's best under the current config.
             if val_seeds:
                 self.island_model.revalidate_each()
-            current_transform = problem.cost_kwargs.get("cost_transform", "linear")
+            current_transform = problem.cost_settings.cost_transform
             if resumed_cost_transform is None or resumed_cost_transform != current_transform:
                 if verbose:
                     print(f"  cost_transform changed {resumed_cost_transform!r} -> {current_transform!r}; re-validated best under new metric")
@@ -1111,7 +1112,7 @@ class IslandsTrainer:
                     val_rec["val_costs"],
                     val_rec["val_records"],
                     len(self.val_seeds) if self.val_seeds else 0,
-                    self.problem.cost_kwargs,
+                    self.problem.cost_settings,
                     feasible=val_rec["feasible"],
                     violation_rates=val_rec["violation_rates"],
                 )
@@ -1233,7 +1234,7 @@ class IslandsTrainer:
                         known,
                         island_model.validation_seeds,
                         max_violation_rate=config.optimizer.max_violation_rate,
-                        cost_kwargs=problem.cost_kwargs,
+                        cost_settings=problem.cost_settings,
                     )
                 except ValueError:
                     # Pathological all-inf run with no champions.
@@ -1278,7 +1279,7 @@ class IslandsTrainer:
                 fe_costs = problem.evaluate_individual_per_seed(selection.individual, island_model.final_eval_seeds)
                 final_rms = float(np.sqrt(np.mean(np.asarray(fe_costs, dtype=np.float64) ** 2)))
                 win_island = selection.provenance.split(":", 1)[0]
-                capture = float(capture_rate(np.asarray(fe_costs), cost_transform=str(problem.cost_kwargs.get("cost_transform", "linear"))))
+                capture = float(capture_rate(np.asarray(fe_costs), cost_transform=problem.cost_settings.cost_transform))
             winner: dict[str, Any] = {
                 "island": win_island,
                 "X": selection.individual.copy(),

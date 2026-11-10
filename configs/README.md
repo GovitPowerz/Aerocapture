@@ -235,8 +235,9 @@ contract itself is in [src/rust/src/data/neural/README.md](../src/rust/src/data/
 `"log"` (np.log1p) compresses the tail more than `"sqrt"` and preserves the zero-cost identity;
 `"squared"` / `"cubed"` amplify tail variance so captures separate more under rank-free
 optimizers. PSO argmin is unchanged (monotonic); PPO terminal reward magnitudes are not (the RL
-`compute_terminal_cost` uses defaults and ignores the TOML cost kwargs). Read by
-`cost.build_cost_kwargs`, the one reader.
+`compute_terminal_cost` scores with the TOML's settings, transform included). Read by
+`cost.CostSettings.from_toml`, the one reader; a key the config omits takes the `CostSettings`
+field default (weights 1000.0, `dv_threshold` 1000.0, `"linear"`).
 
 **`[optimizer]`**: `algorithm` (`"ga"`, `"cma_es"`, `"de"`, `"pso"`, `"qpso"`, `"islands"`),
 `n_pop`, `n_gen`, `seed_strategy` (required: `"fixed"` | `"rotating"` | `"adaptive"`, ADR-0001),

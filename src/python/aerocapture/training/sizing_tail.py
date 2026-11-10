@@ -20,6 +20,7 @@ without matplotlib.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -30,10 +31,11 @@ from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_INTEGRATED_FLUX, FR_M
 
 if TYPE_CHECKING:
     from aerocapture.training.cell_eval import CellResult
+    from aerocapture.training.cost import CostSettings
 
 # The estimator every CVaR on a record was computed with; stored next to the number.
 CVAR_ESTIMATOR = "mean of the worst max(1, round((1 - level) * n_captured)) captured-DV samples"
-# ADR-0005 constraints: (name, final-record column, scale to the limit's unit, `cost_kwargs` key).
+# ADR-0005 constraints: (name, final-record column, scale to the limit's unit, `CostSettings` field).
 _CONSTRAINT_SPECS = (
     ("heat_flux", FR_MAX_HEAT_FLUX, 1.0, "heat_flux_limit"),
     ("g_load", FR_MAX_G_LOAD, 1.0, "g_load_limit"),
@@ -91,17 +93,15 @@ def _p(x: npt.NDArray[np.float64], q: float) -> float:
 
 def constraint_exceedances(
     final_records: npt.NDArray[np.float64],
-    cost_kwargs: dict[str, Any] | None,
+    cost_settings: CostSettings,
 ) -> dict[str, npt.NDArray[np.bool_]]:
     """Per-constraint exceedance masks over a final-records matrix: the one violation rule.
 
-    Limits come from `cost_kwargs` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
-    `heat_load_limit` kJ/m^2 - the same keys `compute_cost` consumes, read from
-    `[flight.constraints]` by `cost.build_cost_kwargs`, which defaults a missing one).
-    A constraint without a configured limit is not assessed and is omitted.
+    Limits come from `cost_settings` (`heat_flux_limit` kW/m^2, `g_load_limit` g,
+    `heat_load_limit` kJ/m^2 - the same limits `per_sim_cost` penalizes, read from
+    `[flight.constraints]` by `CostSettings.from_toml`, which defaults a missing one).
     """
-    kw = cost_kwargs or {}
-    return {name: final_records[:, col] * scale > float(kw[key]) for name, col, scale, key in _CONSTRAINT_SPECS if isinstance(kw.get(key), (int, float))}
+    return {name: final_records[:, col] * scale > getattr(cost_settings, field) for name, col, scale, field in _CONSTRAINT_SPECS}
 
 
 def dv_tail(dvc: npt.NDArray[np.float64], *, n_boot: int | None = None, seed: int = 0) -> dict[str, Any]:
@@ -156,14 +156,14 @@ def run_stats(
 
 def tail_record(
     final_records: npt.NDArray[np.float64],
-    cost_kwargs: dict[str, Any],
+    cost_settings: CostSettings,
     *,
     n_boot: int | None = None,
     seed: int = 0,
 ) -> dict[str, Any]:
     """One flight's final records -> the tail record (no regime / pool: see `score_cell`).
 
-    `cost_kwargs` is `cost.build_cost_kwargs` of the TOML flown (`report.read_cost_kwargs`):
+    `cost_settings` is `CostSettings.from_toml` of the TOML flown (`report.read_cost_settings`):
     its limits are the violation limits and its weights the `rms_cost` objective.
     `viol_pct` is the share of draws exceeding at least one limit; the per-constraint
     shares and the exact counts ride along (a 2-decimal rate reads fewer than 50 per
@@ -173,7 +173,7 @@ def tail_record(
 
     cap = is_captured(final_records)
     n = int(len(final_records))
-    over = constraint_exceedances(final_records, cost_kwargs)
+    over = constraint_exceedances(final_records, cost_settings)
     any_over = np.zeros(n, dtype=np.bool_)
     for m in over.values():
         any_over |= m
@@ -184,7 +184,7 @@ def tail_record(
     out.update({"viol_pct": _r2(100.0 * any_over.mean()), "viol_n": int(any_over.sum())})
     for name, m in over.items():
         out.update({f"{name}_viol_pct": _r2(100.0 * m.mean()), f"{name}_viol_n": int(m.sum())})
-    out["rms_cost"] = _r2(compute_cost(final_records, **cost_kwargs))
+    out["rms_cost"] = _r2(compute_cost(final_records, cost_settings))
     out["estimator"] = CVAR_ESTIMATOR
     return out
 
@@ -200,18 +200,22 @@ def flown_noise_seeding(result: CellResult) -> str:
     return str(regime)
 
 
-def flown_cost_kwargs(result: CellResult, cost_kwargs: dict[str, Any]) -> dict[str, Any]:
-    """`cost_kwargs` with every `[flight.constraints]` limit the flight overrode (`heat_load_slope`'s
+def flown_cost_settings(result: CellResult, cost_settings: CostSettings) -> CostSettings:
+    """`cost_settings` with every `[flight.constraints]` limit the flight overrode (`heat_load_slope`'s
     ceiling legs) moved to the value flown: the record scores against the limits the simulator saw."""
-    return {**cost_kwargs, **{limit: float(str(result.overrides[key])) for key, limit in _LIMIT_OVERRIDES.items() if key in result.overrides}}
+    flown: dict[str, Any] = {limit: float(str(result.overrides[key])) for key, limit in _LIMIT_OVERRIDES.items() if key in result.overrides}
+    return replace(cost_settings, **flown)
 
 
-def score_cell(result: CellResult, cost_kwargs: dict[str, Any], *, pool: str | None = None, n_boot: int | None = None, seed: int = 0) -> dict[str, Any]:
+def score_cell(result: CellResult, cost_settings: CostSettings, *, pool: str | None = None, n_boot: int | None = None, seed: int = 0) -> dict[str, Any]:
     """The record of one `evaluate_cell` / `fly_mc` flight, with the regime it flew under, the
     limits it flew at (a `[flight.constraints]` override moves the record's limit) and the caller's
     name for the seed pool (`"FINAL_EVAL 2M"`, `"fresh (offset 8M)"`, ...; None when the file the
     record goes into names the pool once for every record)."""
-    rec = {**tail_record(result.final_records, flown_cost_kwargs(result, cost_kwargs), n_boot=n_boot, seed=seed), "noise_seeding": flown_noise_seeding(result)}
+    rec = {
+        **tail_record(result.final_records, flown_cost_settings(result, cost_settings), n_boot=n_boot, seed=seed),
+        "noise_seeding": flown_noise_seeding(result),
+    }
     if pool is not None:
         rec["pool"] = pool
     return rec

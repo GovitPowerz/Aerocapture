@@ -54,7 +54,7 @@ OUT = REPO / "articles/paper/data/robustness_retrain.json"
 def _eval_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
     res = evaluate_cell(
@@ -64,7 +64,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims: int) -> dict:
         extra_overrides={**LEGACY_NOISE_REGIME, **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    return {"label": label, **score_cell(res, read_cost_kwargs(Path(toml)), pool="STRESS_EVAL 9M", n_boot=2000)}
+    return {"label": label, **score_cell(res, read_cost_settings(Path(toml)), pool="STRESS_EVAL 9M", n_boot=2000)}
 
 
 def main(argv: list[str] | None = None) -> None:

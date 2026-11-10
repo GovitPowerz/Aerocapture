@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 from aerocapture.training import sizing_tail as st
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, FR_INTEGRATED_FLUX, FR_MAX_G_LOAD, FR_MAX_HEAT_FLUX, CellResult
-from aerocapture.training.cost import build_cost_kwargs
+from aerocapture.training.cost import CostSettings
 
-COST_KWARGS = build_cost_kwargs({"flight": {"constraints": {"max_heat_flux": 200.0, "max_load_factor": 15.0, "max_heat_load": 25000.0}}})
+COST_SETTINGS = CostSettings.from_toml({"flight": {"constraints": {"max_heat_flux": 200.0, "max_load_factor": 15.0, "max_heat_load": 25000.0}}})
 
 
 def _records(n: int = 100, *, n_captured: int | None = None) -> np.ndarray:
@@ -96,7 +97,7 @@ def test_run_stats_is_capture_conditional() -> None:
 
 
 def test_tail_record_capture_tail_cost_and_estimator() -> None:
-    rec = st.tail_record(_records(100, n_captured=90), COST_KWARGS)
+    rec = st.tail_record(_records(100, n_captured=90), COST_SETTINGS)
     assert (rec["n"], rec["n_captured"], rec["capture_pct"]) == (100, 90, 90.0)
     assert rec["dv_max_descriptive"] == 189.0
     assert rec["dv_cvar95"] == pytest.approx(np.mean([185, 186, 187, 188, 189]))  # 90 * (1 - 0.95) = 4.5000...04 -> 5 samples
@@ -109,24 +110,19 @@ def test_tail_record_viol_pct_is_the_union_of_the_constraints() -> None:
     fr = _records(100)
     fr[[0, 1], FR_MAX_HEAT_FLUX] = 250.0  # flux on rows 0, 1
     fr[[1, 2], FR_INTEGRATED_FLUX] = 30.0  # heat load on rows 1, 2 (row 1 twice)
-    rec = st.tail_record(fr, COST_KWARGS)
+    rec = st.tail_record(fr, COST_SETTINGS)
     assert (rec["heat_flux_viol_n"], rec["g_load_viol_n"], rec["heat_load_viol_n"]) == (2, 0, 2)
     assert (rec["viol_n"], rec["viol_pct"]) == (3, 3.0)  # not max (2), not sum (4)
     assert (rec["heat_flux_viol_pct"], rec["heat_load_viol_pct"]) == (2.0, 2.0)
 
 
 def test_tail_record_scores_a_missing_limit_at_the_cost_functions_default() -> None:
-    """A config that omits a limit is scored at `build_cost_kwargs`' default (200 / 15 / 25000), as the
+    """A config that omits a limit is scored at `CostSettings.from_toml`'s default (200 / 15 / 25000), as the
     gate scores it: no None-becomes-inf, no 'never violated'."""
     fr = _records(10)
     fr[0, FR_MAX_G_LOAD] = 20.0
-    rec = st.tail_record(fr, build_cost_kwargs({}))
+    rec = st.tail_record(fr, CostSettings.from_toml({}))
     assert rec["g_load_viol_n"] == 1 and rec["viol_n"] == 1
-
-
-def test_tail_record_omits_an_unassessed_constraint() -> None:
-    rec = st.tail_record(_records(10), {k: v for k, v in COST_KWARGS.items() if k != "g_load_limit"})
-    assert "g_load_viol_pct" not in rec and "heat_flux_viol_pct" in rec
 
 
 def _cell(fr: np.ndarray, toml: Path, overrides: dict[str, object]) -> CellResult:
@@ -139,9 +135,9 @@ def test_score_cell_names_the_regime_flown_and_the_pool(tmp_path: Path) -> None:
     bare = tmp_path / "bare.toml"
     bare.write_text("[monte_carlo]\nseed = 7\n")
     fr = _records(20)
-    assert st.score_cell(_cell(fr, bare, {"monte_carlo.noise_seeding": "legacy"}), COST_KWARGS, pool="p")["noise_seeding"] == "legacy"
-    assert st.score_cell(_cell(fr, legacy, {}), COST_KWARGS, pool="p")["noise_seeding"] == "legacy"
-    rec = st.score_cell(_cell(fr, bare, {}), COST_KWARGS, pool="FINAL_EVAL 2M")
+    assert st.score_cell(_cell(fr, bare, {"monte_carlo.noise_seeding": "legacy"}), COST_SETTINGS, pool="p")["noise_seeding"] == "legacy"
+    assert st.score_cell(_cell(fr, legacy, {}), COST_SETTINGS, pool="p")["noise_seeding"] == "legacy"
+    rec = st.score_cell(_cell(fr, bare, {}), COST_SETTINGS, pool="FINAL_EVAL 2M")
     assert (rec["noise_seeding"], rec["pool"]) == ("per_draw", "FINAL_EVAL 2M")
     assert rec["estimator"] == st.CVAR_ESTIMATOR
 
@@ -152,19 +148,19 @@ def test_score_cell_scores_at_the_limit_the_flight_overrode(tmp_path: Path) -> N
     from aerocapture.training.cost import compute_cost
 
     fr = _records(10)
-    fr[0, FR_INTEGRATED_FLUX] = 27.0  # 27000 kJ/m2: over the 25000 of COST_KWARGS, under a 30000 ceiling
+    fr[0, FR_INTEGRATED_FLUX] = 27.0  # 27000 kJ/m2: over the 25000 of COST_SETTINGS, under a 30000 ceiling
     legacy: dict[str, object] = {"monte_carlo.noise_seeding": "legacy"}
-    assert st.score_cell(_cell(fr, tmp_path / "unused.toml", legacy), COST_KWARGS)["heat_load_viol_n"] == 1
-    rec = st.score_cell(_cell(fr, tmp_path / "unused.toml", {**legacy, "flight.constraints.max_heat_load": 30000.0}), COST_KWARGS)
+    assert st.score_cell(_cell(fr, tmp_path / "unused.toml", legacy), COST_SETTINGS)["heat_load_viol_n"] == 1
+    rec = st.score_cell(_cell(fr, tmp_path / "unused.toml", {**legacy, "flight.constraints.max_heat_load": 30000.0}), COST_SETTINGS)
     assert (rec["heat_load_viol_n"], rec["viol_n"]) == (0, 0)
-    assert rec["rms_cost"] == round(compute_cost(fr, **{**COST_KWARGS, "heat_load_limit": 30000.0}), 2)
+    assert rec["rms_cost"] == round(compute_cost(fr, replace(COST_SETTINGS, heat_load_limit=30000.0)), 2)
 
 
 def test_cost_rms_matches_compute_cost() -> None:
     from aerocapture.training.cost import compute_cost
 
     fr = _records(50, n_captured=45)
-    assert st.tail_record(fr, COST_KWARGS)["rms_cost"] == round(compute_cost(fr, **COST_KWARGS), 2)
+    assert st.tail_record(fr, COST_SETTINGS)["rms_cost"] == round(compute_cost(fr, COST_SETTINGS), 2)
 
 
 # --- pairing ---------------------------------------------------------------------------------

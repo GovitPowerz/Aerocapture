@@ -34,7 +34,7 @@ import numpy as np
 import numpy.typing as npt
 from aerocapture.training.cell_eval import FR_INTEGRATED_FLUX, evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.report import read_cost_settings
 from aerocapture.training.sizing_tail import CVAR_ESTIMATOR, score_cell
 from quote_marginal import MARGINAL_SEED_BASE, MARGINAL_SEED_STEP, REGIMES, SEED_POOL, SEED_POOL_HIGH, SEED_POOL_RNG_SEED
 
@@ -64,7 +64,7 @@ def finished(run: Path) -> bool:
 
 def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float | None) -> dict[str, float]:
     """One row: `run`'s model on the paired marginal pool, at `toml`'s own ceiling (None) or re-flown under `ceiling`."""
-    cost_kwargs = read_cost_kwargs(toml)
+    cost_settings = read_cost_settings(toml)
     overrides: dict[str, object] = dict(LEGACY_NOISE_REGIME)
     if ceiling is not None:
         overrides[CEILING_KEY] = ceiling
@@ -79,10 +79,10 @@ def fly(toml: Path, run: Path, seeds: npt.NDArray[np.integer], *, ceiling: float
     )
     # The sizing-tail record, scored at the ceiling flown (`score_cell` moves the limit with the
     # override; the pool, regime and estimator are the file's block).
-    rec = score_cell(res, cost_kwargs)
+    rec = score_cell(res, cost_settings)
     heat_load = res.final_records[:, FR_INTEGRATED_FLUX]
     return {
-        "ceiling_kj_m2": float(ceiling if ceiling is not None else cost_kwargs["heat_load_limit"]),
+        "ceiling_kj_m2": float(ceiling if ceiling is not None else cost_settings.heat_load_limit),
         **{k: rec[k] for k in ("capture_pct", "dv_p50", "dv_p95", "dv_cvar95")},
         "dv_max": rec["dv_max_descriptive"],
         "heat_load_p95_mj_m2": round(float(np.percentile(heat_load, 95)), 2),

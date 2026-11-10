@@ -92,11 +92,11 @@ def extract_convergence(records: list[dict], n_pop: int, n_sims: int) -> list[li
 
 def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: int, regime: dict[str, str]) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
     scheme_dir = REPO / "training_output" / run_dir
-    cost_kwargs = read_cost_kwargs(Path(toml))
+    cost_settings = read_cost_settings(Path(toml))
     res = evaluate_cell(
         scheme_dir,
         Path(toml),
@@ -104,7 +104,7 @@ def _eval_one(label: str, run_dir: str, toml: str, n_sims_train: int, n_eval: in
         extra_overrides={**regime, **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    stats = {"label": label, **score_cell(res, cost_kwargs, pool="STRESS_EVAL 9M", n_boot=2000)}
+    stats = {"label": label, **score_cell(res, cost_settings, pool="STRESS_EVAL 9M", n_boot=2000)}
     records = _read_run_log(sorted(glob.glob(str(scheme_dir / "run_*.jsonl"))))  # run_000_<UTC stamp>: name order is launch order
     stats["convergence"] = extract_convergence(records, _derive_n_pop(records, N_POP), n_sims_train)
     return stats

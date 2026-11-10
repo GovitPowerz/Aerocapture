@@ -72,10 +72,10 @@ V4_OUT = REPO / "articles/paper/data/centered_depth_v4.json"
 def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], np.ndarray, np.ndarray, dict]:
     """(seeds, captured mask, correction DV per scenario, the sizing-tail record with bootstrap CIs) of
     one cell under one regime on the 9M stress pool; the record's violation rates are against the
-    ADR-0005 gate's own limits (the TOML's [flight.constraints]; build_cost_kwargs defaults any
+    ADR-0005 gate's own limits (the TOML's [flight.constraints]; CostSettings.from_toml defaults any
     missing one, so all three are always scored)."""
     from aerocapture.training.cell_eval import evaluate_cell
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import STRESS_EVAL_SEED_OFFSET
 
     res = evaluate_cell(
@@ -85,7 +85,7 @@ def _fly(run_dir: str, toml: str, regime: str, n_sims: int) -> tuple[list[int], 
         extra_overrides={**REGIMES[regime], **STRESS_OVERRIDES},
         sim_timeout_secs=5.0,
     )
-    rec = score_cell(res, read_cost_kwargs(Path(toml)), pool="STRESS_EVAL 9M", n_boot=N_BOOT)
+    rec = score_cell(res, read_cost_settings(Path(toml)), pool="STRESS_EVAL 9M", n_boot=N_BOOT)
     return res.seeds, res.captured, res.final_records[:, FR_DV_TOTAL], rec
 
 

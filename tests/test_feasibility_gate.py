@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from aerocapture.training import charts
 from aerocapture.training.champion import Champion
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.evaluate import (
     GateStatus,
     constraint_violation_rates,
@@ -11,7 +12,7 @@ from aerocapture.training.evaluate import (
 )
 from aerocapture.training.final_select import KnownCandidate, select_final_individual
 
-COST_KWARGS = {"heat_flux_limit": 200.0, "g_load_limit": 4.0, "heat_load_limit": 25000.0}
+COST_SETTINGS = CostSettings(heat_flux_limit=200.0, g_load_limit=4.0, heat_load_limit=25000.0)
 
 
 def _records(n: int, n_flux_viol: int = 0, n_g_viol: int = 0, n_hl_viol: int = 0) -> np.ndarray:
@@ -28,23 +29,20 @@ def _records(n: int, n_flux_viol: int = 0, n_g_viol: int = 0, n_hl_viol: int = 0
 
 class TestViolationRates:
     def test_counts_each_constraint(self) -> None:
-        rates = constraint_violation_rates(_records(10, n_flux_viol=1, n_g_viol=2, n_hl_viol=3), COST_KWARGS)
+        rates = constraint_violation_rates(_records(10, n_flux_viol=1, n_g_viol=2, n_hl_viol=3), COST_SETTINGS)
         assert rates == {"heat_flux": 0.1, "g_load": 0.2, "heat_load": 0.3}
 
     def test_heat_load_unit_conversion(self) -> None:
-        """Records carry MJ/m^2; the limit is in kJ/m^2 (read_cost_kwargs contract)."""
+        """Records carry MJ/m^2; the limit is in kJ/m^2 (read_cost_settings contract)."""
         fr = _records(4)
         fr[:, charts._FR_INTEGRATED_FLUX] = 25.1  # MJ -> 25100 kJ > 25000
-        rates = constraint_violation_rates(fr, COST_KWARGS)
+        rates = constraint_violation_rates(fr, COST_SETTINGS)
         assert rates is not None and rates["heat_load"] == 1.0
 
-    def test_no_limits_returns_none(self) -> None:
-        assert constraint_violation_rates(_records(5), {}) is None
-        assert constraint_violation_rates(_records(5), None) is None
-
-    def test_partial_limits(self) -> None:
-        rates = constraint_violation_rates(_records(10, n_flux_viol=5), {"heat_flux_limit": 200.0})
-        assert rates == {"heat_flux": 0.5}
+    def test_default_settings_assess_every_constraint(self) -> None:
+        """A config that omits its limits is assessed at the `CostSettings` defaults (200 / 15 / 25000)."""
+        rates = constraint_violation_rates(_records(10, n_flux_viol=5, n_g_viol=3), CostSettings())
+        assert rates == {"heat_flux": 0.5, "g_load": 0.0, "heat_load": 0.0}
 
 
 class _FakeProblem:
@@ -76,7 +74,7 @@ class TestGateFeasibility:
             problem,
             self.SEEDS,
             max_violation_rate=ceiling,
-            cost_kwargs=COST_KWARGS,
+            cost_settings=COST_SETTINGS,
         )
 
     def test_infeasible_blocks_promotion_despite_better_rms(self) -> None:
@@ -97,14 +95,15 @@ class TestGateFeasibility:
         gate = self._gate(_records(10, n_flux_viol=2), ceiling=0.1)
         assert not gate.feasible
 
-    def test_no_cost_kwargs_means_no_check(self) -> None:
+    def test_default_settings_still_gate(self) -> None:
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_flux_viol=10))
-        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS)
-        assert gate.feasible and gate.promoted and gate.violation_rates is None
+        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS, cost_settings=CostSettings())
+        assert not gate.feasible and not gate.promoted
+        assert gate.violation_rates == {"heat_flux": 1.0, "g_load": 0.0, "heat_load": 0.0}
 
     def test_default_ceiling_is_strict_zero(self) -> None:
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_g_viol=1))
-        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS, cost_kwargs=COST_KWARGS)
+        gate = run_validation_gate(self.X, self.F, Champion(val_rms=1e9), problem, self.SEEDS, cost_settings=COST_SETTINGS)
         assert not gate.feasible and not gate.promoted
 
 
@@ -121,7 +120,7 @@ class TestFinalSelectionFeasibility:
             [champion],
             self.SEEDS,
             max_violation_rate=0.0,
-            cost_kwargs=COST_KWARGS,
+            cost_settings=COST_SETTINGS,
         )
         assert sel.provenance == "champion"
         assert not sel.promoted
@@ -139,7 +138,7 @@ class TestFinalSelectionFeasibility:
             [champion],
             self.SEEDS,
             max_violation_rate=0.0,
-            cost_kwargs=COST_KWARGS,
+            cost_settings=COST_SETTINGS,
         )
         assert sel.promoted and sel.provenance == "last_gen[0]" and sel.winner_feasible
 
@@ -152,7 +151,7 @@ class TestFinalSelectionFeasibility:
             [],
             self.SEEDS,
             max_violation_rate=0.0,
-            cost_kwargs=COST_KWARGS,
+            cost_settings=COST_SETTINGS,
         )
         assert sel.promoted and not sel.winner_feasible
         assert "NO feasible candidate" in capsys.readouterr().out
@@ -162,7 +161,6 @@ class TestIsFeasible:
     def test_rule(self) -> None:
         from aerocapture.training.evaluate import is_feasible
 
-        assert is_feasible(None, 0.0)  # nothing assessed
         assert is_feasible({"heat_flux": 0.0, "heat_load": 0.0}, 0.0)
         assert not is_feasible({"heat_flux": 0.001}, 0.0)
         assert is_feasible({"heat_flux": 0.01}, 0.01)  # at the ceiling
@@ -180,7 +178,7 @@ class TestPrologueFeasibility:
         from aerocapture.training.trainer import SingleAlgoTrainer
 
         problem = _FakeProblem(np.full(10, 50.0), records)
-        problem.cost_kwargs = COST_KWARGS  # type: ignore[attr-defined]
+        problem.cost_settings = COST_SETTINGS  # type: ignore[attr-defined]
         t = SingleAlgoTrainer.__new__(SingleAlgoTrainer)  # bypass __init__ (pymoo setup)
         t.problem = problem  # type: ignore[assignment]
         t.config = types.SimpleNamespace(optimizer=OptimizerConfig(seed_strategy="fixed"))  # type: ignore[assignment]

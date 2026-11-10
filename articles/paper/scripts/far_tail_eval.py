@@ -66,7 +66,7 @@ def _parse_extra_overrides(items: list[str]) -> dict:
 def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None, extra: dict | None = None, scaffolding_from: str | None = None) -> dict:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     src = scaffolding_from or label
@@ -88,7 +88,7 @@ def _eval_one(label: str, toml: str, n_sims: int, bundle_key: str | None = None,
     # sizing tail must be flown INSIDE the envelope -- a policy that buys its tail with
     # heat-load violations is not a clean competitor; see the LSTM disclosure in the
     # paper's section 6.2), plus the far-tail CIs this n = 10000 pool is for.
-    rec = score_cell(res, read_cost_kwargs(res.toml_path), pool="FINAL_EVAL 2M", n_boot=10_000)
+    rec = score_cell(res, read_cost_settings(res.toml_path), pool="FINAL_EVAL 2M", n_boot=10_000)
     x = res.dv  # seed order, the basis of the record's CIs (the same resamples index the same rows)
     r2 = lambda v: round(float(v), 2)  # noqa: E731
     out = {"label": label, **{k: rec[k] for k in ("n", "n_captured", "capture_pct")}}

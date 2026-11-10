@@ -217,6 +217,16 @@ the arxiv-v3 main body) and every script that re-flies a shared-path cell pin it
 Section 6.4's conditioning table, which scores both regimes. A new evaluation script must state which regime it runs and not mix the two in one table without labelling each
 cell (`centered_depth_eval.py` flies both and labels each cell).
 
+### Cost settings are one value; numpy scalar math is not the array loop
+
+Until #241 the cost knobs travelled as a `cost_kwargs` dict splatted into `compute_cost`, whose keyword defaults (weights 10000.0) disagreed with the
+TOML reader's fallbacks (1000.0), and `ablation` carried a second hand-rolled reader that forwarded only the keys present. `cost.CostSettings` is now
+the only carrier and its field defaults the only table; every scorer and gate takes it as a required argument, so "no limit configured, constraint not
+assessed" no longer exists (an omitted limit is the default and is gated). The bit-identity trap found on the way: `x**2` on a numpy SCALAR calls
+`pow()`, on an ARRAY it multiplies, and the two differ in the last ulp for a few cells per thousand. `per_sim_cost` lifts a single record to one row
+for that reason; any new elementwise scorer that must match a batched path bit for bit needs the same care and a per-record test over a whole grid
+(`tests/test_cost.py::TestPerSimCost`), not one lucky cell.
+
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO. Every aero/physics expression is pinned by goldens and bit-identity gates: never reassociate or `mul_add`.

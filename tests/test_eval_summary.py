@@ -5,6 +5,7 @@ print_eval_summary writes to stdout, but as structured data so consumers
 from __future__ import annotations
 
 import numpy as np
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.report import compute_eval_summary, format_eval_summary
 
 
@@ -37,7 +38,7 @@ def _synthetic_final_records(n: int = 1000, *, capture_rate: float = 0.995) -> n
 
 def test_compute_eval_summary_returns_expected_keys() -> None:
     records = _synthetic_final_records(n=200)
-    summary = compute_eval_summary(records, n_sims=200)
+    summary = compute_eval_summary(records, n_sims=200, cost_settings=CostSettings())
     assert summary["n_sims"] == 200
     assert summary["n_captured"] > 0
     assert 0.0 <= summary["capture_rate"] <= 1.0
@@ -53,7 +54,7 @@ def test_compute_eval_summary_returns_expected_keys() -> None:
 
 def test_compute_eval_summary_handles_zero_captures() -> None:
     records = _synthetic_final_records(n=50, capture_rate=0.0)
-    summary = compute_eval_summary(records, n_sims=50)
+    summary = compute_eval_summary(records, n_sims=50, cost_settings=CostSettings())
     assert summary["n_captured"] == 0
     assert summary["captured"] is None
     # Cost / constraints still computed over all sims.
@@ -63,8 +64,8 @@ def test_compute_eval_summary_handles_zero_captures() -> None:
 
 def test_compute_eval_summary_with_constraint_limits() -> None:
     records = _synthetic_final_records(n=100)
-    cost_kwargs = {"heat_flux_limit": 195.0, "g_load_limit": 3.0, "heat_load_limit": 19.5}
-    summary = compute_eval_summary(records, n_sims=100, cost_kwargs=cost_kwargs)
+    cost_settings = CostSettings(heat_flux_limit=195.0, g_load_limit=3.0, heat_load_limit=19.5)
+    summary = compute_eval_summary(records, n_sims=100, cost_settings=cost_settings)
     # viol_pct populated; record sample has values up to 200 → some violations.
     assert summary["constraints"]["heat_flux"]["limit"] == 195.0
     assert summary["constraints"]["heat_flux"]["viol_pct"] is not None
@@ -80,7 +81,7 @@ def test_format_eval_summary_lines_match_user_spec() -> None:
       ...
     """
     records = _synthetic_final_records(n=1000)
-    summary = compute_eval_summary(records, n_sims=1000, cost_kwargs={"heat_flux_limit": 200.0})
+    summary = compute_eval_summary(records, n_sims=1000, cost_settings=CostSettings(heat_flux_limit=200.0))
     lines = format_eval_summary(summary, indent="    ")
     # Header
     assert lines[0] == "Final evaluation (1000 sims):"
@@ -103,18 +104,19 @@ def test_format_eval_summary_lines_match_user_spec() -> None:
     assert "> 200" in constraint_bodies[0]
 
 
-def test_format_eval_summary_no_violations_section_when_limit_absent() -> None:
-    """When cost_kwargs omits a limit, the line still prints stats but no "% > X" suffix."""
+def test_format_eval_summary_reports_violations_at_the_default_limits() -> None:
+    """Default settings carry the default limits: every constraint line has its "% > X" suffix."""
     records = _synthetic_final_records(n=20)
-    summary = compute_eval_summary(records, n_sims=20)  # no cost_kwargs
+    summary = compute_eval_summary(records, n_sims=20, cost_settings=CostSettings())
     lines = format_eval_summary(summary)
     flux_line = next(line for line in lines if "Heat flux" in line)
-    assert "%" not in flux_line.split("max=")[1]
+    assert flux_line.split("max=")[1].endswith("0.0% > 200")
+    assert summary["constraints"]["g_load"]["limit"] == 15.0 and summary["constraints"]["heat_load"]["limit"] == 25000.0
 
 
 def test_format_eval_summary_omits_captured_block_when_no_captures() -> None:
     records = _synthetic_final_records(n=20, capture_rate=0.0)
-    summary = compute_eval_summary(records, n_sims=20)
+    summary = compute_eval_summary(records, n_sims=20, cost_settings=CostSettings())
     lines = format_eval_summary(summary)
     # No Delta-V / Apoapsis / Inclin lines
     assert not any("Delta-V" in line for line in lines)
@@ -147,13 +149,13 @@ class TestEvalSummaryDvComponents:
     def test_cost_min_max_present(self) -> None:
         from aerocapture.training.report import compute_eval_summary
 
-        s = compute_eval_summary(self._records(), n_sims=6)
+        s = compute_eval_summary(self._records(), n_sims=6, cost_settings=CostSettings())
         assert s["cost"]["min"] <= s["cost"]["p50"] <= s["cost"]["p95"] <= s["cost"]["s3sigma"] <= s["cost"]["max"]
 
     def test_dv_min_max_present_and_clipped_consistent(self) -> None:
         from aerocapture.training.report import compute_eval_summary
 
-        s = compute_eval_summary(self._records(), n_sims=6)
+        s = compute_eval_summary(self._records(), n_sims=6, cost_settings=CostSettings())
         dv = s["captured"]["dv"]
         assert dv["min"] == 100.0
         assert dv["max"] == 600.0
@@ -162,7 +164,7 @@ class TestEvalSummaryDvComponents:
     def test_dv_components_abs_and_stats(self) -> None:
         from aerocapture.training.report import compute_eval_summary
 
-        s = compute_eval_summary(self._records(), n_sims=6)
+        s = compute_eval_summary(self._records(), n_sims=6, cost_settings=CostSettings())
         dv1 = s["captured"]["dv1"]
         assert dv1["min"] == 80.0  # |-80| -> abs convention, matching chart panel 16
         assert dv1["max"] == 480.0
@@ -177,14 +179,14 @@ class TestEvalSummaryDvComponents:
 
         rec = self._records()
         rec[:, charts._FR_IFINAL] = 4.0  # nothing captured
-        s = compute_eval_summary(rec, n_sims=6)
+        s = compute_eval_summary(rec, n_sims=6, cost_settings=CostSettings())
         assert s["captured"] is None
         assert "min" in s["cost"] and "max" in s["cost"]
 
     def test_existing_keys_unchanged(self) -> None:
         from aerocapture.training.report import compute_eval_summary
 
-        s = compute_eval_summary(self._records(), n_sims=6)
+        s = compute_eval_summary(self._records(), n_sims=6, cost_settings=CostSettings())
         assert set(s["cost"]) == {"min", "p50", "p95", "s3sigma", "rms", "max"}
         assert {"dv", "apoapsis", "periapsis", "inclination", "dv1", "dv2", "dv3"} <= set(s["captured"])
         for key in ("apoapsis", "periapsis", "inclination"):

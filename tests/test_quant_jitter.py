@@ -33,7 +33,7 @@ def test_run_flies_every_eps_for_both_granularities_on_the_sweep_pool(tmp_path: 
     (champ / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.5}))
     flown: list[dict] = []
 
-    def fake_score(toml: str, model_path: Path, seeds: list[int], cost_kwargs: dict, extra: dict, timeout: float | None, noise_seeding: str) -> dict:
+    def fake_score(toml: str, model_path: Path, seeds: list[int], cost_settings: dict, extra: dict, timeout: float | None, noise_seeding: str) -> dict:
         flown.append({"model": json.loads(Path(model_path).read_text()), "seeds": seeds, "noise_seeding": noise_seeding, "extra": extra})
         return {
             "capture_rate": 1.0 if len(flown) % 2 else 0.99,
@@ -47,7 +47,7 @@ def test_run_flies_every_eps_for_both_granularities_on_the_sweep_pool(tmp_path: 
 
     monkeypatch.setattr(quantize, "_score_variant", fake_score)
     monkeypatch.setattr(quantize, "_resolve_pool", lambda toml, offset, n: ([7, 8, 9], {"base_mc_seed": 42, "offset": offset, "n": n}))
-    monkeypatch.setattr("aerocapture.training.ablation._load_cost_kwargs", lambda toml, cost_transform: {})
+    monkeypatch.setattr("aerocapture.training.ablation._load_cost_settings", lambda toml, cost_transform: {})
     out = _load().run(champ, "unused.toml", "per_draw", 4, "proj_only", 3, [0.0, 0.05])
 
     assert [(r["granularity"], r["eps"]) for r in out["rows"]] == [("per_tensor", 0.0), ("per_tensor", 0.05), ("per_channel", 0.0), ("per_channel", 0.05)]

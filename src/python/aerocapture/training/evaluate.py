@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -23,6 +23,7 @@ from aerocapture.training.sizing_tail import constraint_exceedances
 
 if TYPE_CHECKING:
     from aerocapture.training.champion import Champion
+    from aerocapture.training.cost import CostSettings
 
 try:
     import aerocapture_rs as _aero_rs  # type: ignore[import-not-found, import-untyped]
@@ -35,17 +36,15 @@ except ImportError:
 
 def constraint_violation_rates(
     final_records: npt.NDArray[np.float64],
-    cost_kwargs: dict[str, Any] | None,
-) -> dict[str, float] | None:
-    """Fractional per-constraint violation rates (`sizing_tail.constraint_exceedances` means); None
-    when no limit is configured at all (feasibility cannot be assessed)."""
-    rates = {name: float(m.mean()) for name, m in constraint_exceedances(final_records, cost_kwargs).items()}
-    return rates or None
+    cost_settings: CostSettings,
+) -> dict[str, float]:
+    """Fractional per-constraint violation rates (`sizing_tail.constraint_exceedances` means)."""
+    return {name: float(m.mean()) for name, m in constraint_exceedances(final_records, cost_settings).items()}
 
 
-def is_feasible(rates: dict[str, float] | None, max_violation_rate: float) -> bool:
-    """ADR-0005: feasible when every assessed constraint's violation rate is at or below the ceiling."""
-    return rates is None or all(r <= max_violation_rate + 1e-12 for r in rates.values())
+def is_feasible(rates: dict[str, float], max_violation_rate: float) -> bool:
+    """ADR-0005: feasible when every constraint's violation rate is at or below the ceiling."""
+    return all(r <= max_violation_rate + 1e-12 for r in rates.values())
 
 
 def format_violation_rates(rates: dict[str, float] | None) -> str:
@@ -90,8 +89,8 @@ def run_validation_gate(
     champion: Champion,
     problem: _SupportsPerSeedEval,
     val_seeds: list[int],
+    cost_settings: CostSettings,
     max_violation_rate: float = 0.0,
-    cost_kwargs: dict[str, Any] | None = None,
 ) -> GateResult:
     """Guarded gen-best selection + identity-trigger validation, shared by the
     single-algorithm loop and the islands trainer.
@@ -133,7 +132,7 @@ def run_validation_gate(
 
     val_costs, val_records = problem.evaluate_individual_records_per_seed(individual, val_seeds)
     val_rms = float(np.sqrt(np.mean(val_costs**2)))
-    rates = constraint_violation_rates(val_records, cost_kwargs)
+    rates = constraint_violation_rates(val_records, cost_settings)
     feasible = is_feasible(rates, max_violation_rate)
     return GateResult(
         status=GateStatus.VALIDATED,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import matplotlib
 
@@ -19,6 +19,9 @@ import numpy as np  # noqa: E402
 import numpy.typing as npt  # noqa: E402
 import seaborn as sns  # type: ignore[import-untyped]  # noqa: E402
 from scipy import stats  # noqa: E402
+
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
 
 # The captured predicate and its final-record columns live with the deploy-side evaluation path; re-exported for the chart callers.
 from aerocapture.training.cell_eval import (  # noqa: E402
@@ -1023,39 +1026,11 @@ def chart_nav_density_ratio(
 # ---------------------------------------------------------------------------
 # Panel 14b: Objective cost distribution — histogram + CDF (all sims)
 # ---------------------------------------------------------------------------
-def chart_cost_objective(
-    final_records: npt.NDArray[np.float64],
-    output: Path,
-    *,
-    dv_threshold: float = 1000.0,
-    g_load_limit: float = 15.0,
-    heat_flux_limit: float = 200.0,
-    heat_load_limit: float = 25000.0,
-    g_load_weight: float = 1000.0,
-    heat_flux_weight: float = 1000.0,
-    heat_load_weight: float = 1000.0,
-    cost_transform: str = "linear",
-) -> None:
+def chart_cost_objective(final_records: npt.NDArray[np.float64], output: Path, cost_settings: CostSettings) -> None:
     """Objective cost histogram with CDF overlay (all sims, including crashes)."""
-    from aerocapture.training.cost import compute_cost
+    from aerocapture.training.cost import per_sim_cost
 
-    n = final_records.shape[0]
-    costs = np.array(
-        [
-            compute_cost(
-                final_records[i : i + 1],
-                dv_threshold=dv_threshold,
-                g_load_limit=g_load_limit,
-                heat_flux_limit=heat_flux_limit,
-                heat_load_limit=heat_load_limit,
-                g_load_weight=g_load_weight,
-                heat_flux_weight=heat_flux_weight,
-                heat_load_weight=heat_load_weight,
-                cost_transform=cost_transform,
-            )
-            for i in range(n)
-        ]
-    )
+    costs = per_sim_cost(final_records, cost_settings)
 
     log_costs = np.log10(np.maximum(costs, 1e-6))
 

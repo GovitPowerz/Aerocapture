@@ -77,22 +77,22 @@ def test_run_flip_ablation_structure() -> None:
 
 
 def test_cost_transform_override() -> None:
-    """--cost-transform override replaces the config's cost_transform in cost_kwargs."""
-    from aerocapture.training.ablation import _load_cost_kwargs
+    """--cost-transform override replaces the config's cost_transform in cost_settings."""
+    from aerocapture.training.ablation import _load_cost_settings
 
     toml = "configs/training/msr_aller_nn_train_consolidated.toml"
-    base = _load_cost_kwargs(toml)
-    assert base["cost_transform"] == "cubed"  # inherited from common.toml
-    overridden = _load_cost_kwargs(toml, cost_transform="log")
-    assert overridden["cost_transform"] == "log"
+    base = _load_cost_settings(toml)
+    assert base.cost_transform == "cubed"  # inherited from common.toml
+    overridden = _load_cost_settings(toml, cost_transform="log")
+    assert overridden.cost_transform == "log"
 
 
 def test_cost_transform_override_rejects_unknown() -> None:
-    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.ablation import _load_cost_settings
 
     toml = "configs/training/msr_aller_nn_train_consolidated.toml"
     with pytest.raises(ValueError):
-        _load_cost_kwargs(toml, cost_transform="bogus")
+        _load_cost_settings(toml, cost_transform="bogus")
 
 
 def test_noise_seeding_is_resolved_from_the_toml() -> None:

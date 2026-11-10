@@ -21,12 +21,11 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from aerocapture.training.cell_eval import FR_APO_ERR, FR_PERI_ERR, fly_mc
-from aerocapture.training.cost import compute_cost
+from aerocapture.training.cost import CostSettings, compute_cost
 
 SCHEMES = [
     "equilibrium_glide",
@@ -100,8 +99,8 @@ _NN_DEPLOY_SCHEMES = {
 def run_scheme(
     scheme: str,
     n_sims: int,
+    cost_settings: CostSettings,
     params_dir: Path | None = None,
-    cost_kwargs: dict[str, Any] | None = None,
     base_toml_override: Path | None = None,
     sim_timeout_secs: float | None = None,
 ) -> dict | None:
@@ -149,7 +148,7 @@ def run_scheme(
         "n_sims": len(final),
         "captured": int(captured.sum()),
         "capture_rate": float(captured.sum()) / len(final) * 100,
-        "cost": compute_cost(final, **(cost_kwargs or {})),
+        "cost": compute_cost(final, cost_settings),
     }
 
     if captured.any():
@@ -212,19 +211,15 @@ def main() -> None:
     base_toml = Path(args.base_toml) if args.base_toml else None
     params_dir = Path(args.params_dir)
 
-    # Parse cost function config from the first scheme's TOML (all inherit from
-    # same common.toml). read_cost_kwargs is the canonical TOML->kwargs reader
-    # (report.py, rl/train.py, param_sweep.py) -- the previous hand-rolled dict
-    # omitted heat_load_weight/heat_load_limit, so compute_cost fell back to
-    # weight 10000 vs the trained-with 1.0, mis-ranking heat-load violators.
-    from aerocapture.training.report import read_cost_kwargs
+    # Cost settings from the first scheme's TOML (all inherit from the same common.toml).
+    from aerocapture.training.report import read_cost_settings
 
     first_scheme = args.schemes[0]
     cost_toml_path = Path(SCHEME_TRAINING_CONFIGS.get(first_scheme, ""))
     if cost_toml_path.exists():
-        cost_kwargs: dict[str, Any] = read_cost_kwargs(cost_toml_path)
+        cost_settings = read_cost_settings(cost_toml_path)
     elif base_toml and base_toml.exists():
-        cost_kwargs = read_cost_kwargs(base_toml)
+        cost_settings = read_cost_settings(base_toml)
     else:
         print(f"ERROR: No config found for cost function parsing (tried {first_scheme})")
         sys.exit(1)
@@ -232,7 +227,7 @@ def main() -> None:
     results: dict[str, dict] = {}
     for scheme in args.schemes:
         print(f"\nRunning {scheme}...")
-        metrics = run_scheme(scheme, args.n_sims, params_dir, cost_kwargs=cost_kwargs, base_toml_override=base_toml, sim_timeout_secs=args.sim_timeout)
+        metrics = run_scheme(scheme, args.n_sims, cost_settings, params_dir, base_toml_override=base_toml, sim_timeout_secs=args.sim_timeout)
         if metrics:
             results[scheme] = metrics
             print(f"  Captured: {metrics['captured']}/{metrics['n_sims']}, cost={metrics['cost']:.2e}")

@@ -21,9 +21,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
 
 METRIC_KEYS = ("rms_cost", "capture_rate", "dv_p50", "dv_p95", "cvar95", "viol_pct")
 
@@ -69,7 +72,7 @@ def score_model(
     config: Path,
     model: Path,
     seeds: list[int],
-    cost_kwargs: dict[str, Any],
+    cost_settings: CostSettings,
     sim_timeout: float | None,
     extra_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -86,7 +89,7 @@ def score_model(
 
     # Probe arms were trained under the shared noise path; score them there (ADR-0006).
     res = evaluate_cell(None, config, seeds, model=model, extra_overrides={**LEGACY_NOISE_REGIME, **(extra_overrides or {})}, sim_timeout_secs=sim_timeout)
-    rec = score_cell(res, cost_kwargs, pool="PROBE_EVAL")  # seeds.PROBE_EVAL_SEED_OFFSET, shared by every probe
+    rec = score_cell(res, cost_settings, pool="PROBE_EVAL")  # seeds.PROBE_EVAL_SEED_OFFSET, shared by every probe
     nan = float("nan")
     return {
         "rms_cost": rec["rms_cost"],
@@ -244,7 +247,7 @@ def eval_arms(
     sim_timeout: float | None,
 ) -> dict[str, Any]:
     from aerocapture.training.deploy_overrides import load_scaffolding_overrides
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
 
     out: dict[str, Any] = {}
     for arm in arms:
@@ -259,7 +262,7 @@ def eval_arms(
             # scaffolding = "live" arms deploy best_params.json (nav/shaping);
             # scoring without those overrides mis-ranks (param_sweep lesson).
             extra = load_scaffolding_overrides(out_dir, config)
-            per_rep.append(score_model(config, model, seeds, read_cost_kwargs(config), sim_timeout, extra_overrides=extra))
+            per_rep.append(score_model(config, model, seeds, read_cost_settings(config), sim_timeout, extra_overrides=extra))
         out[arm] = aggregate(per_rep)
     return out
 
@@ -273,7 +276,7 @@ def score_references(
     runs its own training TOML + best_model.json (+ best_params.json scaffolding
     when present). Missing artifacts skip with a notice."""
     from aerocapture.training.deploy_overrides import load_scaffolding_overrides
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
 
     out: dict[str, dict[str, Any]] = {}
     for name, (toml_path, scheme_dir) in references.items():
@@ -284,7 +287,7 @@ def score_references(
             print(f"  reference {name}: skipped (missing {missing})")
             continue
         extra = load_scaffolding_overrides(scheme_dir, toml_path)
-        out[name] = score_model(toml_path, model, seeds, read_cost_kwargs(toml_path), sim_timeout, extra_overrides=extra)
+        out[name] = score_model(toml_path, model, seeds, read_cost_settings(toml_path), sim_timeout, extra_overrides=extra)
     return out
 
 

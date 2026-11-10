@@ -137,7 +137,7 @@ def _fly(run_dir, toml, results_key, n_sims):
 
 def collect_one(slug, title, run_dir, toml, results_key, n_sims):
     from aerocapture.training import charts
-    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.report import _read_constraint_limits, compute_eval_summary, read_cost_settings
     from aerocapture.training.sizing_tail import score_cell
 
     batch, nom = _fly(run_dir, toml, results_key, n_sims)
@@ -189,9 +189,9 @@ def collect_one(slug, title, run_dir, toml, results_key, n_sims):
         charts.chart_gload_time(sub_trajs, sub_class, out / "g_load.svg", limit_g=gll, figsize=(2.4, 1.9), **nk)
         charts.chart_heat_load_time(sub_trajs, sub_class, out / "heat_load.svg", limit_kj_m2=hll, figsize=(2.4, 1.9), unit="MJ", **nk)
 
-    cost_kwargs = read_cost_kwargs(eval_toml)
-    summary = compute_eval_summary(recs, n_sims=len(recs), cost_kwargs=cost_kwargs)
-    rec = score_cell(batch, cost_kwargs, pool="FINAL_EVAL 2M")
+    cost_settings = read_cost_settings(eval_toml)
+    summary = compute_eval_summary(recs, n_sims=len(recs), cost_settings=cost_settings)
+    rec = score_cell(batch, cost_settings, pool="FINAL_EVAL 2M")
     summary.update({k: rec[k] for k in ("dv_p99", "dv_cvar95", "estimator")})
     summary["title"] = title
     summary.update({k: rec[k] for k in ("noise_seeding", "pool")})

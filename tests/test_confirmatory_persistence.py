@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from aerocapture.training import cell_eval, report
 from aerocapture.training.cell_eval import FR_DV_TOTAL, FR_ECC, FR_IFINAL, CellResult
-from aerocapture.training.cost import build_cost_kwargs
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.parquet_output import FINAL_COLUMNS, FINAL_RECORD_INDICES
 
 REPO = Path(__file__).resolve().parents[1]
@@ -70,9 +70,7 @@ class ToySim:
 def sim(monkeypatch: pytest.MonkeyPatch) -> ToySim:
     s = ToySim()
     monkeypatch.setattr(cell_eval, "evaluate_cell", s)
-    monkeypatch.setattr(
-        report, "read_cost_kwargs", lambda _toml: {**build_cost_kwargs({}), "heat_flux_limit": 1.9, "g_load_limit": 1.9, "heat_load_limit": 1000.0}
-    )
+    monkeypatch.setattr(report, "read_cost_settings", lambda _toml: CostSettings(heat_flux_limit=1.9, g_load_limit=1.9, heat_load_limit=1000.0))
     return s
 
 
@@ -291,9 +289,7 @@ def outcomes(tmp_path: Path, cm: ModuleType, monkeypatch: pytest.MonkeyPatch) ->
     """The seed-keyed sim on two 40-seed pools (100-139, 140-179) and the argv scoring one finished toy cell."""
     s = OutcomeSim()
     monkeypatch.setattr(cell_eval, "evaluate_cell", s)
-    monkeypatch.setattr(
-        report, "read_cost_kwargs", lambda _toml: {**build_cost_kwargs({}), "heat_flux_limit": 1.0, "g_load_limit": 1.0, "heat_load_limit": 1.0}
-    )
+    monkeypatch.setattr(report, "read_cost_settings", lambda _toml: CostSettings(heat_flux_limit=1.0, g_load_limit=1.0, heat_load_limit=1.0))
     monkeypatch.setattr("aerocapture.training.seeds.make_confirmatory_pools", lambda _seed, _r, _n: [list(range(100, 140)), list(range(140, 180))])
     monkeypatch.setattr(cm, "OUT", tmp_path / "out.json")
     cell = tmp_path / "toy"

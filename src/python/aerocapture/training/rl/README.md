@@ -166,7 +166,7 @@ that omits index 15 is valid) while keeping the thermal-proximity term (DV is bl
 limits). `dv*_weight` default to 1.0; return normalization rescales the combined stream but not
 the dv-vs-thermal ratio, so raise `constraint_weight` (or lower `dv*_weight`) to give the thermal
 term more authority. The terminal reward adds the raw `compute_terminal_cost` (DV + constraint
-penalties, with the TOML `[cost_function]` kwargs via `report.read_cost_kwargs`) on TERMINATED
+penalties, with the TOML's `CostSettings` via `report.read_cost_settings`) on TERMINATED
 episodes only; truncated (`max_time` timeout, ifinal=2) episodes bootstrap `V(terminal_obs)` /
 `Q(terminal_obs)` instead (bootstrap mask `terminated = done & ~truncated`), since adding the
 timeout virtual-DV cost on top would double-count the terminal state in the value target;

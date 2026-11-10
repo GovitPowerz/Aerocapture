@@ -277,7 +277,7 @@ def _train_headline(n_gen: int, n_sims: int, run_loop: Callable[..., dict[str, A
 class PhaseClock:
     """Wall time per loop phase, and inside each phase the time spent in the Rust
     seam, in `_run_grid_records` (seam + Python decode/override build) and in
-    `compute_cost`."""
+    `per_sim_cost`."""
 
     def __init__(self, profiler: cProfile.Profile | None = None) -> None:
         self.phase = "setup"
@@ -380,7 +380,7 @@ def _instrumented_generations(n_gen: int, n_sims: int, profiler: cProfile.Profil
     problem_cls = problem_mod.AerocaptureProblem
     with ExitStack() as stack:
         stack.enter_context(patch.object(aerocapture_rs, "run_grid", clock.accrue(clock.rust, aerocapture_rs.run_grid)))
-        stack.enter_context(patch.object(problem_mod, "compute_cost", clock.accrue(clock.cost, problem_mod.compute_cost)))
+        stack.enter_context(patch.object(problem_mod, "per_sim_cost", clock.accrue(clock.cost, problem_mod.per_sim_cost)))
         stack.enter_context(patch.object(problem_cls, "_run_grid_records", clock.accrue(clock.grid_records, problem_cls._run_grid_records)))
         stack.enter_context(patch.object(trainer_mod, "_maybe_curate", clock.timed("curation", trainer_mod._maybe_curate)))
         stack.enter_context(patch.object(trainer_mod, "_apply_seed_strategy", clock.timed("seed_draw", trainer_mod._apply_seed_strategy)))

@@ -22,7 +22,8 @@ gated the optimizer produced 21+ better-RMS infeasible candidates against 3 feas
 ## Decision
 
 Selection is lexicographic. (1) A candidate is **feasible** when, on the validation pool, every
-constraint with a configured limit (`[flight.constraints]` via `read_cost_kwargs`) has a
+constraint (`[flight.constraints]` via `read_cost_settings`; an omitted limit is the
+`CostSettings` default, so every constraint is always assessed) has a
 violation rate at or below `[optimizer] max_violation_rate` (default `0.0`, strict).
 (2) Among feasible candidates, the existing rule applies: strictly lower validation RMS
 promotes. (3) The final-eval and confirmatory pools stay report-only (ADR-0002).
@@ -41,7 +42,7 @@ champion and no feasible candidate, final selection deploys the best-RMS infeasi
 CLI (`python -m aerocapture.training.final_select`) re-validates checkpoint champions under the
 same rule before trusting them, so a pre-rule directory can be re-selected honestly.
 
-`constraint_violation_rates(final_records, cost_kwargs)` in `evaluate.py` is the single
+`constraint_violation_rates(final_records, cost_settings)` in `evaluate.py` is the single
 implementation; rates and the `feasible` flag are written to the validation JSONL records and
 the final-selection sidecar.
 

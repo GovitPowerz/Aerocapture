@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from aerocapture.training.cell_eval import evaluate_cell
-from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.report import read_cost_settings
 from aerocapture.training.sizing_tail import score_cell
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -67,7 +67,7 @@ def run_demo(n_sims: int, output: Path, finetune: bool = False, legacy: bool = F
     captured = results.captured
     dv = results.dv
 
-    rec = score_cell(results, read_cost_kwargs(DEMO_TOML), pool=f"demo rng {DEMO_SEED}")
+    rec = score_cell(results, read_cost_settings(DEMO_TOML), pool=f"demo rng {DEMO_SEED}")
     n_cap = rec["n_captured"]
     print(f"Captured {n_cap}/{n_sims} ({rec['capture_pct']:.1f}%)")
     if n_cap:

@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import pytest
 from aerocapture.training.config import candidate_input_normalization
+from aerocapture.training.cost import CostSettings
 
 if TYPE_CHECKING:
     from aerocapture.training.config import NetworkConfig
@@ -141,7 +142,7 @@ class TestCostCompat:
 
         overrides = [{"simulation.random_seed": float(i) / 10.0} for i in range(5)]
         results = aero.run_batch(GOLDEN_TOML, overrides)
-        cost = compute_cost(results.final_records)
+        cost = compute_cost(results.final_records, CostSettings())
         assert isinstance(cost, float)
         assert cost >= 0.0
 

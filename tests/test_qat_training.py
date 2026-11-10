@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from aerocapture.training.config import NetworkConfig
+from aerocapture.training.cost import CostSettings
 
 _DENSE2 = [
     {"type": "dense", "input_size": 3, "output_size": 4, "activation": "linear"},
@@ -67,7 +68,7 @@ def test_qat_eval_hook_quantizes_weights(monkeypatch: pytest.MonkeyPatch) -> Non
         param_specs=specs,
         toml_path="dummy.toml",
         seeds=[1],
-        cost_kwargs={},
+        cost_settings=CostSettings(),
         scheme="neural_network",
         nn_config=nn_cfg,
     )

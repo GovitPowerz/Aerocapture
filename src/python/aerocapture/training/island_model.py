@@ -359,7 +359,7 @@ class IslandModel:
         return events
 
     def _cost_transform(self) -> str:
-        return str(self.problem.cost_kwargs.get("cost_transform", "linear"))
+        return str(self.problem.cost_settings.cost_transform)
 
     def validate_each(self, current_gen: int) -> list[dict[str, Any]]:
         """Run identity-trigger validation per island.
@@ -386,7 +386,7 @@ class IslandModel:
                 self.problem,
                 self.validation_seeds,
                 max_violation_rate=self.config.max_violation_rate,
-                cost_kwargs=self.problem.cost_kwargs,
+                cost_settings=self.problem.cost_settings,
             )
 
             if gate.status is GateStatus.SKIP_ALL_INF:
@@ -440,7 +440,7 @@ class IslandModel:
         """Re-validate each island's champion under the current config (`champion.revalidate`).
 
         Called once after `from_checkpoint` on resume so each island's `val_rms`
-        reflects the CURRENT cost_kwargs (notably a changed `cost_transform`) and
+        reflects the CURRENT cost_settings (notably a changed `cost_transform`) and
         ceiling rather than the stale value baked into the checkpoint. Keeps the
         individual; only re-anchors the metric baseline (an infeasible one becomes
         untrusted, ADR-0005). Islands with no champion (or with no validation seeds)
@@ -455,7 +455,7 @@ class IslandModel:
                 island.champion,
                 self.problem,
                 self.validation_seeds,
-                self.problem.cost_kwargs,
+                self.problem.cost_settings,
                 self.config.max_violation_rate,
                 verbose=True,
                 label=f"{island.name}:",

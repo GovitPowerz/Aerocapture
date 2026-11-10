@@ -52,7 +52,7 @@ def _spread(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def run(champion_dir: Path, toml: str, noise_seeding: str, bits: int, tensor_policy: str, n_sims: int, eps_grid: list[float]) -> dict[str, Any]:
-    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.ablation import _load_cost_settings
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     model_path = champion_dir / "best_model.json"
@@ -60,8 +60,8 @@ def run(champion_dir: Path, toml: str, noise_seeding: str, bits: int, tensor_pol
     keys = [k for k, *_ in qz._quantizable_tensors(model, tensor_policy)]
     seeds, pool = qz._resolve_pool(toml, HEADLINE_REQUOTE_SEED_OFFSET, n_sims)
     scaff = qz._scaffolding_overrides(champion_dir, toml)
-    cost_kwargs = _load_cost_kwargs(toml, cost_transform="linear")
-    baseline = qz._score_variant(toml, model_path, seeds, cost_kwargs, scaff, 120.0, noise_seeding)
+    cost_settings = _load_cost_settings(toml, cost_transform="linear")
+    baseline = qz._score_variant(toml, model_path, seeds, cost_settings, scaff, 120.0, noise_seeding)
     print(f"fp baseline: capture {baseline['capture_rate']:.3f} cvar95 {baseline['dv_cvar95']:.1f}", flush=True)
     rows: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -70,7 +70,7 @@ def run(champion_dir: Path, toml: str, noise_seeding: str, bits: int, tensor_pol
             for eps in eps_grid:
                 quantized = qz.quantize_model_weights(model, bits, gran, tensor_policy, scale_factor=1.0 + eps)
                 cell.write_text(json.dumps(quantized))
-                m = qz._score_variant(toml, cell, seeds, cost_kwargs, scaff, 120.0, noise_seeding)
+                m = qz._score_variant(toml, cell, seeds, cost_settings, scaff, 120.0, noise_seeding)
                 rows.append({"granularity": gran, "eps": eps, "rel_err": round(_rel_err(model, quantized, keys), 4), **m})
                 print(f"{gran:<12} eps {eps:.3f}  capture {m['capture_rate']:.3f}  cvar95 {m['dv_cvar95']:6.1f}  rel_err {rows[-1]['rel_err']:.3f}", flush=True)
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=REPO).stdout.strip()
