@@ -6,6 +6,7 @@ import numpy as np
 from aerocapture.training.champion import Champion
 from aerocapture.training.checkpoint import load_checkpoint, save_checkpoint
 from aerocapture.training.config import TrainingConfig
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.optimizer import OptimizerConfig
 from aerocapture.training.param_spaces import ParamSpec
 
@@ -89,7 +90,7 @@ def test_revalidate_each_wiring(capsys) -> None:  # type: ignore[no-untyped-def]
     from aerocapture.training.island_model import Island, IslandModel
 
     class _Problem:
-        cost_kwargs = {"cost_transform": "linear", "heat_load_limit": 25000.0}
+        cost_settings = CostSettings(cost_transform="linear", heat_load_limit=25000.0)
 
         def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
             records = np.zeros((len(seeds), 52))
@@ -126,7 +127,7 @@ def test_resize_populations_grows_each_island() -> None:
 
     class _P:
         def __init__(self) -> None:
-            self.cost_kwargs = {"cost_transform": "linear"}
+            self.cost_settings = CostSettings(cost_transform="linear")
 
         seeds = [0]
 
@@ -158,7 +159,7 @@ def test_resize_populations_noop_when_size_matches() -> None:
     from pymoo.core.population import Population
 
     class _P:
-        cost_kwargs = {"cost_transform": "linear"}
+        cost_settings = CostSettings(cost_transform="linear")
 
         seeds = [0]
 
@@ -185,7 +186,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
 
     class _P:
         def __init__(self) -> None:
-            self.cost_kwargs = {"cost_transform": "linear"}
+            self.cost_settings = CostSettings(cost_transform="linear")
 
         seeds = [0]
 
@@ -193,7 +194,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
             return (np.linspace(1.0, 2.0, X.shape[0]))[:, None]
 
         def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
-            return np.full(len(seeds), 1.23, dtype=np.float64), [{} for _ in seeds]
+            return np.full(len(seeds), 1.23, dtype=np.float64), np.zeros((len(seeds), 52))
 
     rng = np.random.default_rng(0)
 
@@ -222,7 +223,7 @@ def test_islands_resume_grow_and_revalidate(tmp_path: Path) -> None:
     # Resume into a BIGGER model with a changed transform.
     cfg2 = OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=12, validation_n_sims=3, islands=IslandSettings(k_top=1))
     p2 = _P()
-    p2.cost_kwargs = {"cost_transform": "log"}
+    p2.cost_settings = CostSettings(cost_transform="log")
     model2 = IslandModel(
         config=cfg2,
         problem=p2,
@@ -256,7 +257,7 @@ def test_resize_populations_shrinks_each_island() -> None:
     from pymoo.core.population import Population
 
     class _P:
-        cost_kwargs = {"cost_transform": "linear"}
+        cost_settings = CostSettings(cost_transform="linear")
 
         seeds = [0]
 
@@ -296,7 +297,7 @@ def test_islands_from_checkpoint_legacy_missing_cost_transform(tmp_path) -> None
     from pymoo.core.population import Population
 
     class _P:
-        cost_kwargs = {"cost_transform": "linear"}
+        cost_settings = CostSettings(cost_transform="linear")
 
         seeds = [0]
 
@@ -304,7 +305,7 @@ def test_islands_from_checkpoint_legacy_missing_cost_transform(tmp_path) -> None
             return (np.linspace(1.0, 2.0, X.shape[0]))[:, None]
 
         def evaluate_individual_records_per_seed(self, x, seeds):  # type: ignore[no-untyped-def]
-            return np.full(len(seeds), 1.0, dtype=np.float64), [{} for _ in seeds]
+            return np.full(len(seeds), 1.0, dtype=np.float64), np.zeros((len(seeds), 52))
 
     rng = np.random.default_rng(0)
     cfg = OptimizerConfig(seed_strategy="fixed", algorithm="islands", n_pop=4, validation_n_sims=3, islands=IslandSettings(k_top=1))

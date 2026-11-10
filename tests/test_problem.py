@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import patch
 
 import numpy as np
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.param_spaces import ParamSpec
 from aerocapture.training.problem import AerocaptureProblem
 
@@ -15,7 +16,7 @@ def _make_minimal_problem() -> AerocaptureProblem:
         param_specs=[ParamSpec("tau", 2.0, 60.0, 30.0)],
         toml_path="dummy.toml",
         seeds=[42],
-        cost_kwargs={},
+        cost_settings=CostSettings(),
         scheme="ftc",
     )
 
@@ -34,7 +35,7 @@ class TestProblemShape:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         assert p.n_var == 3
@@ -44,7 +45,7 @@ class TestProblemShape:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         assert np.all(p.xl == 0.0)
@@ -55,7 +56,7 @@ class TestProblemShape:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         assert p.n_obj == 1
@@ -68,15 +69,15 @@ class TestProblemEvaluation:
             param_specs=specs,
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={
-                "dv_threshold": 1000.0,
-                "g_load_limit": 15.0,
-                "heat_flux_limit": 200.0,
-                "heat_load_limit": 25000.0,
-                "g_load_weight": 1000.0,
-                "heat_flux_weight": 1000.0,
-                "heat_load_weight": 1000.0,
-            },
+            cost_settings=CostSettings(
+                dv_threshold=1000.0,
+                g_load_limit=15.0,
+                heat_flux_limit=200.0,
+                heat_load_limit=25000.0,
+                g_load_weight=1000.0,
+                heat_flux_weight=1000.0,
+                heat_load_weight=1000.0,
+            ),
             scheme="equilibrium_glide",
         )
         X = np.random.default_rng(0).random((5, 3))
@@ -91,15 +92,15 @@ class TestProblemEvaluation:
             param_specs=specs,
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={
-                "dv_threshold": 1000.0,
-                "g_load_limit": 15.0,
-                "heat_flux_limit": 200.0,
-                "heat_load_limit": 25000.0,
-                "g_load_weight": 1000.0,
-                "heat_flux_weight": 1000.0,
-                "heat_load_weight": 1000.0,
-            },
+            cost_settings=CostSettings(
+                dv_threshold=1000.0,
+                g_load_limit=15.0,
+                heat_flux_limit=200.0,
+                heat_load_limit=25000.0,
+                g_load_weight=1000.0,
+                heat_flux_weight=1000.0,
+                heat_load_weight=1000.0,
+            ),
             scheme="equilibrium_glide",
         )
         X = np.random.default_rng(1).random((3, 3))
@@ -115,7 +116,7 @@ class TestSeedUpdate:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         assert p.seeds == [42]
@@ -129,7 +130,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"lateral.tau": 30.0}, mc_seed=42)
@@ -141,7 +142,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"nav.density_filter_gain": 0.5})
@@ -152,7 +153,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"exit.exit_velocity_threshold": 4000.0})
@@ -163,7 +164,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"thermal.heat_flux_activation": 0.8})
@@ -174,7 +175,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"shaping.max_bank_acceleration": 5.0})
@@ -185,7 +186,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"hdot_gain": 1.5})
@@ -196,7 +197,7 @@ class TestBuildOverrides:
             param_specs=_make_specs(),
             toml_path="dummy.toml",
             seeds=[42],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="equilibrium_glide",
         )
         overrides = p._build_overrides({"hdot_gain": 1.5}, mc_seed=99)
@@ -220,7 +221,7 @@ def test_problem_layout_live_pack() -> None:
         param_specs=specs,
         toml_path="x.toml",
         seeds=[0],
-        cost_kwargs={},
+        cost_settings=CostSettings(),
         scheme="neural_network",
         nn_config=net,
     )
@@ -236,12 +237,16 @@ def test_problem_layout_off_and_full() -> None:
     base_specs = [ParamSpec(f"w{i}", -1.0, 1.0, 0.0) for i in range(5)]
 
     net_off = NetworkConfig(architecture=arch, scaffolding="off")
-    prob_off = AerocaptureProblem(param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_off)
+    prob_off = AerocaptureProblem(
+        param_specs=base_specs, toml_path="x.toml", seeds=[0], cost_settings=CostSettings(), scheme="neural_network", nn_config=net_off
+    )
     assert prob_off.layout.n_weights == 5
 
     net_full = NetworkConfig(architecture=arch, scaffolding="full")
     full_specs = [*base_specs, *_NN_SCAFFOLDING_PARAMS]
-    prob_full = AerocaptureProblem(param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="neural_network", nn_config=net_full)
+    prob_full = AerocaptureProblem(
+        param_specs=full_specs, toml_path="x.toml", seeds=[0], cost_settings=CostSettings(), scheme="neural_network", nn_config=net_full
+    )
     assert prob_full.layout.n_weights == len(base_specs)
 
 
@@ -303,12 +308,12 @@ def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
     toml = "configs/training/msr_aller_eqglide_train.toml"
     specs = PARAM_SPACES["equilibrium_glide"]
     seeds = list(range(7_300_000, 7_300_000 + 5))
-    cost_kwargs: dict = {}
+    cost_settings = CostSettings()
     p = AerocaptureProblem(
         param_specs=specs,
         toml_path=toml,
         seeds=seeds,
-        cost_kwargs=cost_kwargs,
+        cost_settings=cost_settings,
         scheme="equilibrium_glide",
     )
 
@@ -325,7 +330,7 @@ def test_evaluate_individual_records_per_seed_bit_identical_non_nn() -> None:
     res = aero.run_batch(toml, ovr_list, n_threads=None, include_trajectories=False)
     ref_records = np.asarray(res.final_records, dtype=np.float64)
     ref_costs = np.array(
-        [compute_cost(ref_records[k].reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for k in range(len(seeds))],
+        [compute_cost(ref_records[k].reshape(1, FINAL_RECORD_LEN), cost_settings) for k in range(len(seeds))],
         dtype=np.float64,
     )
 
@@ -349,12 +354,12 @@ def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
     toml = "configs/training/msr_aller_eqglide_train.toml"
     specs = PARAM_SPACES["equilibrium_glide"]
     seeds = list(range(7_200_000, 7_200_000 + 5))
-    cost_kwargs: dict = {}
+    cost_settings = CostSettings()
     p = AerocaptureProblem(
         param_specs=specs,
         toml_path=toml,
         seeds=seeds,
-        cost_kwargs=cost_kwargs,
+        cost_settings=cost_settings,
         scheme="equilibrium_glide",
     )
 
@@ -372,7 +377,7 @@ def test_run_batch_pyo3_matches_per_seed_run_batch_non_nn() -> None:
         frs = res.final_records
         seed_costs.append(
             np.array(
-                [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), **cost_kwargs) for fr in frs],
+                [compute_cost(fr.reshape(1, FINAL_RECORD_LEN), cost_settings) for fr in frs],
                 dtype=np.float64,
             )
         )

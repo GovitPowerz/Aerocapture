@@ -5,10 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+from aerocapture.training.cost import CostSettings
 
 
 def test_read_constraint_limits_includes_heat_load(tmp_path: Path) -> None:
-    """_read_constraint_limits is `build_cost_kwargs`' limits, so the PDF colors a violator as
+    """_read_constraint_limits is `CostSettings.from_toml`' limits, so the PDF colors a violator as
     constrained exactly where the stats block, the cost and the gate count it (D3)."""
     from aerocapture.training.report import _read_constraint_limits
 
@@ -33,7 +34,7 @@ def test_heat_load_violator_constrained_when_limit_absent(tmp_path: Path) -> Non
     toml.write_text("[flight.constraints]\nmax_heat_flux = 200.0\nmax_load_factor = 15.0\n")
 
     heat_flux, g_load, heat_load = _read_constraint_limits(toml)
-    assert heat_load == 25000.0  # build_cost_kwargs' default, the one every scorer uses
+    assert heat_load == 25000.0  # CostSettings.from_toml' default, the one every scorer uses
 
     # One captured trajectory: heat-flux + g-load within limits, heat load over 25000 kJ/m².
     rec = np.zeros((1, 52), dtype=np.float64)
@@ -49,10 +50,9 @@ def test_heat_load_violator_constrained_when_limit_absent(tmp_path: Path) -> Non
 
 def test_read_constraint_limits_defaults_every_missing_limit_like_the_cost_function(tmp_path: Path) -> None:
     """Until #220 a missing flux or g limit read None (never violated) while the cost penalized at 200 / 15."""
-    from aerocapture.training.cost import build_cost_kwargs
     from aerocapture.training.report import _read_constraint_limits
 
     toml = tmp_path / "m.toml"
     toml.write_text("[flight.constraints]\nmax_heat_load = 30000.0\n")
-    kw = build_cost_kwargs({"flight": {"constraints": {"max_heat_load": 30000.0}}})
-    assert _read_constraint_limits(toml) == (kw["heat_flux_limit"], kw["g_load_limit"], 30000.0) == (200.0, 15.0, 30000.0)
+    cs = CostSettings.from_toml({"flight": {"constraints": {"max_heat_load": 30000.0}}})
+    assert _read_constraint_limits(toml) == (cs.heat_flux_limit, cs.g_load_limit, 30000.0) == (200.0, 15.0, 30000.0)

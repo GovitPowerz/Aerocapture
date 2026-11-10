@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.rl.rewards import StepRewardCalculator, compute_terminal_cost
 
 
@@ -18,6 +19,7 @@ def default_calc() -> StepRewardCalculator:
         apoapsis_weight=0.2,
         eccentricity_weight=0.1,
         energy_scale=1.0e6,
+        cost_settings=CostSettings(),
     )
 
 
@@ -83,7 +85,7 @@ def test_potential_phase_gating_exit(default_calc: StepRewardCalculator) -> None
 
 def test_missing_mask_raises() -> None:
     with pytest.raises(ValueError, match="missing required indices"):
-        StepRewardCalculator(input_mask=[0, 1, 2])
+        StepRewardCalculator(input_mask=[0, 1, 2], cost_settings=CostSettings())
 
 
 def test_terminal_cost_matches_evaluate_module() -> None:
@@ -94,8 +96,8 @@ def test_terminal_cost_matches_evaluate_module() -> None:
     fc[0, 17] = 5.0
     fc[0, 16] = 150.0
     fc[0, 28] = 10.0
-    expected = compute_cost(fc)
-    actual = compute_terminal_cost(fc[0])
+    expected = compute_cost(fc, CostSettings())
+    actual = compute_terminal_cost(fc[0], cost_settings=CostSettings())
     assert abs(actual - expected) < 1e-9
 
 
@@ -113,6 +115,7 @@ def _dv_calc(dv1_weight: float = 1.0, dv2_weight: float = 1.0, dv3_weight: float
         dv1_weight=dv1_weight,
         dv2_weight=dv2_weight,
         dv3_weight=dv3_weight,
+        cost_settings=CostSettings(),
     )
 
 
@@ -223,7 +226,7 @@ def test_rollout_shaping_terminal_potential_zero_on_termination_kept_on_truncati
 
 def test_dv_mode_requires_no_obs_indices() -> None:
     # dv mode reads only the aux channel (DV + raw thermal fractions); any mask is legal.
-    StepRewardCalculator(input_mask=[0, 1, 2], potential="dv")
+    StepRewardCalculator(input_mask=[0, 1, 2], potential="dv", cost_settings=CostSettings())
 
 
 def test_wrong_aux_width_raises() -> None:
@@ -272,4 +275,4 @@ def test_thermal_term_uses_raw_aux_under_toml_override(hf_raw: float, hl_raw: fl
 
 def test_invalid_potential_raises() -> None:
     with pytest.raises(ValueError, match="potential must be"):
-        StepRewardCalculator(input_mask=list(range(23)), potential="bogus")  # type: ignore[arg-type]
+        StepRewardCalculator(input_mask=list(range(23)), potential="bogus", cost_settings=CostSettings())  # type: ignore[arg-type]

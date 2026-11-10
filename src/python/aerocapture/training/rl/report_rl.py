@@ -72,7 +72,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
                 print(f"Warning: Parquet write failed: {exc}")
 
             # Part 2: Mission performance charts
-            cost_kwargs = ga_report.read_cost_kwargs(toml_path)
+            cost_settings = ga_report.read_cost_settings(toml_path)
             ga_report.render_mission_performance_charts(
                 final_records,
                 trajectories,
@@ -80,7 +80,7 @@ def generate_report(output_dir: Path, toml_path: Path) -> Path | None:
                 tmp_dir,
                 toml_path=toml_path,
                 scheme_dir=output_dir,
-                cost_kwargs=cost_kwargs,
+                cost_settings=cost_settings,
             )
             has_trajectories = True
             has_final_eval = True

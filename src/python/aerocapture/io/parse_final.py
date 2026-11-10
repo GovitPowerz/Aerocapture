@@ -51,7 +51,7 @@ FINAL_CSV_COLUMNS = [
 ]
 
 # Mapping from CSV column name to legacy Fortran column index (0-based in xsauve[52]).
-# This enables compute_cost and other consumers to access data by name.
+# This enables per_sim_cost and other consumers to access data by name.
 CSV_TO_LEGACY_INDEX: dict[str, int] = {
     "altitude_km": 0,
     "longitude_deg": 1,

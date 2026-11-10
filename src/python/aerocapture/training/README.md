@@ -141,9 +141,9 @@ the last-validated individual (the gate's identity trigger) and, in memory only,
 rates. `trusted` is derived (`isfinite(val_rms)`). Five transitions, each written once:
 `consider(gate)` applies a `GateResult` (displace on feasible and strictly lower RMS; ties and
 infeasible candidates keep the incumbent, ADR-0002 / ADR-0005); `reanchor(val_rms, rates,
-ceiling)` re-anchors under the current cost kwargs and ceiling (feasible anchors a finite `val_rms`,
+ceiling)` re-anchors under the current cost settings and ceiling (feasible anchors a finite `val_rms`,
 infeasible or a non-finite RMS sets inf; the individual becomes last-validated) and its flight is
-`champion.revalidate(champion, problem, val_seeds, cost_kwargs, ceiling, verbose)`, used by the
+`champion.revalidate(champion, problem, val_seeds, cost_settings, ceiling, verbose)`, used by the
 single-algo `prologue`, the islands `revalidate_each` and the retro CLI; `adopt_unvalidated`
 (the no-validation fallback and the fresh-start gen-0 argmin; `val_rms` inf);
 `adopt_selection(individual, val_rms, train_cost | None, feasible=)` (the final-selection write-back, untrusted
@@ -297,7 +297,7 @@ use `--sim-timeout` against NaN hangs).
   `set_dot_path()`, `write_toml()` (the minimal machine-consumed writer), `find_mission_name()`
   (recursive walk of the base chain to the first `missions/` entry), `reject_unknown_keys(section,
   table, known)` (the ONE unknown-key check for the Python-owned sections: `[cost_function]` in
-  `cost.build_cost_kwargs`, `[corridor]` / `[reference]` / `[checkpoints]` in
+  `cost.CostSettings.from_toml`, `[corridor]` / `[reference]` / `[checkpoints]` in
   `build_training_config_from_toml`, `[warm_start]` / `[warm_start.adam]` in
   `WarmStartConfig.from_dict`).
 - `chromosome_layout.py` - `ChromosomeLayout`, the chromosome `[weight slab | params tail |
@@ -332,17 +332,17 @@ use `--sim-timeout` against NaN hangs).
   `[guidance.neural_network] scaffolding` is not `"off"`; every deploy-side NN path passes it
   (`cell_eval`, the ablation and NN-input CLIs, `quantize`, the probe and throughput drivers).
 - `sizing_tail.py` - the ONE sizing-tail scorer (design `docs/design/2026-10-30-sizing-tail-scorer-design.md`,
-  #220): `score_cell(result, cost_kwargs, *, pool, n_boot)` turns a `CellResult` into the tail record
+  #220): `score_cell(result, cost_settings, *, pool, n_boot)` turns a `CellResult` into the tail record
   every report, paper script and experiment writes (`n`, `n_captured`, `capture_pct`; `dv_mean`,
   `dv_p50 / p95 / p99 / p999 / p9987`, `dv_cvar95 / 99 / 999`, `dv_max_descriptive`, `capture_pct_ci`
   and the five `dv_*_ci` percentile-bootstrap intervals when `n_boot` is given; `viol_pct` the UNION of the
   ADR-0005 constraints with `viol_n` and the per-constraint `<c>_viol_pct` / `<c>_viol_n`;
-  `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). The limits are `cost_kwargs`'
+  `rms_cost`; `estimator`, `noise_seeding` as flown, `pool` as named). The limits are `cost_settings`'
   with every `[flight.constraints]` key the flight overrode moved to the value flown
-  (`flown_cost_kwargs`: `heat_load_slope`'s ceiling legs score at their ceiling). `tail_record` is the same
+  (`flown_cost_settings`: `heat_load_slope`'s ceiling legs score at their ceiling). `tail_record` is the same
   on bare final records, `run_stats(ifinal, ecc, dv)` on parquet columns, `dv_tail(dvc)` the DV
   block alone, `constraint_exceedances` the ONE violation rule (per-constraint masks over final
-  records, limits from `cost_kwargs`, columns `cell_eval.FR_*`); `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =
+  records, limits from `cost_settings`, columns `cell_eval.FR_*`); `cvar(x, level)` is the one CVaR (mean of the worst `cvar_tail_size(n, level)` =
   `max(1, round((1 - level) n))` samples, `CVAR_ESTIMATOR` names it on every record); `paired_tail`
   / `paired_comparison` score two flights on one pool (both-captured mean delta, Wilcoxon, the
   scenario-resampled bootstrap of the p95 / CVaR95 / capture deltas). Every DV statistic is over
@@ -489,7 +489,7 @@ use `--sim-timeout` against NaN hangs).
   `decode_normalized_array()` at eval time; `_evaluate(X, out)` sets `out["F"]` as (n_pop, 1)
   through `_run_batch()` -> `training_rms(problem, X)` (RMS over the seed axis; the module-level
   function is what the trainer seam and `IslandModel` re-evaluate through). `PerSeedEvaluator` is
-  the Protocol the seam drives (the four per-seed methods + `update_seeds`, `seeds`, `cost_kwargs`,
+  the Protocol the seam drives (the four per-seed methods + `update_seeds`, `seeds`, `cost_settings`,
   `param_specs`, `toml_path`).
   `evaluate_population_records_per_seed(X, seeds) -> ((n_pop, n_seeds) costs, (n_pop, n_seeds, 52)
   records)` is the ONE batched kernel over `_run_grid_records` (one `run_grid` call, SimData built
@@ -508,13 +508,21 @@ use `--sim-timeout` against NaN hangs).
   `sizing_tail.constraint_exceedances`, the ONE violation rule),
   `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
   `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
-- `cost.py` — `build_cost_kwargs(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]`
-  reader (train, gate, final selection, report, compare; `report.read_cost_kwargs(path)`
-  delegates; unknown keys raise) + the per-sim objective `compute_cost`, built on `dv_cost(dv)`, a
-  C-infinity softplus-quadratic (linear below `dv_threshold`, softplus-quadratic above, smooth
-  knee) plus normalized soft constraint penalties for g-load, heat flux and heat load
-  exceedances, optionally wrapped in `cost_transform`. The DV every termination outcome carries is
-  described in the Rust README ("Termination outcomes and virtual DV").
+- `cost.py` - `CostSettings`, the frozen value every scorer takes (`dv_threshold`, the three
+  limits, the three weights, `cost_transform`; its field defaults are the ONLY default table, and
+  no scoring function has a fallback: a caller without settings does not type-check; construction
+  rejects a `cost_transform` outside `COST_TRANSFORMS`, the list ablation's `--cost-transform` offers), with
+  `CostSettings.from_toml(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]` reader
+  (train, gate, final selection, report, compare, ablation, quantize; `report.read_cost_settings(path)`
+  delegates; unknown keys raise) + the objective: `per_sim_cost(final_records, settings)` maps
+  records of any leading shape `(..., 52)` to per-simulation costs `(...)` in one elementwise
+  array pass (a single record is lifted to one row; the training grid `(n_pop, n_seeds, 52)` is one call; `tests/test_cost.py::TestPerSimCost`
+  gates it bit for bit against the former 1-row loop), and `compute_cost(final_records, settings)`
+  is its RMS over a pool. The cost is `dv_cost(dv)`, a C-infinity softplus-quadratic (linear below
+  `dv_threshold`, softplus-quadratic above, smooth knee) plus normalized soft constraint penalties
+  for g-load, heat flux and heat load exceedances, optionally wrapped in `cost_transform`. The DV
+  every termination outcome carries is described in the Rust README ("Termination outcomes and
+  virtual DV").
 - `seeds.py` — the reserved seed-pool registry: every `*_SEED_OFFSET` (`VALIDATION_SEED_OFFSET` 1M,
   `FINAL_EVAL_SEED_OFFSET` 2M, `RL_TRAINING_SEED_OFFSET` 3M, `WARM_START_SEED_OFFSET` 4M,
   `NN_INPUT_REPORT_SEED_OFFSET` 5M, `CALIBRATION_SEED_OFFSET` 6M, `SWEEP_EVAL_SEED_OFFSET` 7M, headline
@@ -533,8 +541,8 @@ use `--sim-timeout` against NaN hangs).
   CSV parse; the old CLI transport agreed to CSV precision, ~5e-8; `--sim-timeout` defaults to 30 s
   per sim so a non-terminating sim cannot hang the table); `compare_guidance.SCHEMES` /
   `_NN_DEPLOY_SCHEMES` register every deployable cell (each NN scheme deploys through the Rust
-  `neural_network` runtime, RL included as `neural_network_rl`); cost kwargs from
-  `report.read_cost_kwargs` so heat-load weight/limit match the training objective.
+  `neural_network` runtime, RL included as `neural_network_rl`); cost settings from
+  `report.read_cost_settings` so heat-load weight/limit match the training objective.
 - `reference.py` (leaf module) — `ref_trajectory_array` (7-column table from a trajectory
   matrix; column 0 in MJ/kg, the Rust loader multiplies by 1e6), `piecewise_commanded_cos_bank`
   (the COMMANDED segment profile for the cos_bank column: the realized bank carries shaper sweeps
@@ -698,7 +706,7 @@ use `--sim-timeout` against NaN hangs).
 
 - `metrics.py` — pure metric functions (cost stats, diversity, capture rate, convergence speed,
   stagnation) + `apply_cost_transform` (the single source of the monotonic rescale, reused by
-  `compute_cost`); `capture_rate(costs, capture_threshold, cost_transform)` maps the linear-scale
+  `per_sim_cost`); `capture_rate(costs, capture_threshold, cost_transform)` maps the linear-scale
   threshold (3000 = CRASH_FLOOR) into the transformed space.
 - `logger.py` — `TrainingLogger` (takes `cost_transform` at construction): one JSONL line per
   generation (`all_costs`, `cost_outlier_rate`, `best_params`, `gen_best_params`, and the
@@ -743,7 +751,7 @@ use `--sim-timeout` against NaN hangs).
   when `<scheme_dir>/sensitivity/sensitivity_results.json` exists). `_generate_training_charts`
   returns the `has_*` flags (`has_cost_distribution`, `has_islands`) that `metadata.json` carries
   and `report.typ` branches on. Also cross-scheme comparison PDFs (`--compare`), and
-  `final_eval.parquet` next to the PDF. `read_cost_kwargs` delegates to `cost.build_cost_kwargs`.
+  `final_eval.parquet` next to the PDF. `read_cost_settings` delegates to `cost.CostSettings.from_toml`.
 - `charts.py` — one matplotlib/seaborn function per panel (25), SVG output, seaborn `whitegrid`
   + `muted`. Three-way trajectory classification: blue (captured + constraints OK), orange
   (captured + violation), red (crash / hyperbolic / timeout); captured = `(ifinal==3) &

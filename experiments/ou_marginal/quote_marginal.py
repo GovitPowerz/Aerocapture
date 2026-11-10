@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 from aerocapture.training.cell_eval import evaluate_cell
 from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-from aerocapture.training.report import read_cost_kwargs
+from aerocapture.training.report import read_cost_settings
 from aerocapture.training.sizing_tail import CVAR_ESTIMATOR, score_cell
 from confirmatory_marginal import read_manifest
 
@@ -101,8 +101,8 @@ CELLS: list[tuple[str, str, str | None]] = [
 
 
 def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> dict:
-    # The ADR-0005 gate's own limits ([flight.constraints] through read_cost_kwargs), read before the flights.
-    cost_kwargs = read_cost_kwargs(REPO / toml)
+    # The ADR-0005 gate's own limits ([flight.constraints] through read_cost_settings), read before the flights.
+    cost_settings = read_cost_settings(REPO / toml)
     # The ou_marginal configs bake per_draw into the TOML; pin the regime
     # explicitly so BOTH regimes are scored for every cell regardless of
     # which TOML it trained under. The marginal regime re-draws the OU noise
@@ -119,7 +119,7 @@ def score(toml: str, model_dir: str | None, seeds: np.ndarray, regime: str) -> d
         sim_timeout_secs=30.0,
     )
     # The sizing-tail record; the pool, regime and estimator are the file's protocol block.
-    rec = score_cell(res, cost_kwargs)
+    rec = score_cell(res, cost_settings)
     return {
         k: rec[k] for k in ("capture_pct", "dv_p50", "dv_p95", "dv_p99", "dv_cvar95", "heat_load_viol_pct", "heat_flux_viol_pct", "g_load_viol_pct", "viol_pct")
     }

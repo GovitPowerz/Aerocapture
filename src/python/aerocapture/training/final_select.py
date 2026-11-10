@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -36,6 +36,9 @@ from aerocapture.training.champion import KnownCandidate as KnownCandidate  # re
 from aerocapture.training.evaluate import _SupportsPerSeedEval, constraint_violation_rates, is_feasible
 from aerocapture.training.sizing_tail import cvar, dv_tail
 
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
+
 
 class _PerSeedEvaluator(Protocol):
     def evaluate_population_records_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
@@ -44,7 +47,7 @@ class _PerSeedEvaluator(Protocol):
 class _RetroEvaluator(_PerSeedEvaluator, _SupportsPerSeedEval, Protocol):
     """What the retro CLI needs on top of the rule: re-validating a checkpoint champion."""
 
-    cost_kwargs: dict[str, Any]
+    cost_settings: CostSettings
 
 
 @dataclass
@@ -83,8 +86,8 @@ def select_final_individual(
     provenances: list[str],
     known: list[KnownCandidate],
     val_seeds: list[int],
+    cost_settings: CostSettings,
     max_violation_rate: float = 0.0,
-    cost_kwargs: dict[str, Any] | None = None,
 ) -> SelectionResult:
     """The selection rule (spec section 3) over fresh candidates + known champions.
 
@@ -94,9 +97,8 @@ def select_final_individual(
     in-training validation gate. Fresh rows identical to a known row or to an
     earlier fresh row are deduplicated (never re-simulated).
 
-    Feasibility (ADR-0005): when `cost_kwargs` carries constraint
-    limits, a fresh candidate whose validation-pool violation rate exceeds
-    `max_violation_rate` on any constraint cannot win. Champions are trusted
+    Feasibility (ADR-0005): a fresh candidate whose validation-pool violation
+    rate exceeds `max_violation_rate` on any `cost_settings` limit cannot win. Champions are trusted
     as-validated (their promotion already passed the gate; legacy champions
     predate it -- re-run the retro CLI to re-select if in doubt). If there is
     no champion and every fresh candidate is infeasible, the best-RMS
@@ -130,7 +132,7 @@ def select_final_individual(
             if not np.isfinite(rms):
                 records.append({"provenance": provenances[i], "val_rms": None})
                 continue
-            rates = constraint_violation_rates(np.asarray(grid[row]), cost_kwargs)
+            rates = constraint_violation_rates(np.asarray(grid[row]), cost_settings)
             feasible = is_feasible(rates, max_violation_rate)
             records.append({"provenance": provenances[i], "val_rms": rms, "feasible": feasible, "violation_rates": rates})
             if feasible and rms < best_fresh_rms:
@@ -194,8 +196,8 @@ def select_tail_individual(
     val_seeds: list[int],
     tail_seeds: list[int],
     tail_pool: dict[str, Any],
+    cost_settings: CostSettings,
     max_violation_rate: float = 0.0,
-    cost_kwargs: dict[str, Any] | None = None,
 ) -> SelectionResult:
     """The tail-aware criterion of #234, lexicographic over fresh candidates + champions.
 
@@ -233,7 +235,7 @@ def select_tail_individual(
         if not np.isfinite(rms):
             records.append({"provenance": provs[r], "val_rms": None})
             continue
-        rates = constraint_violation_rates(np.asarray(grid[r]), cost_kwargs)
+        rates = constraint_violation_rates(np.asarray(grid[r]), cost_settings)
         feasible = is_feasible(rates, max_violation_rate)
         records.append({"provenance": provs[r], "val_rms": rms, "feasible": feasible, "violation_rates": rates})
         if feasible:
@@ -251,7 +253,7 @@ def select_tail_individual(
         cap = is_captured(recs)
         dvc = recs[cap, FR_DV_TOTAL]
         n_captured = int(cap.sum())
-        rates = constraint_violation_rates(recs, cost_kwargs)  # the tail pool's: reported, not a gate
+        rates = constraint_violation_rates(recs, cost_settings)  # the tail pool's: reported, not a gate
         records[r]["tail"] = {"n": int(recs.shape[0]), "n_captured": n_captured, **dv_tail(dvc), "violation_rates": rates}
         # Unrounded (the record's two decimals would tie close CVaRs into the RMS break); no capture ranks last.
         ranked.append(((-n_captured, cvar(dvc, 0.95) if len(dvc) else float("inf"), float(rms_all[r])), r))
@@ -534,7 +536,7 @@ def run_final_select(
         # Checkpoint champions may predate the gate or a ceiling change: re-validate
         # them before trusting them (`champion.revalidate`, ADR-0005). An untrusted one
         # competes as an ordinary candidate instead.
-        revalidate(champ, problem, val_seeds, problem.cost_kwargs, ceiling, verbose=True, label=label)
+        revalidate(champ, problem, val_seeds, problem.cost_settings, ceiling, verbose=True, label=label)
         if (trusted := champ.known(label)) is not None:
             known.append(trusted)
             continue
@@ -555,7 +557,7 @@ def run_final_select(
             tail_seeds,
             tail_pool,
             max_violation_rate=ceiling,
-            cost_kwargs=problem.cost_kwargs,
+            cost_settings=problem.cost_settings,
         )
     else:
         sel = select_final_individual(
@@ -565,7 +567,7 @@ def run_final_select(
             known,
             val_seeds,
             max_violation_rate=ceiling,
-            cost_kwargs=problem.cost_kwargs,
+            cost_settings=problem.cost_settings,
         )
     deploy_dir = training_dir if output_dir is None else output_dir
     deploy_dir.mkdir(parents=True, exist_ok=True)
@@ -624,7 +626,7 @@ def main() -> None:
         parser.error("--pool-n applies to --pool tail_select only")
 
     from aerocapture.training.chromosome_layout import ChromosomeLayout  # noqa: PLC0415
-    from aerocapture.training.cost import build_cost_kwargs  # noqa: PLC0415
+    from aerocapture.training.cost import CostSettings  # noqa: PLC0415
     from aerocapture.training.problem import AerocaptureProblem  # noqa: PLC0415
     from aerocapture.training.seeds import TAIL_SELECT_SEED_OFFSET, VALIDATION_SEED_OFFSET, make_reserved_seeds  # noqa: PLC0415
     from aerocapture.training.training_config import run_param_specs  # noqa: PLC0415
@@ -667,7 +669,7 @@ def main() -> None:
         param_specs=param_specs,
         toml_path=str(Path(args.toml).resolve()),
         seeds=[base_mc_seed],
-        cost_kwargs=build_cost_kwargs(toml_data),
+        cost_settings=CostSettings.from_toml(toml_data),
         scheme=config.guidance_type,
         sim_timeout=config.sim.sim_timeout_secs,
         nn_config=config.network if config.guidance_type == "neural_network" else None,

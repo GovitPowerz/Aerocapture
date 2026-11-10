@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 from aerocapture.training.config import TrainingConfig
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.display import NoopDisplay
 from aerocapture.training.logger import TrainingLogger
 from aerocapture.training.param_spaces import ParamSpec
@@ -41,7 +42,7 @@ class FakeProblem(Problem):
         self.param_specs = param_specs
         self.toml_path = toml_path
         self.seeds = list(seeds)
-        self.cost_kwargs: dict[str, Any] = {}
+        self.cost_settings = CostSettings()
         self.n_evals = 0
         self.interrupt_after = interrupt_after
         self.constant_cost = constant_cost

@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 from aerocapture.training import charts
 from aerocapture.training.champion import Champion, KnownCandidate, revalidate
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.evaluate import GateResult, GateStatus
 
-COST_KWARGS = {"heat_flux_limit": 200.0, "g_load_limit": 4.0, "heat_load_limit": 25000.0}
+COST_SETTINGS = CostSettings(heat_flux_limit=200.0, g_load_limit=4.0, heat_load_limit=25000.0)
 X = np.array([0.3, 0.7])
 
 
@@ -102,7 +103,7 @@ class TestReanchor:
     def test_non_finite_rms_never_anchors(self) -> None:
         """A NaN anchor would block every later promotion (`x < nan` is False)."""
         c = Champion(individual=X, val_rms=42.0)
-        assert c.reanchor(float("nan"), None, ceiling=0.0) is True  # the verdict is feasibility
+        assert c.reanchor(float("nan"), {"heat_load": 0.0}, ceiling=0.0) is True  # the verdict is feasibility
         assert c.val_rms == float("inf") and not c.trusted
         assert c.consider(_validated(np.array([0.1, 0.2]), 50.0, feasible=True, champion_rms=c.val_rms)) is True
 
@@ -193,7 +194,7 @@ class TestWireFormat:
 class TestRevalidate:
     def test_feasible_anchors_and_returns_the_arrays(self, capsys: pytest.CaptureFixture[str]) -> None:
         c = Champion(individual=X, train_cost=9.0)
-        costs, records, feasible = revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10)), list(range(10)), COST_KWARGS, 0.0, verbose=True)
+        costs, records, feasible = revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10)), list(range(10)), COST_SETTINGS, 0.0, verbose=True)
         assert feasible and c.val_rms == 50.0 and c.trusted and c.train_cost == 9.0
         assert c.violation_rates == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.0}
         assert np.array_equal(costs, np.full(10, 50.0)) and records.shape == (10, 52)
@@ -203,7 +204,7 @@ class TestRevalidate:
     def test_infeasible_is_untrusted_and_announced(self, capsys: pytest.CaptureFixture[str]) -> None:
         c = Champion(individual=X, val_rms=0.1)
         problem = _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1))
-        _, _, feasible = revalidate(c, problem, list(range(10)), COST_KWARGS, 0.0, verbose=True, label="pso:")
+        _, _, feasible = revalidate(c, problem, list(range(10)), COST_SETTINGS, 0.0, verbose=True, label="pso:")
         assert not feasible and c.val_rms == float("inf") and not c.trusted
         assert c.violation_rates == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.1}
         assert c.last_validated is not None and np.array_equal(c.last_validated, X)
@@ -216,16 +217,11 @@ class TestRevalidate:
         c = Champion(individual=X, val_rms=0.1)
         costs = np.full(10, 50.0)
         costs[3] = np.nan
-        _, _, feasible = revalidate(c, _FakeProblem(costs, _records(10)), list(range(10)), COST_KWARGS, 0.0, verbose=True, label="ga:")
+        _, _, feasible = revalidate(c, _FakeProblem(costs, _records(10)), list(range(10)), COST_SETTINGS, 0.0, verbose=True, label="ga:")
         assert feasible and c.val_rms == float("inf") and not c.trusted
         out = capsys.readouterr().out
         assert "ga:champion" in out and "non-finite validation RMS" in out and "INFEASIBLE" not in out
 
     def test_quiet_without_verbose(self, capsys: pytest.CaptureFixture[str]) -> None:
-        revalidate(Champion(individual=X), _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1)), list(range(10)), COST_KWARGS, 0.0, verbose=False)
+        revalidate(Champion(individual=X), _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=1)), list(range(10)), COST_SETTINGS, 0.0, verbose=False)
         assert capsys.readouterr().out == ""
-
-    def test_no_limits_means_feasible(self) -> None:
-        c = Champion(individual=X)
-        revalidate(c, _FakeProblem(np.full(10, 50.0), _records(10, n_hl_viol=10)), list(range(10)), None, 0.0, verbose=False)
-        assert c.trusted and c.violation_rates is None

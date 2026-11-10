@@ -52,7 +52,7 @@ def _emit_warm_start_artifacts(
         # AND the (n, 52) final_records so we can derive DV / apo /
         # peri / heat-flux statistics without re-running.
         baseline_costs, baseline_records = problem.evaluate_individual_records_per_seed(warm_chromo, val_seeds)
-        eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_kwargs)
+        eval_summary = compute_eval_summary(baseline_records, len(val_seeds), problem.cost_settings)
         baseline_path = write_gen0_baseline(
             save_dir=Path(config.save_dir),
             costs=baseline_costs,

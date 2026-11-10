@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 
-from aerocapture.training.ablation import NN_INPUT_NAMES, _load_cost_kwargs
+from aerocapture.training.ablation import NN_INPUT_NAMES, _load_cost_settings
 from aerocapture.training.charts_nn_inputs import chart_nn_input_panel
 from aerocapture.training.report_render import render_pdf
 from aerocapture.training.seeds import NN_INPUT_REPORT_SEED_OFFSET, make_reserved_seeds
@@ -92,7 +92,7 @@ def _resolve_mask(toml_path: str, model_path: str | None = None) -> set[int]:
 
 
 def _default_dv_threshold(toml_path: str) -> float:
-    return float(_load_cost_kwargs(toml_path).get("dv_threshold", 1000.0))
+    return _load_cost_settings(toml_path).dv_threshold
 
 
 def run_report(

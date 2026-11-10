@@ -18,7 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from aerocapture.training.config import candidate_input_index
-from aerocapture.training.cost import compute_cost
+from aerocapture.training.cost import CostSettings, per_sim_cost
 
 # Candidate-input (obs) indices read by the phase-aware potential, looked up by name
 # in the Rust-owned contract so they cannot drift from build_nn_input.
@@ -62,7 +62,7 @@ class StepRewardCalculator:
     dv1_weight: float = 1.0
     dv2_weight: float = 1.0
     dv3_weight: float = 1.0
-    cost_kwargs: dict = field(default_factory=dict)
+    cost_settings: CostSettings = field(kw_only=True)
 
     def __post_init__(self) -> None:
         if self.potential not in ("phase_aware", "dv"):
@@ -169,6 +169,6 @@ class StepRewardCalculator:
         return self.gamma * phi_next - phi_cur
 
 
-def compute_terminal_cost(final_record: npt.NDArray[np.float64], cost_kwargs: dict | None = None) -> float:
-    """Per-episode cost matching evaluate.compute_cost on a single record."""
-    return float(compute_cost(final_record.reshape(1, -1), **(cost_kwargs or {})))
+def compute_terminal_cost(final_record: npt.NDArray[np.float64], cost_settings: CostSettings) -> float:
+    """Per-episode cost: `cost.per_sim_cost` of one final record."""
+    return float(per_sim_cost(final_record, cost_settings))

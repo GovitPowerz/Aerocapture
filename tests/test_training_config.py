@@ -39,14 +39,14 @@ heat_flux_weight = 1000.0
         _toml = tomllib.load(f)
 
     cost_cfg = _toml.get("cost_function", {})
-    cost_kwargs = {
+    cost_settings = {
         "dv_threshold": float(cost_cfg.get("dv_threshold", 1000.0)),
         "g_load_limit": float(cost_cfg.get("g_load_limit", 15.0)),
         "heat_flux_limit": float(cost_cfg.get("heat_flux_limit", 200.0)),
         "g_load_weight": float(cost_cfg.get("g_load_weight", 1000.0)),
         "heat_flux_weight": float(cost_cfg.get("heat_flux_weight", 1000.0)),
     }
-    assert cost_kwargs["dv_threshold"] == 500.0
+    assert cost_settings["dv_threshold"] == 500.0
 
 
 def test_dv_threshold_default_when_missing(tmp_path: Path) -> None:

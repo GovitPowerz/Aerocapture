@@ -169,7 +169,7 @@ def _eval_cell(
     as the completion marker), and a replicate found there is loaded instead of flown, so an
     interrupted cell resumes where it stopped. The caller deletes the store once the cell is saved."""
     from aerocapture.training.cell_eval import _resolve_cell, evaluate_cell
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.toml_utils import load_toml_with_bases
 
     bundle_model = REPO / "articles/paper/data/runs" / bundle_key / "best_model.json" if bundle_key else None
@@ -180,7 +180,7 @@ def _eval_cell(
     # evaluate_cell will fly (a classical cell's optimized_<scheme>.toml, bases included), every
     # override, the sim timeout (a timed-out sim scores as a failure), and the flown model's bytes.
     eval_toml, cell_overrides = _resolve_cell(cell_dir, Path(toml), bundle_model)
-    cost_kwargs = read_cost_kwargs(eval_toml)
+    cost_settings = read_cost_settings(eval_toml)
     flown = {**cell_overrides, **overrides}
     model_path = flown.pop("data.neural_network", None)
     flight = {
@@ -213,7 +213,7 @@ def _eval_cell(
         model_used = res.overrides.get("data.neural_network")
         cap = res.captured
         x = np.sort(res.dv)
-        rep = {"replicate": r, **_replicate_stats(score_cell(res, cost_kwargs))}
+        rep = {"replicate": r, **_replicate_stats(score_cell(res, cost_settings))}
         failed = [int(s) for s, ok in zip(seeds, cap, strict=True) if not ok][:50]
         if failed:
             rep["failed_seeds"] = failed  # for post-hoc classification (timeout vs physical)

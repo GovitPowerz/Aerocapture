@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from aerocapture.training.chromosome_layout import ChromosomeLayout
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.param_spaces import _NN_LIVE_PARAMS, PARAM_SPACES, ParamSpec
 
 REPO = Path(__file__).resolve().parents[1]
@@ -77,7 +78,7 @@ class TestFreshStartSplice:
         config.warm_start.enabled = True
         config.optimizer.n_pop = 8
         init = ChromosomeLayout.from_specs(_setup_param_specs(config, toml_data, verbose=False), config.guidance_type)
-        problem = AerocaptureProblem(init.specs, str(toml_path), [0], {}, config.guidance_type, nn_config=config.network)
+        problem = AerocaptureProblem(init.specs, str(toml_path), [0], CostSettings(), config.guidance_type, nn_config=config.network)
         warm_specs = [ParamSpec(f"w_{i}", -7.0 - i, 7.0 + i, 0.0) for i in range(init.n_weights)]
         warm_chromo = np.full(init.width, 0.5)
         monkeypatch.setattr(warm_start, "build_warm_start_chromosome", lambda **_: (warm_chromo, warm_specs))
@@ -148,7 +149,7 @@ class TestProblemReadsTheLayout:
             param_specs=specs,
             toml_path="x.toml",
             seeds=[0],
-            cost_kwargs={},
+            cost_settings=CostSettings(),
             scheme="neural_network",
             nn_config=NetworkConfig(architecture=[{"type": "dense", "input_size": 2, "output_size": 2, "activation": "tanh"}], scaffolding="live"),
         )
@@ -161,7 +162,11 @@ class TestProblemReadsTheLayout:
         from aerocapture.training.problem import AerocaptureProblem
 
         prob = AerocaptureProblem(
-            param_specs=[*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)], toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="ftc"
+            param_specs=[*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)],
+            toml_path="x.toml",
+            seeds=[0],
+            cost_settings=CostSettings(),
+            scheme="ftc",
         )
         assert prob._joint_ref_bank is True
         prob.param_specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 60.0, 70.0, 65.0)]
@@ -170,6 +175,6 @@ class TestProblemReadsTheLayout:
     def test_rebinding_to_another_width_is_refused(self) -> None:
         from aerocapture.training.problem import AerocaptureProblem
 
-        prob = AerocaptureProblem(param_specs=list(PARAM_SPACES["ftc"]), toml_path="x.toml", seeds=[0], cost_kwargs={}, scheme="ftc")
+        prob = AerocaptureProblem(param_specs=list(PARAM_SPACES["ftc"]), toml_path="x.toml", seeds=[0], cost_settings=CostSettings(), scheme="ftc")
         with pytest.raises(ValueError, match="n_var"):
             prob.param_specs = [*PARAM_SPACES["ftc"], ParamSpec("ref_bank", 55.0, 80.0, 68.0)]

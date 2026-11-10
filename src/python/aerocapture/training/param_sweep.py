@@ -274,7 +274,7 @@ def _score_entry(entry: dict[str, Any], model: Path, seeds: list[int], sim_timeo
 
 
 def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_timeout: float | None, tag: str = "") -> list[dict[str, Any]]:
-    from aerocapture.training.report import compute_eval_summary, read_cost_kwargs
+    from aerocapture.training.report import compute_eval_summary, read_cost_settings
     from aerocapture.training.seeds import make_reserved_seeds
 
     seeds = make_reserved_seeds(base_seed, SWEEP_EVAL_SEED_OFFSET, n_sims)
@@ -284,9 +284,9 @@ def evaluate(manifest: list[dict[str, Any]], n_sims: int, base_seed: int, sim_ti
         if not model.exists():
             print(f"  skip {entry['arch']} {entry['params']}p (untrained: no {model})")
             continue
-        cost_kwargs = read_cost_kwargs(Path(entry["config"]))
+        cost_settings = read_cost_settings(Path(entry["config"]))
         res = _score_entry(entry, model, seeds, sim_timeout)
-        summary = compute_eval_summary(res.final_records, n_sims=n_sims, cost_kwargs=cost_kwargs)
+        summary = compute_eval_summary(res.final_records, n_sims=n_sims, cost_settings=cost_settings)
         row = {
             "arch": entry["arch"],
             "params": entry["params"],

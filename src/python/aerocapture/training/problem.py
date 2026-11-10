@@ -6,17 +6,16 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 import numpy as np
 import numpy.typing as npt
 from pymoo.core.problem import Problem
 
 from aerocapture.training.chromosome_layout import ChromosomeLayout
-from aerocapture.training.cost import compute_cost
+from aerocapture.training.cost import CostSettings, per_sim_cost
 from aerocapture.training.encoding import decode_normalized_array
 from aerocapture.training.param_spaces import SCAFFOLDING_PREFIXES, ParamSpec, check_chromosome_width, route_param_path
-from aerocapture.training.parquet_output import FINAL_RECORD_LEN
 
 _MAX_CONSECUTIVE_EVAL_FAILURES = 5
 
@@ -38,7 +37,7 @@ class PerSeedEvaluator(Protocol):
     param_specs: list[ParamSpec]
     toml_path: str
     seeds: list[int]
-    cost_kwargs: dict[str, Any]
+    cost_settings: CostSettings
 
     def update_seeds(self, seeds: list[int]) -> None: ...
     def evaluate_population_per_seed(self, X: npt.NDArray[np.float64], seeds: list[int]) -> npt.NDArray[np.float64]: ...
@@ -68,7 +67,7 @@ class AerocaptureProblem(Problem):
         param_specs: list[ParamSpec],
         toml_path: str,
         seeds: list[int],
-        cost_kwargs: dict[str, Any],
+        cost_settings: CostSettings,
         scheme: str,
         sim_timeout: float | None = None,
         nn_config: object | None = None,
@@ -76,7 +75,7 @@ class AerocaptureProblem(Problem):
         super().__init__(n_var=len(param_specs), n_obj=1, xl=0.0, xu=1.0)
         self.toml_path = toml_path
         self.seeds = seeds
-        self.cost_kwargs = cost_kwargs
+        self.cost_settings = cost_settings
         self.scheme = scheme
         self.sim_timeout = sim_timeout
         self.nn_config = nn_config
@@ -252,11 +251,7 @@ class AerocaptureProblem(Problem):
         """
         grid = self._run_grid_records(x.reshape(1, -1), seeds)  # (1, n_seeds, rec)
         final_records = grid[0]  # (n_seeds, FINAL_RECORD_LEN)
-        costs = np.array(
-            [compute_cost(final_records[k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs) for k in range(len(seeds))],
-            dtype=np.float64,
-        )
-        return costs, final_records
+        return per_sim_cost(final_records, self.cost_settings), final_records
 
     def _build_overrides(
         self,
@@ -288,12 +283,7 @@ class AerocaptureProblem(Problem):
         (ADR-0005) without a second MC pass.
         """
         grid = self._run_grid_records(X, seeds)
-        n_pop, n_seeds = X.shape[0], len(seeds)
-        costs = np.empty((n_pop, n_seeds), dtype=np.float64)
-        for i in range(n_pop):
-            for k in range(n_seeds):
-                costs[i, k] = compute_cost(grid[i, k].reshape(1, FINAL_RECORD_LEN), **self.cost_kwargs)
-        return costs, grid
+        return per_sim_cost(grid, self.cost_settings), grid
 
     def _build_grid_overrides(self, params: dict[str, float]) -> dict[str, object]:
         """Route param dict to TOML dot-path overrides for run_grid (no seed /

@@ -500,13 +500,13 @@ def test_run_finalists_records_and_forwards_the_regime(tmp_path: Path, monkeypat
 
     seen: list[str] = []
 
-    def fake_score(toml_path: str, model_path: Path, seeds: list[int], cost_kwargs: dict, extra: dict, timeout: float | None, noise_seeding: str) -> dict:
+    def fake_score(toml_path: str, model_path: Path, seeds: list[int], cost_settings: dict, extra: dict, timeout: float | None, noise_seeding: str) -> dict:
         seen.append(noise_seeding)
         return {"capture_rate": 1.0, "dv_p50": 1.0, "dv_p95": 1.0, "dv_p99": 1.0, "dv_cvar95": 1.0, "viol_pct": 0.0, "rms_cost": 1.0}
 
     monkeypatch.setattr(quantize, "_score_variant", fake_score)
     monkeypatch.setattr(quantize, "_resolve_pool", lambda toml, offset, n: ([1, 2, 3], {"base_mc_seed": 42, "offset": offset, "n": n}))
-    monkeypatch.setattr("aerocapture.training.ablation._load_cost_kwargs", lambda toml, cost_transform: {})
+    monkeypatch.setattr("aerocapture.training.ablation._load_cost_settings", lambda toml, cost_transform: {})
     params_dir = tmp_path / "cell"
     params_dir.mkdir()
     (params_dir / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.5}))

@@ -12,19 +12,17 @@ from __future__ import annotations
 import copy
 import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
 from aerocapture.training.config import candidate_input_names
+from aerocapture.training.cost import COST_TRANSFORMS, CostSettings, per_sim_cost
 from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401  (canary re-export; test_ablation asserts == 41)
-from aerocapture.training.parquet_output import FINAL_RECORD_LEN as _FINAL_RECORD_LEN
 
 # Index-aligned candidate-input names from the Rust contract (see config.candidate_input_names).
 NN_INPUT_NAMES: list[str] = candidate_input_names()
-
-_COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")
 
 
 def _resolve_nn_path(toml_path: str) -> Path:
@@ -39,40 +37,16 @@ def _resolve_nn_path(toml_path: str) -> Path:
     return Path(nn_path_str).resolve()
 
 
-def _load_cost_kwargs(toml_path: str, cost_transform: str | None = None) -> dict[str, Any]:
-    """Extract cost function kwargs from TOML config (mirrors training pipeline).
+def _load_cost_settings(toml_path: str, cost_transform: str | None = None) -> CostSettings:
+    """The TOML's cost settings (the training pipeline's reader).
 
     `cost_transform`, when not None, overrides the config's [cost_function] cost_transform
     (e.g. to avoid an inherited "cubed" blowing up the ablation cost ranking).
     """
     from aerocapture.training.toml_utils import load_toml_with_bases
 
-    if cost_transform is not None and cost_transform not in _COST_TRANSFORMS:
-        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected one of {_COST_TRANSFORMS})")
-
-    config = load_toml_with_bases(Path(toml_path))
-    kwargs: dict[str, Any] = {}
-    cost_cfg = config.get("cost_function", {})
-    if "dv_threshold" in cost_cfg:
-        kwargs["dv_threshold"] = float(cost_cfg["dv_threshold"])
-    if "g_load_weight" in cost_cfg:
-        kwargs["g_load_weight"] = float(cost_cfg["g_load_weight"])
-    if "heat_flux_weight" in cost_cfg:
-        kwargs["heat_flux_weight"] = float(cost_cfg["heat_flux_weight"])
-    if "heat_load_weight" in cost_cfg:
-        kwargs["heat_load_weight"] = float(cost_cfg["heat_load_weight"])
-    if "cost_transform" in cost_cfg:
-        kwargs["cost_transform"] = str(cost_cfg["cost_transform"])
-    if cost_transform is not None:
-        kwargs["cost_transform"] = cost_transform
-    constraints = config.get("flight", {}).get("constraints", {})
-    if "max_load_factor" in constraints:
-        kwargs["g_load_limit"] = float(constraints["max_load_factor"])
-    if "max_heat_flux" in constraints:
-        kwargs["heat_flux_limit"] = float(constraints["max_heat_flux"])
-    if "max_heat_load" in constraints:
-        kwargs["heat_load_limit"] = float(constraints["max_heat_load"])
-    return kwargs
+    settings = CostSettings.from_toml(load_toml_with_bases(Path(toml_path)))
+    return settings if cost_transform is None else replace(settings, cost_transform=cost_transform)
 
 
 def _noise_seeding(toml_path: str, extra_overrides: dict | None = None) -> str:
@@ -85,12 +59,9 @@ def _noise_seeding(toml_path: str, extra_overrides: dict | None = None) -> str:
     return str(load_toml_with_bases(Path(toml_path)).get("monte_carlo", {}).get("noise_seeding", "per_draw"))
 
 
-def _mean_per_sim_cost(final_records: np.ndarray, cost_kwargs: dict[str, Any]) -> float:
+def _mean_per_sim_cost(final_records: np.ndarray, cost_settings: CostSettings) -> float:
     """Compute mean per-sim cost using the training cost function."""
-    from aerocapture.training.cost import compute_cost
-
-    costs = np.array([compute_cost(fr.reshape(1, _FINAL_RECORD_LEN), **cost_kwargs) for fr in final_records])
-    return float(np.mean(costs))
+    return float(np.mean(per_sim_cost(final_records, cost_settings)))
 
 
 def run_ablation(
@@ -120,11 +91,11 @@ def run_ablation(
 
     nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
-    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
+    cost_settings = _load_cost_settings(toml_path, cost_transform=cost_transform)
 
     # Baseline run (no ablation)
     baseline = fly_mc(None, Path(toml_path), n_sims=n_sims, model=nn_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
-    baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
+    baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_settings)
 
     # Only ablate inputs that the model actually reads (in the mask).
     active_mask: set[int] | None = None
@@ -155,7 +126,7 @@ def run_ablation(
             tmp_model_path.write_text(json.dumps(ablated_json))
 
             ablated = fly_mc(None, Path(toml_path), n_sims=n_sims, model=tmp_model_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
-            ablated_mean = _mean_per_sim_cost(ablated.final_records, cost_kwargs)
+            ablated_mean = _mean_per_sim_cost(ablated.final_records, cost_settings)
             delta = ablated_mean - baseline_mean
 
             results.append(
@@ -177,7 +148,7 @@ def run_ablation(
         "baseline_cost": baseline_mean,
         "n_sims": n_sims,
         "noise_seeding": _noise_seeding(toml_path, extra_overrides),
-        "cost_transform": cost_kwargs.get("cost_transform", "linear"),
+        "cost_transform": cost_settings.cost_transform,
         "results": results,
         "ranked": ranked,
     }
@@ -207,10 +178,10 @@ def run_flip_ablation(
 
     nn_path = Path(model_path).resolve() if model_path is not None else _resolve_nn_path(toml_path)
     model_json = json.loads(nn_path.read_text())
-    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
+    cost_settings = _load_cost_settings(toml_path, cost_transform=cost_transform)
 
     baseline = fly_mc(None, Path(toml_path), n_sims=n_sims, model=nn_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
-    baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_kwargs)
+    baseline_mean = _mean_per_sim_cost(baseline.final_records, cost_settings)
 
     active_mask = set(model_json["input_mask"]) if model_json.get("input_mask") else None
     results = []
@@ -225,7 +196,7 @@ def run_flip_ablation(
                 fj["ablated_value"] = frozen
                 tmp_model_path.write_text(json.dumps(fj))
                 run = fly_mc(None, Path(toml_path), n_sims=n_sims, model=tmp_model_path, extra_overrides=extra_overrides, sim_timeout_secs=sim_timeout_secs)
-                mean = _mean_per_sim_cost(run.final_records, cost_kwargs)
+                mean = _mean_per_sim_cost(run.final_records, cost_settings)
                 results.append(
                     {
                         "index": idx,
@@ -239,7 +210,7 @@ def run_flip_ablation(
         "baseline_cost": baseline_mean,
         "n_sims": n_sims,
         "noise_seeding": _noise_seeding(toml_path, extra_overrides),
-        "cost_transform": cost_kwargs.get("cost_transform", "linear"),
+        "cost_transform": cost_settings.cost_transform,
         "results": results,
     }
 
@@ -255,7 +226,7 @@ def main() -> None:
     parser.add_argument("--flip", action="store_true", help="freeze binary flags to -1/+1 instead of zero-ablation")
     parser.add_argument(
         "--cost-transform",
-        choices=list(_COST_TRANSFORMS),
+        choices=list(COST_TRANSFORMS),
         default=None,
         help="override [cost_function] cost_transform for this ablation run (e.g. log -- avoids cubed corrupting the ranking)",
     )

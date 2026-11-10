@@ -12,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.param_spaces import JOINT_REF_BANK_SCHEMES, PARAM_SPACES
 from aerocapture.training.problem import AerocaptureProblem
 from aerocapture.training.training_config import _setup_param_specs, build_training_config_from_toml
@@ -57,7 +58,7 @@ class TestProblemIntegration:
         cfg, toml = build_training_config_from_toml(FTC_TOML)
         toml["reference"] = {"joint_bank": True}
         specs = _setup_param_specs(cfg, toml, verbose=False)
-        return AerocaptureProblem(param_specs=specs, toml_path=FTC_TOML, seeds=[1, 2], cost_kwargs={}, scheme="ftc")
+        return AerocaptureProblem(param_specs=specs, toml_path=FTC_TOML, seeds=[1, 2], cost_settings=CostSettings(), scheme="ftc")
 
     def test_ref_bank_not_routed_to_guidance_toml(self) -> None:
         ov = self._problem()._build_grid_overrides({"ref_bank": 68.0, "capture_damping": 0.05})
@@ -77,7 +78,7 @@ class TestProblemIntegration:
         assert np.abs(d[:, 0]).max() < 100.0  # MJ/kg contract
 
     def test_joint_ref_disabled_without_gene(self) -> None:
-        problem = AerocaptureProblem(param_specs=PARAM_SPACES["ftc"], toml_path=FTC_TOML, seeds=[1], cost_kwargs={}, scheme="ftc")
+        problem = AerocaptureProblem(param_specs=PARAM_SPACES["ftc"], toml_path=FTC_TOML, seeds=[1], cost_settings=CostSettings(), scheme="ftc")
         assert problem._joint_ref_bank is False
 
 

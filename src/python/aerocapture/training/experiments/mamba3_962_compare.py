@@ -24,7 +24,7 @@ CONFIG_DIR = Path("configs/training/mamba3_962")
 def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, Any]:
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.sizing_tail import score_cell
 
     config = CONFIG_DIR / f"{arm}.toml"
@@ -32,7 +32,7 @@ def _score(arm: str, seeds: list[int], sim_timeout: float | None) -> dict[str, A
     res = evaluate_cell(
         OUT_DIR / arm, config, seeds, model=OUT_DIR / arm / "best_model.json", extra_overrides=LEGACY_NOISE_REGIME, sim_timeout_secs=sim_timeout
     )
-    rec = score_cell(res, read_cost_kwargs(config), pool="MAMBA3_EVAL")
+    rec = score_cell(res, read_cost_settings(config), pool="MAMBA3_EVAL")
     nan = float("nan")
     return {
         "capture_rate": rec["n_captured"] / rec["n"],

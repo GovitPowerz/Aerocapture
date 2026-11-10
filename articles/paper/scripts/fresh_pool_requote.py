@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> None:
 
     from aerocapture.training.cell_eval import evaluate_cell
     from aerocapture.training.deploy_overrides import LEGACY_NOISE_REGIME, load_scaffolding_overrides
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
     from aerocapture.training.sizing_tail import score_cell
 
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> None:
         run_dir, Path(args.toml), pool=(HEADLINE_REQUOTE_SEED_OFFSET, args.n_sims), extra_overrides=regime, sim_timeout_secs=args.sim_timeout
     )
 
-    out = {**score_cell(results, read_cost_kwargs(Path(args.toml)), pool="fresh (offset 8M)"), "scaffolding_applied": sorted(scaffolding)}
+    out = {**score_cell(results, read_cost_settings(Path(args.toml)), pool="fresh (offset 8M)"), "scaffolding_applied": sorted(scaffolding)}
     out_path = run_dir / "fresh_pool_requote.json"
     out_path.write_text(json.dumps(out, indent=2))
     print(json.dumps(out, indent=2))

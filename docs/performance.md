@@ -74,7 +74,7 @@ Settings: GA, adaptive seeds, curation every 2 generations on 1000 sampled seeds
 1000-seed validation gate. Each run covers 20 generations with the plain display (no Rich TUI);
 the once-per-run final selection is excluded. Every loop phase is timed. Inside each phase the
 driver separates the time in `aerocapture_rs.run_grid`, in the Python that prepares the call and
-in `compute_cost`.
+in the cost function.
 
 ![per-generation profile](../experiments/throughput/fig_generation_profile.svg)
 
@@ -98,6 +98,14 @@ methodology's own simulations take 54%: re-scoring the parents on fresh seeds, c
 seed set and validating a new argmin. That is the price of the methodology the paper found
 load-bearing, not overhead. The Python side is 0.22 s per generation and grows only through the
 per-cell cost function (0.31 s at 512 x 10), so its share falls from 16% to 7%.
+
+*Since this profile (#241).* The cost function now scores the whole `(n_pop, n_seeds, 52)` grid in
+one array call (`cost.per_sim_cost`) instead of one call per cell, bit-identical to the loop
+(`tests/test_cost.py::TestPerSimCost`). Same machine, same 20 generations, before and after on
+one day: the cost term goes from 0.032 to 0.0002 s per generation at 512 x 2 and from 0.105 to
+0.0005 s at 512 x 10. The generation wall did not move outside the run-to-run drift (1.086 to
+1.077 s and 3.047 to 3.083 s), as a 3% term cannot. The table above, the figure and rows 3-4 of
+the hotspot table below predate the change and are not regenerated.
 
 The loop's own per-generation stamp (`gen_elapsed_s`, from `advance` to `emit`, the number a
 campaign's JSONL records) has a median of 1.02 s at 512 x 2 and 2.58 s at 512 x 10. It excludes
@@ -278,7 +286,8 @@ Amdahl ceilings are the only quantitative claim here.
 
 **Cheaper wins first.** Measured above, on the CPU, without touching the physics: duplicate
 elimination (8% of a generation), the per-generation diversity metric (2%) and scalar per-cell
-cost calls (2.5%, vectorizable). Together about 12% of a paper-allocation generation.
+cost calls (2.5%, vectorized since: see the note in section 3). Together about 12% of a
+paper-allocation generation.
 
 **Verdict.** Not worth building for the paper's allocation. The measured ceiling is about 6x, and
 the port gives up the bit identity and physics validation the results rest on. Worth building

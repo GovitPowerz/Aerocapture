@@ -17,10 +17,13 @@ import json
 import math
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from aerocapture.training.cost import CostSettings
 
 _GRANULARITIES = ("per_channel", "per_tensor")
 _TENSOR_POLICIES = ("all", "proj_only")
@@ -249,7 +252,7 @@ def _score_variant(
     toml_path: str,
     model_path: str | Path,
     seeds: list[int],
-    cost_kwargs: dict[str, Any],
+    cost_settings: CostSettings,
     extra_overrides: dict[str, Any],
     sim_timeout_secs: float | None,
     noise_seeding: str = "legacy",
@@ -269,7 +272,7 @@ def _score_variant(
         extra_overrides={**_regime_overrides(noise_seeding), **extra_overrides},
         sim_timeout_secs=sim_timeout_secs,
     )
-    rec = score_cell(res, cost_kwargs)  # the pool is the sweep file's `pool` block
+    rec = score_cell(res, cost_settings)  # the pool is the sweep file's `pool` block
     return {
         "capture_rate": rec["n_captured"] / rec["n"],
         **{k: rec.get(k) for k in ("dv_p50", "dv_p95", "dv_p99", "dv_cvar95")},
@@ -332,16 +335,16 @@ def run_quant_sweep(
     if loo_bits is not None and loo_bits not in bits:
         raise ValueError(f"loo_bits={loo_bits} must be one of the swept bits {tuple(bits)} (the verdict cell is picked from that grid)")
 
-    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.ablation import _load_cost_settings
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)
     scaff = _scaffolding_overrides(params_dir, toml_path)
-    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
+    cost_settings = _load_cost_settings(toml_path, cost_transform=cost_transform)
     model_json = json.loads(Path(model_path).read_text())
 
-    baseline = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
+    baseline = _score_variant(toml_path, model_path, seeds, cost_settings, scaff, sim_timeout_secs, noise_seeding)
 
     def deltas(m: dict[str, Any]) -> dict[str, Any]:
         m["delta_capture_rate"] = m["capture_rate"] - baseline["capture_rate"]
@@ -359,7 +362,7 @@ def run_quant_sweep(
             for policy in policies:
                 for b in bits:
                     tmp.write_text(json.dumps(quantize_model_weights(model_json, b, gran, policy)))
-                    m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
+                    m = _score_variant(toml_path, tmp, seeds, cost_settings, scaff, sim_timeout_secs, noise_seeding)
                     m.update({"granularity": gran, "tensor_policy": policy, "bits": b})
                     variants.append(deltas(m))
                     print(f"  scored bits={b} gran={gran} policy={policy}: capture={m['capture_rate']:.3f}")
@@ -369,7 +372,7 @@ def run_quant_sweep(
             assert verdict is not None
             for key, *_ in _quantizable_tensors(model_json, "all"):
                 tmp.write_text(json.dumps(quantize_model_weights(model_json, loo_bits, verdict["granularity"], "all", only_tensor=key)))
-                m = _score_variant(toml_path, tmp, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
+                m = _score_variant(toml_path, tmp, seeds, cost_settings, scaff, sim_timeout_secs, noise_seeding)
                 m.update({"tensor": key, "bits": loo_bits, "granularity": verdict["granularity"]})
                 loo.append(deltas(m))
                 print(f"  scored LOO {key}: capture={m['capture_rate']:.3f}")
@@ -410,12 +413,12 @@ def run_finalists(
     QAT-deployed models pass quantize=None (their best_model.json is already on-grid);
     the PTQ finalist passes the verdict cell so the champion is rounded on the fly.
     """
-    from aerocapture.training.ablation import _load_cost_kwargs
+    from aerocapture.training.ablation import _load_cost_settings
     from aerocapture.training.seeds import HEADLINE_REQUOTE_SEED_OFFSET
 
     offset = HEADLINE_REQUOTE_SEED_OFFSET if pool_offset is None else pool_offset
     seeds, pool = _resolve_pool(toml_path, offset, n_sims)
-    cost_kwargs = _load_cost_kwargs(toml_path, cost_transform=cost_transform)
+    cost_settings = _load_cost_settings(toml_path, cost_transform=cost_transform)
 
     rows: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -429,7 +432,7 @@ def run_finalists(
                 )
                 model_path = tmp
             scaff = _scaffolding_overrides(e.get("params_dir"), toml_path)
-            m = _score_variant(toml_path, model_path, seeds, cost_kwargs, scaff, sim_timeout_secs, noise_seeding)
+            m = _score_variant(toml_path, model_path, seeds, cost_settings, scaff, sim_timeout_secs, noise_seeding)
             rows.append(
                 {
                     "label": e["label"],

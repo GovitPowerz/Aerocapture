@@ -200,7 +200,7 @@ def _compute_advantages_returns(
 def _build_shaper_and_norms(
     cfg: RLConfig, input_mask: list[int], gamma: float, toml_path: Path
 ) -> tuple[StepRewardCalculator, ReturnNormalizer | None, ObsNormalizer | None]:
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
 
     step_calc = StepRewardCalculator(
         input_mask=input_mask,
@@ -215,7 +215,7 @@ def _build_shaper_and_norms(
         dv1_weight=cfg.reward.dv1_weight,
         dv2_weight=cfg.reward.dv2_weight,
         dv3_weight=cfg.reward.dv3_weight,
-        cost_kwargs=read_cost_kwargs(toml_path),
+        cost_settings=read_cost_settings(toml_path),
     )
     ret_norm = ReturnNormalizer(gamma=gamma, warmup_steps=cfg.reward.norm_warmup_steps) if cfg.reward.normalize_returns else None
     obs_norm = ObsNormalizer(obs_dim=len(input_mask)) if cfg.reward.normalize_obs else None
@@ -257,11 +257,11 @@ def _evaluate_model(toml_path: Path, model: Path, cfg: RLConfig, seed_offset: in
 
 def _validation_record(toml_path: Path, model: Path, cfg: RLConfig) -> dict[str, Any]:
     from aerocapture.training.cost import compute_cost
-    from aerocapture.training.report import read_cost_kwargs
+    from aerocapture.training.report import read_cost_settings
     from aerocapture.training.seeds import VALIDATION_SEED_OFFSET
 
     res = _evaluate_model(toml_path, model, cfg, VALIDATION_SEED_OFFSET)
-    rms_cost = float(compute_cost(res.final_records, **read_cost_kwargs(toml_path)))
+    rms_cost = compute_cost(res.final_records, read_cost_settings(toml_path))
     return {"val_rms_cost": rms_cost, "val_capture_rate": float(np.mean(res.captured))}
 
 
@@ -299,12 +299,12 @@ def _validate_deterministic_v1(
 
 
 def _run_final_eval(toml_path: Path, best_model: Path, cfg: RLConfig) -> None:
-    from aerocapture.training.report import print_eval_summary, read_cost_kwargs
+    from aerocapture.training.report import print_eval_summary, read_cost_settings
     from aerocapture.training.seeds import FINAL_EVAL_SEED_OFFSET
 
     print(f"\nRunning {cfg.validation_n_sims}-sim final evaluation...", file=sys.stderr)
     res = _evaluate_model(toml_path, best_model, cfg, FINAL_EVAL_SEED_OFFSET)
-    print_eval_summary(res.final_records, cfg.validation_n_sims, cost_kwargs=read_cost_kwargs(toml_path))
+    print_eval_summary(res.final_records, cfg.validation_n_sims, cost_settings=read_cost_settings(toml_path))
 
 
 # ---------------------------------------------------------------------------
@@ -581,7 +581,7 @@ def collect_rollout(
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
-                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
+                term_cost = compute_terminal_cost(fr, cost_settings=step_calc.cost_settings)
                 # Truncated (max_time timeout) episodes bootstrap V(next_obs_true)
                 # through GAE instead -- adding the timeout virtual-DV cost on
                 # top would count the terminal state twice in the value target.
@@ -1003,7 +1003,7 @@ def _run_sac(
         for i, d in enumerate(done):
             if d:
                 fr = np.array(info[i]["final_record"], dtype=np.float64)
-                term_cost = compute_terminal_cost(fr, cost_kwargs=step_calc.cost_kwargs)
+                term_cost = compute_terminal_cost(fr, cost_settings=step_calc.cost_settings)
                 # Truncated (max_time timeout) episodes bootstrap Q(next_obs_true)
                 # via (1-done)*Q(next) instead -- adding the timeout virtual-DV
                 # cost on top would count the terminal state twice.

@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from aerocapture.io.parse_final import FINAL_CSV_COLUMNS, parse_final
 from aerocapture.io.parse_photo import PHOTO_CSV_COLUMNS, parse_photo
+from aerocapture.training.cost import CostSettings
 
 
 class TestParsePhoto:
@@ -128,7 +129,7 @@ class TestComputeCost:
         final[0, 30] = 20.0  # apo_err (km)
         final[0, 41] = 100.0  # dv_total (m/s)
 
-        cost = compute_cost(final)
+        cost = compute_cost(final, CostSettings())
         assert cost > 0
         assert cost < 300, f"Good capture (DV=100) should produce low cost, got {cost}"
 
@@ -142,5 +143,5 @@ class TestComputeCost:
         final[0, 27] = 100.0  # sim_time
         final[0, 41] = 12000.0  # Rust assigns 10000 + excess_velocity for hyperbolic
 
-        cost = compute_cost(final)
+        cost = compute_cost(final, CostSettings())
         assert cost > 10000  # Well above threshold, heavy non-capture penalty

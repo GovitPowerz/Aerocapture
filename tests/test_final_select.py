@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from aerocapture.training.champion import Champion
+from aerocapture.training.cost import CostSettings
 from aerocapture.training.final_select import (
     KnownCandidate,
     SelectionResult,
@@ -31,12 +32,11 @@ class _MockProblem:
         return out
 
     def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
-        # Zero records: no constraint values, so feasibility only bites when a
-        # test passes cost_kwargs with limits (these mocks don't).
+        # Zero records: no constraint value exceeds a limit, so every candidate is feasible.
         return self.evaluate_population_per_seed(X, seeds), np.zeros((X.shape[0], len(seeds), 52))
 
     # The retro CLI re-validates checkpoint champions through this (ADR-0005).
-    cost_kwargs: dict[str, object] = {}
+    cost_settings = CostSettings()
 
     def evaluate_individual_records_per_seed(self, x: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
         costs, records = self.evaluate_population_records_per_seed(x.reshape(1, -1), seeds)
@@ -57,7 +57,7 @@ class TestSelectionRule:
         champ = np.full(4, 0.5)
         cands = np.vstack([np.full(4, 0.4), np.full(4, 0.6)])
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], known, SEEDS, cost_settings=CostSettings())
         assert sel.promoted
         assert sel.provenance == "last_gen[0]"
         assert sel.winner_index == 0
@@ -69,7 +69,7 @@ class TestSelectionRule:
         champ = np.full(4, 0.1)
         cands = np.vstack([np.full(4, 0.4), np.full(4, 0.6)])
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], known, SEEDS, cost_settings=CostSettings())
         assert not sel.promoted
         assert sel.provenance == "champion"
         assert sel.winner_index is None
@@ -80,7 +80,7 @@ class TestSelectionRule:
         champ = np.full(4, 0.4)
         cands = np.vstack([np.full(4, 0.4) + np.array([0.1, -0.1, 0.0, 0.0])])  # same sum -> same rms
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS, cost_settings=CostSettings())
         assert not sel.promoted
         assert sel.provenance == "champion"
 
@@ -89,7 +89,7 @@ class TestSelectionRule:
         champ = np.full(4, 0.5)
         cands = np.vstack([champ, np.full(4, 0.4), np.full(4, 0.4), np.full(4, 0.6)])
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"], known, SEEDS, cost_settings=CostSettings())
         # champ row + one duplicate skipped: only 2 unique fresh rows simulated
         assert len(problem.evaluated) == 2
         assert sel.n_candidates == 4
@@ -109,7 +109,7 @@ class TestSelectionRule:
         problem = _NaNProblem()
         champ = np.full(4, 0.5)
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], known, SEEDS)
+        sel = select_final_individual(problem, np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], known, SEEDS, cost_settings=CostSettings())
         assert not sel.promoted
         assert sel.provenance == "champion"
         # non-finite candidates are visible in the sidecar records as null val_rms
@@ -119,7 +119,7 @@ class TestSelectionRule:
     def test_no_known_candidates_promotes_best_fresh(self) -> None:
         problem = _MockProblem()
         cands = np.vstack([np.full(4, 0.6), np.full(4, 0.4)])
-        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], [], SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]", "last_gen[1]"], [], SEEDS, cost_settings=CostSettings())
         assert sel.promoted
         assert sel.provenance == "last_gen[1]"
 
@@ -129,7 +129,7 @@ class TestSelectionRule:
                 return np.full((X.shape[0], len(seeds)), np.nan)
 
         with pytest.raises(ValueError, match="no finite candidate"):
-            select_final_individual(_NaNProblem(), np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], [], SEEDS)
+            select_final_individual(_NaNProblem(), np.vstack([np.full(4, 0.4)]), ["last_gen[0]"], [], SEEDS, cost_settings=CostSettings())
 
     def test_islands_known_multiple_champions_incumbent_is_lowest(self) -> None:
         problem = _MockProblem()
@@ -140,7 +140,7 @@ class TestSelectionRule:
             KnownCandidate(x=c_pso, provenance="pso:champion", val_rms=_rms(c_pso, SEEDS)),
         ]
         cands = np.vstack([np.full(4, 0.25)])  # beats ga champion, not pso champion
-        sel = select_final_individual(problem, cands, ["de:last_gen[0]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["de:last_gen[0]"], known, SEEDS, cost_settings=CostSettings())
         assert not sel.promoted
         assert sel.provenance == "pso:champion"
 
@@ -149,7 +149,7 @@ class TestSelectionRule:
         champ = np.full(4, 0.5)
         cands = np.vstack([np.full(4, 0.4)])
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        sel = select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS)
+        sel = select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS, cost_settings=CostSettings())
         provs = {e["provenance"] for e in sel.candidate_rms}
         assert provs == {"champion", "last_gen[0]"}
         # ordering contract: known candidates first, then fresh in candidate order
@@ -157,7 +157,7 @@ class TestSelectionRule:
 
     def test_candidates_provenances_length_mismatch_raises(self) -> None:
         with pytest.raises(ValueError, match="length mismatch"):
-            select_final_individual(_MockProblem(), np.vstack([np.full(4, 0.4)]), ["a", "b"], [], SEEDS)
+            select_final_individual(_MockProblem(), np.vstack([np.full(4, 0.4)]), ["a", "b"], [], SEEDS, cost_settings=CostSettings())
 
 
 class TestSidecarAndSummary:
@@ -166,7 +166,7 @@ class TestSidecarAndSummary:
         champ = np.full(4, 0.5)
         cands = np.vstack([np.full(4, 0.4)])
         known = [KnownCandidate(x=champ, provenance="champion", val_rms=_rms(champ, SEEDS))]
-        return select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS)
+        return select_final_individual(problem, cands, ["last_gen[0]"], known, SEEDS, cost_settings=CostSettings())
 
     def test_sidecar_schema(self, tmp_path: Path) -> None:
         sel = self._result()
@@ -210,21 +210,19 @@ class TestWarmStartBoundsLoader:
 
 
 class TestSharedTrainHelpers:
-    def test_build_cost_kwargs_defaults_and_overrides(self) -> None:
-        from aerocapture.training.cost import build_cost_kwargs
-
-        kw = build_cost_kwargs({})
-        assert kw["dv_threshold"] == 1000.0
-        assert kw["cost_transform"] == "linear"
-        kw2 = build_cost_kwargs(
+    def test_cost_settings_defaults_and_overrides(self) -> None:
+        cs = CostSettings.from_toml({})
+        assert cs.dv_threshold == 1000.0
+        assert cs.cost_transform == "linear"
+        cs2 = CostSettings.from_toml(
             {
                 "cost_function": {"dv_threshold": 500.0, "cost_transform": "log"},
                 "flight": {"constraints": {"max_load_factor": 4.0}},
             }
         )
-        assert kw2["dv_threshold"] == 500.0
-        assert kw2["g_load_limit"] == 4.0
-        assert kw2["cost_transform"] == "log"
+        assert cs2.dv_threshold == 500.0
+        assert cs2.g_load_limit == 4.0
+        assert cs2.cost_transform == "log"
 
     def test_write_best_artifacts_non_nn(self, tmp_path: Path) -> None:
         from aerocapture.training.artifacts import write_best_artifacts
@@ -441,7 +439,7 @@ class TestRunFinalSelect:
         from aerocapture.training.param_spaces import ParamSpec
 
         class _InfeasibleChampionProblem(_MockProblem):
-            cost_kwargs = {"heat_load_limit": 25000.0}
+            cost_settings = CostSettings(heat_load_limit=25000.0)
 
             def evaluate_population_records_per_seed(self, X: np.ndarray, seeds: list[int]) -> tuple[np.ndarray, np.ndarray]:
                 costs, records = super().evaluate_population_records_per_seed(X, seeds)
@@ -563,7 +561,7 @@ class _TailMockProblem(_MockProblem):
     x[0] == 0.9 with x[1] == 0 exceeds the heat-load limit on every draw. Records every call's
     (n_rows, seeds)."""
 
-    cost_kwargs = {"heat_load_limit": 25000.0}
+    cost_settings = CostSettings(heat_load_limit=25000.0)
 
     def __init__(self) -> None:
         super().__init__()
@@ -604,7 +602,9 @@ class TestTailRule:
         from aerocapture.training.final_select import select_tail_individual
 
         problem = problem or _TailMockProblem()
-        return select_tail_individual(problem, cands, provs, known, SEEDS, tail_seeds or SEEDS, _POOL, max_violation_rate=0.0, cost_kwargs=problem.cost_kwargs)
+        return select_tail_individual(
+            problem, cands, provs, known, SEEDS, tail_seeds or SEEDS, _POOL, max_violation_rate=0.0, cost_settings=problem.cost_settings
+        )
 
     def test_gate_then_capture_then_cvar95(self) -> None:
         provs = ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"]
@@ -620,7 +620,7 @@ class TestTailRule:
     def test_rms_rule_disagrees_on_the_same_rows(self) -> None:
         problem = _TailMockProblem()
         provs = ["last_gen[0]", "last_gen[1]", "last_gen[2]", "last_gen[3]"]
-        sel = select_final_individual(problem, np.vstack([_A, _B, _C, _D]), provs, [], SEEDS, max_violation_rate=0.0, cost_kwargs=problem.cost_kwargs)
+        sel = select_final_individual(problem, np.vstack([_A, _B, _C, _D]), provs, [], SEEDS, max_violation_rate=0.0, cost_settings=problem.cost_settings)
         assert sel.provenance == "last_gen[2]" and sel.criterion == "rms" and sel.tail_pool is None and sel.winner_tail is None
 
     def test_champion_is_scored_as_a_row_and_deduped(self) -> None:
@@ -640,7 +640,7 @@ class TestTailRule:
         assert problem.calls == [(4, SEEDS), (3, tail_seeds)]  # D gated out on the validation pool
         assert sel.provenance == "last_gen[1]" and sel.winner_tail is not None and sel.winner_tail["n"] == 6
         assert sel.winner_tail["dv_cvar95"] == 250.0  # B on six seeds: 100..250
-        assert sel.winner_tail["violation_rates"] == {"heat_load": 0.0} and "feasible" not in sel.winner_tail
+        assert sel.winner_tail["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.0} and "feasible" not in sel.winner_tail
 
     def test_tail_pool_violations_are_reported_not_gated(self) -> None:
         """The gate is the validation pool's (ADR-0005 at its size): a survivor that exceeds a limit
@@ -659,7 +659,7 @@ class TestTailRule:
 
         sel = self._select(np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [], [11, 12, 13, 14], _TailOnlyViolation())
         assert sel.provenance == "last_gen[1]" and sel.winner_feasible
-        assert sel.winner_tail is not None and sel.winner_tail["violation_rates"] == {"heat_load": 0.25}
+        assert sel.winner_tail is not None and sel.winner_tail["violation_rates"] == {"heat_flux": 0.0, "g_load": 0.0, "heat_load": 0.25}
 
     def test_no_feasible_row_deploys_best_rms_with_warning(self, capsys) -> None:  # type: ignore[no-untyped-def]
         sel = self._select(np.vstack([_D]), ["last_gen[0]"], [])
@@ -672,7 +672,7 @@ class TestTailRule:
         data = json.loads((tmp_path / "final_selection.json").read_text())
         assert data["criterion"] == "cvar95" and data["tail_pool"] == _POOL and data["winner"]["tail"]["dv_cvar95"] == 190.0
         problem = _TailMockProblem()
-        rms = select_final_individual(problem, np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [], SEEDS, cost_kwargs=problem.cost_kwargs)
+        rms = select_final_individual(problem, np.vstack([_A, _B]), ["last_gen[0]", "last_gen[1]"], [], SEEDS, cost_settings=problem.cost_settings)
         write_final_selection_json(tmp_path, rms, len(SEEDS))
         data = json.loads((tmp_path / "final_selection.json").read_text())
         assert "criterion" not in data and "tail_pool" not in data and "tail" not in data["winner"]
