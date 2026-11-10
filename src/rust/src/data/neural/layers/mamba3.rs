@@ -11,7 +11,8 @@
 //! (re, im) to preserve cross-language bit-identity with the Python mirror.
 //! See docs/design/2026-07-07-mamba3-ablation-design.md.
 
-use super::helpers::{expm1_over_x, softplus}; // real path reuses expm1_over_x (bit-identity anchor)
+use super::helpers::expm1_over_x; // real path reuses expm1_over_x (bit-identity anchor)
+use super::mamba::{MambaScratch, a_from_log, a_is_current};
 use super::tensor::tensor_table;
 
 /// Mamba-3 ablation layer. `trapezoidal` / `complex` are orthogonal opt-in flags.
@@ -26,24 +27,49 @@ pub struct Mamba3Layer {
     pub x_proj_w: nalgebra::DMatrix<f64>, // (dt_rank + 2*d_state, input_size)
     pub dt_proj_w: nalgebra::DMatrix<f64>, // (input_size, dt_rank)
     pub dt_proj_b: nalgebra::DVector<f64>, // (input_size,)
-    pub a_log: nalgebra::DMatrix<f64>,    // (input_size, d_state)
+    // Private with `lambda_logit`: the only write path is a load, which
+    // rebuilds the derived `a` / `lam`.
+    a_log: nalgebra::DMatrix<f64>,              // (input_size, d_state)
     pub a_imag: Option<nalgebra::DMatrix<f64>>, // (input_size, d_state) iff complex
-    pub lambda_logit: Option<nalgebra::DVector<f64>>, // (input_size,) iff trapezoidal
-    pub d_skip: nalgebra::DVector<f64>,   // (input_size,)
+    lambda_logit: Option<nalgebra::DVector<f64>>, // (input_size,) iff trapezoidal
+    pub d_skip: nalgebra::DVector<f64>,         // (input_size,)
+
+    // Derived, rebuilt by `rebuild_derived` on every load; not in the flat
+    // chromosome or the JSON.
+    a: nalgebra::DMatrix<f64>,   // -exp(a_log)
+    lam: nalgebra::DVector<f64>, // sigmoid(lambda_logit); 1.0 in euler mode
 }
 
 // Flat order: x_proj_w, dt_proj_w, dt_proj_b, a_log, [a_imag iff complex],
 // [lambda_logit iff trapezoidal], d_skip. The two `Option` fields are present
 // exactly when `zeros` built them, so the flags fix the table at construction.
-tensor_table!(Mamba3Layer {
-    x_proj_w,
-    dt_proj_w,
-    dt_proj_b,
-    a_log,
-    a_imag,
-    lambda_logit,
-    d_skip
-});
+tensor_table!(
+    Mamba3Layer {
+        x_proj_w,
+        dt_proj_w,
+        dt_proj_b,
+        a_log,
+        a_imag,
+        lambda_logit,
+        d_skip
+    },
+    post_load = rebuild_derived
+);
+
+fn sigmoid(l: f64) -> f64 {
+    1.0 / (1.0 + (-l).exp())
+}
+
+/// Trapezoidal weight `lambda = sigmoid(lambda_logit)`; 1.0 (euler) without one.
+fn lam_from_logit(
+    lambda_logit: Option<&nalgebra::DVector<f64>>,
+    input_size: usize,
+) -> nalgebra::DVector<f64> {
+    lambda_logit.map_or_else(
+        || nalgebra::DVector::from_element(input_size, 1.0),
+        |ll| ll.map(sigmoid),
+    )
+}
 
 impl Mamba3Layer {
     /// Zero-weight constructor for the given shape + flags (weights filled by `from_flat`).
@@ -54,6 +80,8 @@ impl Mamba3Layer {
         trapezoidal: bool,
         complex: bool,
     ) -> Self {
+        let a_log = nalgebra::DMatrix::zeros(input_size, d_state);
+        let lambda_logit = trapezoidal.then(|| nalgebra::DVector::zeros(input_size));
         Self {
             input_size,
             d_state,
@@ -63,66 +91,79 @@ impl Mamba3Layer {
             x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
             dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
             dt_proj_b: nalgebra::DVector::zeros(input_size),
-            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
+            a: a_from_log(&a_log),
+            a_log,
             a_imag: if complex {
                 Some(nalgebra::DMatrix::zeros(input_size, d_state))
             } else {
                 None
             },
-            lambda_logit: if trapezoidal {
-                Some(nalgebra::DVector::zeros(input_size))
-            } else {
-                None
-            },
+            lam: lam_from_logit(lambda_logit.as_ref(), input_size),
+            lambda_logit,
             d_skip: nalgebra::DVector::zeros(input_size),
         }
     }
 
-    /// Single-tick forward. Mutates state in place, returns `y` (length input_size).
+    pub fn lambda_logit(&self) -> Option<&nalgebra::DVector<f64>> {
+        self.lambda_logit.as_ref()
+    }
+
+    /// Recompute the derived `a` / `lam`. Both load paths (JSON and PSO
+    /// chromosome) reach it through the table's `post_load` hook.
+    fn rebuild_derived(&mut self) {
+        self.a = a_from_log(&self.a_log);
+        self.lam = lam_from_logit(self.lambda_logit.as_ref(), self.input_size);
+    }
+
+    fn derived_is_current(&self) -> bool {
+        a_is_current(&self.a, &self.a_log)
+            && self.lam.len() == self.input_size
+            && match &self.lambda_logit {
+                Some(ll) => self
+                    .lam
+                    .iter()
+                    .zip(ll.iter())
+                    .all(|(lam, l)| lam.to_bits() == sigmoid(*l).to_bits()),
+                None => self.lam.iter().all(|lam| *lam == 1.0),
+            }
+    }
+
+    /// Single-tick forward. Mutates state in place, returns `y` (length input_size)
+    /// borrowed from `scratch`. Allocates nothing.
     ///
     /// State: `h_re`/`h_im` are `(input_size, d_state)` (h_im unused in real mode);
-    /// `x_prev` is `(input_size,)`, `b_prev` is `(d_state,)` (both unused in euler mode).
+    /// `x_prev` is `(input_size,)`, `b_prev` is `(d_state,)` (both unused in euler mode);
+    /// `scratch` is `MambaScratch::new(input_size, d_state, dt_rank)`.
     ///
     /// Real mode reuses `expm1_over_x` (with `exp_m1`) so `real`+`euler` is bit-identical
     /// to `MambaLayer::forward`. Complex mode uses `expm1_over_x_complex`. Trapezoidal adds
     /// the `(1-lambda)` cross term on the previous (B, x); `lambda -> 1` recovers euler.
-    pub fn forward(
+    pub fn forward<'s>(
         &self,
         x: &[f64],
         h_re: &mut nalgebra::DMatrix<f64>,
         h_im: &mut nalgebra::DMatrix<f64>,
         x_prev: &mut nalgebra::DVector<f64>,
         b_prev: &mut nalgebra::DVector<f64>,
-    ) -> Vec<f64> {
+        scratch: &'s mut MambaScratch,
+    ) -> &'s [f64] {
         debug_assert_eq!(x.len(), self.input_size);
+        debug_assert!(
+            self.derived_is_current(),
+            "Mamba3Layer: derived A / lambda is stale (a_log or lambda_logit written without a rebuild)"
+        );
 
-        let x_vec = nalgebra::DVector::from_row_slice(x);
-        let proj = &self.x_proj_w * &x_vec;
-        let dt_pre: Vec<f64> = (0..self.dt_rank).map(|i| proj[i]).collect();
-        let b_vec: Vec<f64> = (0..self.d_state).map(|i| proj[self.dt_rank + i]).collect();
-        let c_vec: Vec<f64> = (0..self.d_state)
-            .map(|i| proj[self.dt_rank + self.d_state + i])
-            .collect();
+        scratch.project(x, &self.x_proj_w, &self.dt_proj_w, &self.dt_proj_b);
+        let (delta, b_vec, c_vec, y) = scratch.split(self.d_state);
 
-        let dt_pre_v = nalgebra::DVector::from_row_slice(&dt_pre);
-        let dt_lifted = &self.dt_proj_w * &dt_pre_v + &self.dt_proj_b;
-        let delta: Vec<f64> = (0..self.input_size)
-            .map(|i| softplus(dt_lifted[i]))
-            .collect();
-
-        let mut y = vec![0.0_f64; self.input_size];
         for d in 0..self.input_size {
             let dd = delta[d];
             let xd = x[d];
-            let lam = self
-                .lambda_logit
-                .as_ref()
-                .map_or(1.0, |ll| 1.0 / (1.0 + (-ll[d]).exp()));
+            let lam = self.lam[d];
             let xp = x_prev[d];
             let mut acc = 0.0;
             for n in 0..self.d_state {
-                let ar = -self.a_log[(d, n)].exp();
-                let za_r = dd * ar;
+                let za_r = dd * self.a[(d, n)];
                 if self.complex {
                     let ai = self.a_imag.as_ref().unwrap()[(d, n)];
                     let za_i = dd * ai;
@@ -159,8 +200,8 @@ impl Mamba3Layer {
             y[d] = acc + self.d_skip[d] * xd;
         }
         if self.trapezoidal {
-            *x_prev = x_vec;
-            *b_prev = nalgebra::DVector::from_row_slice(&b_vec);
+            x_prev.copy_from_slice(x);
+            b_prev.copy_from_slice(b_vec);
         }
         y
     }
@@ -237,16 +278,7 @@ mod tests {
         let n = m3.n_params();
         let slab: Vec<f64> = (0..n).map(|i| 0.05 * ((i % 7) as f64 - 3.0)).collect();
         m3.from_flat(&slab);
-        let mut m = super::super::MambaLayer {
-            input_size,
-            d_state,
-            dt_rank,
-            x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
-            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
-            dt_proj_b: nalgebra::DVector::zeros(input_size),
-            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
-            d_skip: nalgebra::DVector::zeros(input_size),
-        };
+        let mut m = super::super::MambaLayer::zeros(input_size, d_state, dt_rank);
         m.from_flat(&slab);
         (m, m3)
     }
@@ -259,12 +291,13 @@ mod tests {
         let mut hi = nalgebra::DMatrix::zeros(4, 3);
         let mut xp = nalgebra::DVector::zeros(4);
         let mut bp = nalgebra::DVector::zeros(3);
+        let (mut s, mut s3) = (MambaScratch::new(4, 3, 2), MambaScratch::new(4, 3, 2));
         for t in 0..20 {
             let x: Vec<f64> = (0..4)
                 .map(|d| 0.1 * (d as f64 + 1.0) * (t as f64 + 1.0).sin())
                 .collect();
-            let ym = m.forward(&x, &mut h);
-            let y3 = m3.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+            let ym = m.forward(&x, &mut h, &mut s);
+            let y3 = m3.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp, &mut s3);
             for d in 0..4 {
                 assert_eq!(ym[d], y3[d], "t={t} d={d}"); // BIT-identical
             }
@@ -293,12 +326,13 @@ mod tests {
         let mut bp = nalgebra::DVector::zeros(3);
         let mut he0 = nalgebra::DMatrix::zeros(4, 3);
         let (mut z1, mut z2) = (nalgebra::DVector::zeros(4), nalgebra::DVector::zeros(3));
+        let (mut se, mut st) = (MambaScratch::new(4, 3, 2), MambaScratch::new(4, 3, 2));
         for t in 0..15 {
             let x: Vec<f64> = (0..4)
                 .map(|d| 0.2 * (d as f64 - 1.0) * (t as f64).cos())
                 .collect();
-            let ye = euler.forward(&x, &mut he, &mut he0, &mut z1, &mut z2);
-            let yt = trap.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+            let ye = euler.forward(&x, &mut he, &mut he0, &mut z1, &mut z2, &mut se);
+            let yt = trap.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp, &mut st);
             for d in 0..4 {
                 assert!(
                     (ye[d] - yt[d]).abs() < 1e-12,
@@ -322,14 +356,73 @@ mod tests {
                 nalgebra::DMatrix::zeros(3, 4),
             );
             let (mut xp, mut bp) = (nalgebra::DVector::zeros(3), nalgebra::DVector::zeros(4));
+            let mut s = MambaScratch::new(3, 4, 1);
             let mut last = vec![];
             for t in 0..10 {
                 let x: Vec<f64> = (0..3).map(|d| 0.15 * (d as f64 + t as f64).sin()).collect();
-                last = m.forward(&x, &mut hr, &mut hi, &mut xp, &mut bp);
+                last = m
+                    .forward(&x, &mut hr, &mut hi, &mut xp, &mut bp, &mut s)
+                    .to_vec();
             }
             last
         };
         assert_eq!(run(), run());
         assert!(run().iter().all(|v| v.is_finite()));
+    }
+
+    fn fly_trapezoidal(m: &Mamba3Layer) -> Vec<f64> {
+        let (mut hr, mut hi) = (
+            nalgebra::DMatrix::zeros(3, 2),
+            nalgebra::DMatrix::zeros(3, 2),
+        );
+        let (mut xp, mut bp) = (nalgebra::DVector::zeros(3), nalgebra::DVector::zeros(2));
+        let mut s = MambaScratch::new(3, 2, 1);
+        let mut y = Vec::new();
+        for t in 0..5 {
+            let x = [0.4, -0.2 * t as f64, 0.9];
+            y = m
+                .forward(&x, &mut hr, &mut hi, &mut xp, &mut bp, &mut s)
+                .to_vec();
+        }
+        y
+    }
+
+    fn loaded_trapezoidal(scale: f64) -> Mamba3Layer {
+        let mut m = Mamba3Layer::zeros(3, 2, 1, true, false);
+        let flat: Vec<f64> = (0..m.n_params())
+            .map(|i| scale * (0.07 * (i % 11) as f64 - 0.3))
+            .collect();
+        m.from_flat(&flat);
+        m
+    }
+
+    #[test]
+    fn reload_rebuilds_derived_a_and_lam() {
+        let fresh = loaded_trapezoidal(1.0);
+        assert_eq!(fresh.a, a_from_log(&fresh.a_log));
+        assert_eq!(fresh.lam, fresh.lambda_logit.as_ref().unwrap().map(sigmoid));
+
+        let mut reloaded = loaded_trapezoidal(-2.0);
+        assert_ne!(fly_trapezoidal(&reloaded), fly_trapezoidal(&fresh));
+        reloaded.from_flat(&fresh.to_flat());
+        assert_eq!(fly_trapezoidal(&reloaded), fly_trapezoidal(&fresh));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "is stale")]
+    fn forward_refuses_a_stale_a() {
+        let mut m = loaded_trapezoidal(1.0);
+        m.a_log[(1, 1)] = -0.5; // in-module write that skips the rebuild
+        fly_trapezoidal(&m);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "is stale")]
+    fn forward_refuses_a_stale_lambda() {
+        let mut m = loaded_trapezoidal(1.0);
+        m.lambda_logit.as_mut().unwrap()[0] = 2.0;
+        fly_trapezoidal(&m);
     }
 }

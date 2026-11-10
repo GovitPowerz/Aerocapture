@@ -127,8 +127,8 @@ cross-language bit-identity.
 | `lstm` | `weight_ih [4H, I]`, `weight_hh [4H, H]`, `bias_ih [4H]`, `bias_hh [4H]` | `(h, c)` | `nn.LSTMCell` convention, gate order i/f/g/o, no peepholes; `c_new = f*c + i*g`, `h_new = o*tanh(c_new)` |
 | `window` | none (`n_params() == 0`, `to_flat() == Vec::new()`, `from_flat` consumes 0 from any slice) | `VecDeque<Vec<f64>>` pre-filled with `n_steps` zero vectors | FIFO ring buffer, output `n_steps * input_size`; spec-only JSON |
 | `transformer` | `w_q, b_q, w_k, b_k, w_v, b_v, w_o, b_o, w_ffn1, b_ffn1, w_ffn2, b_ffn2, ln1_gamma, ln1_beta, ln2_gamma, ln2_beta` (16 flat keys) | `k_cache` / `v_cache` `VecDeque`s growing 0 -> `n_seq`, no zero-padding | 1-layer pre-norm block, causal window attention over the KV ring, sinusoidal PE relative to ring slot, GELU-exact FFN, biased-variance LayerNorm eps=1e-5; `d_model % n_heads == 0`; boxed (`Layer::Transformer(Box<..>)`); derived `k_pe_offsets` / `v_pe_offsets` (= `W_K @ PE_table`, `W_V @ PE_table`) rebuilt by the `post_load = rebuild_pe_offsets` hook on every load (mutating `w_k` / `w_v` by hand requires calling it yourself) |
-| `mamba` | `x_proj_w [dt_rank + 2*d_state, I]` (no bias), `dt_proj_w [I, dt_rank]`, `dt_proj_b [I]`, `a_log [I, d_state]` (`A = -exp(a_log)`), `d_skip [I]` | `h: DMatrix (I, d_state)` | selective SSM core (S6): diagonal A, HiPPO-style init, ZOH discretization, input-dependent Δ/B/C; `dt_rank` defaults to `max(1, input_size // 16)` (`resolve_mamba_dt_rank` is the Python single source); boxed; `Layer::from_spec` rejects `dt_rank=0` |
-| `mamba3` | `x_proj_w, dt_proj_w, dt_proj_b, a_log, [a_imag if complex], [lambda_logit if trapezoidal], d_skip` | `{h_re, h_im, x_prev, b_prev}` (unused slabs zero) | the Mamba-3 ablation 2x2: `discretization ∈ {euler, trapezoidal}`, `state_mode ∈ {real, complex}` (strings in TOML and JSON, bools only on the runtime `Mamba3Layer` via `mamba3_flags()`). `euler`+`real` is BIT-identical to `mamba` (`real_euler_bit_identical_to_mamba`). Trapezoidal: `h = α·h + λ·Δ·B·expm1_over_x(ΔA)·x + (1-λ)·Δ·α·B_prev·x_prev`, `λ = sigmoid(lambda_logit)` (init +4, near-euler), `λ→1` recovers euler exactly. Complex: `A = -exp(a_log) + i·θ` (`θ = a_imag`), B/C real, readout `Re(h)·C`; `expm1_over_x_complex` in explicit (re, im) arithmetic. `n_params = I·(3·d_state + 2·dt_rank + 2) + [complex: I·d_state] + [trapz: I]` |
+| `mamba` | `x_proj_w [dt_rank + 2*d_state, I]` (no bias), `dt_proj_w [I, dt_rank]`, `dt_proj_b [I]`, `a_log [I, d_state]` (`A = -exp(a_log)`), `d_skip [I]` | `h: DMatrix (I, d_state)` + `scratch: MambaScratch` (forward working memory, not reset) | selective SSM core (S6): diagonal A, HiPPO-style init, ZOH discretization, input-dependent Δ/B/C; `dt_rank` defaults to `max(1, input_size // 16)` (`resolve_mamba_dt_rank` is the Python single source); boxed; `Layer::from_spec` rejects `dt_rank=0`; derived `a` (= `-exp(a_log)`) rebuilt by the `post_load = rebuild_a` hook on every load, so the tick evaluates no weight-only `exp`; `a_log` is private (read through `a_log()`, written only by a load) and `forward` debug-asserts `a` is current; `forward` writes into the scratch and returns `y` borrowed from it (no allocation, gate `tests/mamba_forward.rs`) |
+| `mamba3` | `x_proj_w, dt_proj_w, dt_proj_b, a_log, [a_imag if complex], [lambda_logit if trapezoidal], d_skip` | `{h_re, h_im, x_prev, b_prev}` (unused slabs zero) + `scratch: MambaScratch` | the Mamba-3 ablation 2x2: `discretization ∈ {euler, trapezoidal}`, `state_mode ∈ {real, complex}` (strings in TOML and JSON, bools only on the runtime `Mamba3Layer` via `mamba3_flags()`). `euler`+`real` is BIT-identical to `mamba` (`real_euler_bit_identical_to_mamba`). Trapezoidal: `h = α·h + λ·Δ·B·expm1_over_x(ΔA)·x + (1-λ)·Δ·α·B_prev·x_prev`, `λ = sigmoid(lambda_logit)` (init +4, near-euler), `λ→1` recovers euler exactly. Complex: `A = -exp(a_log) + i·θ` (`θ = a_imag`), B/C real, readout `Re(h)·C`; `expm1_over_x_complex` in explicit (re, im) arithmetic. `n_params = I·(3·d_state + 2·dt_rank + 2) + [complex: I·d_state] + [trapz: I]`. Derived `a` (= `-exp(a_log)`) and `lam` (= `sigmoid(lambda_logit)`, 1.0 in euler mode) rebuilt by the `post_load = rebuild_derived` hook; `a_log` / `lambda_logit` are private (written only by a load) and `forward` debug-asserts both are current; same allocation-free `forward` and scratch as `mamba` |
 | `cfc` | one lecun_tanh backbone + ff1 / ff2 / t_a / t_b heads | `(H,)` | closed-form continuous-time cell (ncps "default" mode): `h' = (1-g)*tanh(ff1) + g*tanh(ff2)`, `g = sigmoid(-t_a*dt + t_b)`, dt = 1 guidance tick |
 | `slstm` | full recurrent matrices, single bias | `(h, c, n, m)` | xLSTM sLSTM: exponential gating with max-stabilizer, gate order i/f/z/o |
 | `mlstm` | projections, no recurrent weights | `C (HxH)`, `n (H,)`, scalar `m` | xLSTM mLSTM: matrix memory, covariance update, single head `d_qk = d_v = H` |
@@ -143,7 +143,7 @@ Rust names per type: `Layer::Gru` / `Layer::Lstm` / `Layer::Window` / `Layer::Tr
 `LayerState::Gru(Vec<f64>)`, `LayerState::Lstm { h, c }`, `LayerState::Window { buffer: VecDeque<Vec<f64>> }`
 (the forward takes `&mut VecDeque` directly, `w.forward(&current, buffer)`, to avoid a double borrow across the
 match), `LayerState::Transformer { k_cache: VecDeque<Vec<f64>>, v_cache: VecDeque<Vec<f64>> }`,
-`LayerState::Mamba { h: DMatrix<f64> }`, `LayerState::Mamba3 { h_re, h_im, x_prev, b_prev }`; the weight impls
+`LayerState::Mamba { h: DMatrix<f64>, scratch }`, `LayerState::Mamba3 { h_re, h_im, x_prev, b_prev, scratch }`; the weight impls
 `LayerWeights for GruLayer` / `LstmLayer` / `WindowLayer` / `TransformerLayer` / `MambaLayer` are all the
 `tensor_table!` default (`LayerWeights::from_flat` runs `post_load`). Per-cell design docs:
 `docs/design/2026-04-17-phase-1-gru-mvp-design.md`, `docs/design/2026-04-18-phase-2a-lstm-mvp-design.md`,
@@ -250,9 +250,11 @@ one operation, so the rollout loop needs no per-type special case; stacked LSTMs
 d_state)` (`ndim == 4`) and add the matching dispatch in `ppo_update_bptt`, `hidden_shapes` and
 the pack/unpack helpers.
 
-**Derived-at-load-time fields** (the Transformer PE-offset pattern): store only trainable
-parameters in the table and name a `post_load` hook; the default `from_flat` runs it at the end
-of EVERY load, so both entry points rebuild without per-path code.
+**Derived-at-load-time fields** (the Transformer PE offsets, Mamba's `A = -exp(a_log)`): store only
+trainable parameters in the table and name a `post_load` hook; the default `from_flat` runs it at the end
+of EVERY load, so both entry points rebuild without per-path code. A derived field that can go stale is a
+silent wrong-number path: keep the source tensor private so a load is its only writer, and debug-assert
+freshness in `forward` (the Mamba layers do both; `tensors_mut()` is the one write path privacy cannot see).
 
 ## Gates
 
@@ -274,7 +276,9 @@ of EVERY load, so both entry points rebuild without per-path code.
   `load_policy_from_json` both raise) are `tests/test_{transformer,mamba,mamba3,cfc_xlstm}_ppo_rejection.py` (Window's `build_layer` is enabled for warm-start; its PPO guards are `load_policy_from_json` + `rl/train.py::_derive_hidden_shapes`, tested in `tests/test_window_export_and_load.py`).
 - Rust: `tests/nn_flat_order_fixtures.rs` (per-type flat vector + exact `save_json` bytes under
   `tests/fixtures/flat_order/`), `tests/nn_model_roundtrip.rs` (every committed model JSON
-  load -> save -> reload; `--ignored` resave tool for byte diffs), the Mamba3 units
+  load -> save -> reload; `--ignored` resave tool for byte diffs), `tests/mamba_forward.rs` (Mamba and
+  the four Mamba3 modes bit-identical, output and state, to the pre-#238 forward kept there verbatim;
+  zero allocations per `forward` under a counting allocator), the Mamba3 units
   (`real_euler_bit_identical_to_mamba`, `trapezoidal_reduces_to_euler_at_high_lambda`,
   `complex_warmup_deterministic`, `mamba3_json_v2_save_load_roundtrip_all_flags`), and the six
   guidance goldens (a new cell must leave them bit-identical).

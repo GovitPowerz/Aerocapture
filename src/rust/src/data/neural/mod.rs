@@ -11,8 +11,8 @@ mod layers;
 use layers::json_to_flat;
 pub use layers::{
     CfcLayer, CommitteeLayer, CommitteeRule, DenseLayer, GruLayer, LstmLayer, Mamba3Layer,
-    MambaLayer, MlstmLayer, Shape, SlstmLayer, Tensor, TensorField, TransformerLayer, WindowLayer,
-    combine_heads,
+    MambaLayer, MambaScratch, MlstmLayer, Shape, SlstmLayer, Tensor, TensorField, TransformerLayer,
+    WindowLayer, combine_heads,
 };
 // Surface the shared numerical helpers at the module root so the `use super::*`
 // test module reaches them by their bare names. Test-only: production code in
@@ -352,7 +352,7 @@ pub enum Layer {
     Window(WindowLayer),
     // Boxed: TransformerLayer is 472 bytes vs 112 for GruLayer; boxing keeps enum size uniform.
     Transformer(Box<TransformerLayer>),
-    // Boxed: MambaLayer's stack footprint is ~200 bytes (3 DMatrix + 2 DVector
+    // Boxed: MambaLayer's stack footprint is ~200 bytes (4 DMatrix + 2 DVector
     // headers); weight data lives on the heap behind those pointers regardless
     // of boxing. The box is purely for enum-variant size uniformity against
     // Transformer (472 bytes) -- same `large_enum_variant` clippy motivation.
@@ -1630,8 +1630,9 @@ pub(crate) fn forward_layer(
         (Layer::Transformer(t), LayerState::Transformer { k_cache, v_cache }) => {
             current = t.forward(&current, k_cache, v_cache);
         }
-        (Layer::Mamba(m), LayerState::Mamba { h }) => {
-            current = m.forward(&current, h);
+        (Layer::Mamba(m), LayerState::Mamba { h, scratch }) => {
+            let y = m.forward(&current, h, scratch);
+            current.copy_from_slice(y);
         }
         (
             Layer::Mamba3(m),
@@ -1640,9 +1641,11 @@ pub(crate) fn forward_layer(
                 h_im,
                 x_prev,
                 b_prev,
+                scratch,
             },
         ) => {
-            current = m.forward(&current, h_re, h_im, x_prev, b_prev);
+            let y = m.forward(&current, h_re, h_im, x_prev, b_prev, scratch);
+            current.copy_from_slice(y);
         }
         (Layer::Cfc(l), LayerState::Cfc { h }) => {
             current = l.forward(&current, h);

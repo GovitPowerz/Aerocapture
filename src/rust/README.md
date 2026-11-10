@@ -234,7 +234,8 @@ under `tests/` (shared fixtures in `tests/common/`: `fixtures.rs`, `assertions.r
 subprocess tests. Dev-dependencies: `approx`, `rstest`, `proptest`, `tempfile`. Bit-identity gates
 worth knowing by name: the six guidance goldens (`tests/reference_data/rust_golden/` at the repo
 root, regenerated per the root `CLAUDE.md` lesson), `tests/entry_fan_agreement.rs`,
-`tests/nn_flat_order_fixtures.rs`, `tests/nn_model_roundtrip.rs`, `tests/rl_env_parity.rs` (the RL
+`tests/nn_flat_order_fixtures.rs`, `tests/nn_model_roundtrip.rs`, `tests/mamba_forward.rs` (Mamba /
+Mamba3 forward against the pre-#238 forward, plus its zero-allocation gate), `tests/rl_env_parity.rs` (the RL
 env's sense/act loop with the model's own output reproduces `step_one_tick(None)`, bias and EKF
 navigation). `cargo test --release` lists the rest.
 
@@ -245,7 +246,10 @@ Two criterion benches under `benches/`; timings are not a gate, since they are n
 mode, so their setup assertions are. `tick` is the per-scheme guidance cost: every guidance call of
 one nominal flight, replayed from its exact pre-call state, with the replay checked bit for bit
 against the flight before anything is timed.
-`quant_forward` is the Mamba-962 forward pass in f64, f32 and quantized kernels. The numbers and
+`quant_forward` is the Mamba-962 forward pass in f64, f32 and quantized kernels. Its hand-rolled
+kernels are the quantization study's frozen baselines (`articles/paper/data/quant/bench_forward.json`)
+and still evaluate `exp(a_log)` per tick, so since #238 `f64_model` against them is not like for like.
+The numbers and
 how to read them are in [docs/performance.md](../../docs/performance.md).
 
 ```bash
