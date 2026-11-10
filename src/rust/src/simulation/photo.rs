@@ -183,7 +183,6 @@ pub(crate) fn push_photo_snapshot(state: &mut SimState, planet: &PlanetConfig, d
     let sim_idx = state.sim_idx;
     let cumulative_bank_change_deg = state.cumulative_bank_change_deg;
     let density_gain = state.nav_filter.density_gain();
-    let run_state_snap = state.run_state;
     let cumulative_flux = state.state[6];
     let guidance_phase_for_photo = state.guidance_phase_for_photo;
     let photo_line = build_photo_values(
@@ -196,7 +195,7 @@ pub(crate) fn push_photo_snapshot(state: &mut SimState, planet: &PlanetConfig, d
         cumulative_bank_change_deg * DEG_TO_RAD,
         data,
         density_gain,
-        &run_state_snap,
+        &state.run_state,
         cumulative_flux,
         guidance_phase_for_photo,
     );

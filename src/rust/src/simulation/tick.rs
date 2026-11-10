@@ -321,11 +321,9 @@ pub fn act_tick(
     let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
     match &data.integration_mode {
         IntegrationMode::FixedGill => {
-            let run_state_snap = state.run_state;
-            integrate_step(state, dt, planet, data, &run_state_snap);
+            integrate_step(state, dt, planet, data);
         }
         IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-            let run_state_snap = state.run_state;
             let sim_time = state.sim_time;
             let result = integrate_adaptive_with_events(
                 state,
@@ -333,7 +331,6 @@ pub fn act_tick(
                 adaptive_config,
                 planet,
                 data,
-                &run_state_snap,
                 event_defs,
                 event_ctx,
                 sim_time,
@@ -395,9 +392,8 @@ pub fn act_tick(
     }
 
     // After the event pass so a terminal event's time labels the peak it may hold.
-    let run_state_snap = state.run_state;
     let sim_time = state.sim_time;
-    track_peak_values(state, altitude, sim_time, data, &run_state_snap);
+    track_peak_values(state, altitude, sim_time, data);
 
     // NaN/Inf safety net: extreme GA parameters can blow up numerically.
     // All termination checks evaluate to false on NaN, so the loop would spin forever.

@@ -130,9 +130,7 @@ pub struct SimState {
     pub(crate) nav_biases: crate::gnc::navigation::estimator::NavigationBiases,
 
     // ── Supervised trace (only populated when config.collect_supervised=true) ──
-    // Lives on SimState (not RunState) so that the per-tick run_state copy
-    // calls in tick.rs do NOT deep-copy the growing trace vector. This was
-    // O(N²) memory churn during supervised data collection.
+    // Lives on SimState, not RunState, so RunState stays `Copy`.
     pub(crate) supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
 
     // ── Photo output accumulators ──

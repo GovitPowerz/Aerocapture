@@ -11,6 +11,7 @@ use crate::gnc::navigation::imu::{ImuConfig, ImuState};
 use crate::gnc::navigation::star_tracker::{StarTrackerConfig, StarTrackerState};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
+use crate::physics::dynamics::AeroDispersions;
 use nalgebra::{SMatrix, SVector};
 
 /// Density multiplicative correction factor bounds.
@@ -99,14 +100,8 @@ pub fn navigate(
     nav_state: &mut NavigationState,
     data: &SimData,
     planet: &PlanetConfig,
-    run_density_bias: f64,
-    run_density_perturbation: f64,
-    run_cx_bias: f64,
-    run_cz_bias: f64,
-    run_mass_bias: f64,
-    run_incidence_bias: f64,
-    run_ref_area_bias: f64,
-    run_filter_gain_bias: f64,
+    aero: &AeroDispersions, // truth-side dispersions of the measured drag
+    filter_gain_bias: f64,  // density filter gain bias (absolute delta)
 ) -> NavigationOutput {
     let mut out = NavigationOutput {
         phase_transition_flag: 0,
@@ -130,14 +125,14 @@ pub fn navigate(
     let rho_true = atmosphere::density(
         &data.atmosphere,
         alt_true,
-        run_density_bias,
-        run_density_perturbation,
+        aero.density_bias,
+        aero.density_perturbation,
     );
-    let aoa_true = aoa_commanded + run_incidence_bias;
-    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
-    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
-    let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
-    let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
+    let aoa_true = aoa_commanded + aero.incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + aero.cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + aero.cz_bias);
+    let mass_true = data.capsule.mass * (1.0 + aero.mass_bias);
+    let ref_area_true = data.capsule.reference_area * (1.0 + aero.ref_area_bias);
     let aero_factor_true =
         rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
     let accel_body_x_true =
@@ -179,7 +174,7 @@ pub fn navigate(
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
     // Skip guard-tripped steps (density_estimated == 0) so a rejected estimate
     // does not drag the gain toward the floor — matches the EKF trigger.
-    let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
+    let lambda = (data.guidance.density_filter_gain + filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 && density_estimated > 0.0 {
         let raw_gain =
             (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
@@ -457,13 +452,7 @@ pub fn navigate_ekf(
     ekf_config: &EkfConfig,
     data: &SimData,
     planet: &PlanetConfig,
-    run_density_bias: f64,
-    run_density_perturbation: f64,
-    run_cx_bias: f64,
-    run_cz_bias: f64,
-    run_mass_bias: f64,
-    run_incidence_bias: f64,
-    run_ref_area_bias: f64,
+    aero: &AeroDispersions, // truth-side dispersions of the measured acceleration
 ) -> NavigationOutput {
     let mut out = NavigationOutput {
         phase_transition_flag: 0,
@@ -489,14 +478,14 @@ pub fn navigate_ekf(
     let rho_true = atmosphere::density(
         &data.atmosphere,
         alt_true,
-        run_density_bias,
-        run_density_perturbation,
+        aero.density_bias,
+        aero.density_perturbation,
     );
-    let aoa_true = aoa_commanded + run_incidence_bias;
-    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
-    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
-    let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
-    let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
+    let aoa_true = aoa_commanded + aero.incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + aero.cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + aero.cz_bias);
+    let mass_true = data.capsule.mass * (1.0 + aero.mass_bias);
+    let ref_area_true = data.capsule.reference_area * (1.0 + aero.ref_area_bias);
     let aero_factor_true =
         rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
     let accel_body_x_true =
