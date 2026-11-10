@@ -13,7 +13,6 @@ use crate::physics::dynamics::AeroDispersions;
 /// **Note:** `wind_scale` must be initialized to `1.0` (identity), not `0.0`.
 /// Setting it to `0.0` silently zeroes out all wind. Use `init_run_from_draw()`
 /// for production; for tests, set `wind_scale: 1.0` explicitly.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct RunState {
     pub entry: EntryConditions,

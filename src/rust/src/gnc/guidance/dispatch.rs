@@ -6,7 +6,7 @@ use crate::data::guidance_params::NeuralNetMode;
 use crate::data::neural::NeuralNetModel;
 use crate::data::nn_state::NnState;
 use crate::gnc::control::angle_utils::shortest_angle_diff;
-use crate::gnc::guidance::ftc::{self as ftc_capture, FtcCaptureState};
+use crate::gnc::guidance::ftc as ftc_capture;
 use crate::gnc::guidance::lateral::{self, LateralState};
 use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
@@ -44,7 +44,6 @@ impl CommandShaper {
 }
 
 /// Guidance dispatcher persistent state.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct GuidanceState {
     // Bank angle command
@@ -62,11 +61,7 @@ pub struct GuidanceState {
     // Reference velocity
     pub reference_velocity: f64,
 
-    // Counters
-    pub n_active: i32, // number of active guidance calls
-
     // Scheme-specific states
-    pub ftc_capture: FtcCaptureState,
     pub energy_ctrl: energy_controller::EnergyControllerState,
     pub predguid: predguid::PredGuidState,
     pub fnpag: fnpag::FnpagState,
@@ -106,8 +101,6 @@ impl GuidanceState {
             lateral_state: LateralState::new(initial_bank),
             longi_active: 1,
             reference_velocity: 0.0,
-            n_active: 0,
-            ftc_capture: FtcCaptureState::default(),
             energy_ctrl: energy_controller::EnergyControllerState::new(),
             predguid: predguid::PredGuidState::new(),
             fnpag: fnpag::FnpagState::new(initial_bank),
@@ -229,13 +222,10 @@ pub fn guidance_step(
     } else if nav.guidance_phase == 2 && uses_exit_guidance {
         // Exit phase: shared pdyn-feedback controller for all unsigned-magnitude schemes
         bank_angle_longitudinal = exit::exit_guidance(nav, data, planet, state.reference_velocity);
-        state.n_active += 1;
     } else {
         // Capture phase: scheme-specific longitudinal guidance
         bank_angle_longitudinal = match guidance_type {
-            GuidanceType::Ftc => {
-                ftc_capture::ftc_bank_angle(nav, &mut state.ftc_capture, data, altitude, energy)
-            }
+            GuidanceType::Ftc => ftc_capture::ftc_bank_angle(nav, data, altitude, energy),
             GuidanceType::NeuralNetwork => {
                 let signed = if let Some(policy_bank) = policy_bank {
                     policy_bank
@@ -280,7 +270,6 @@ pub fn guidance_step(
                 energy,
             ),
         };
-        state.n_active += 1;
     }
 
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===

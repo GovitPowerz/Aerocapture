@@ -30,7 +30,6 @@ use crate::simulation::runner::{
 /// Events triggered during a tick (bounce, atmosphere_exit, crash, phase_transition) are
 /// accumulated in `SimState::event_records`. Consumers (e.g. `BatchedSimulation`) can drain
 /// them between ticks via `std::mem::take(&mut state.event_records)`.
-#[allow(dead_code)]
 pub struct TickOutcome {
     /// Pilot-realized bank angle at the end of this tick (rad).
     pub bank_commanded: f64,

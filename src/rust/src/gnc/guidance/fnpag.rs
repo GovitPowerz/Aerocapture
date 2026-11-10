@@ -50,8 +50,6 @@ const UNBOUND_APOAPSIS_RADIUS_M: f64 = 1e9;
 pub struct FnpagState {
     /// Last commanded bank (held between replans; re-clamped to current limits)
     pub bank_prev: f64,
-    /// Last bisection residual = predicted exit apoapsis radius − target (m); diagnostic
-    pub resid_prev: f64,
     /// Whether predictor has been initialized
     pub initialized: bool,
     /// Sim time of the last forward-prediction replan (s)
@@ -62,7 +60,6 @@ impl FnpagState {
     pub fn new(initial_bank: f64) -> Self {
         Self {
             bank_prev: initial_bank,
-            resid_prev: 0.0,
             initialized: false,
             last_replan_time: f64::NEG_INFINITY,
         }
@@ -427,13 +424,13 @@ pub fn fnpag_bank(
     let f_lo = resid(bank_min);
     let f_hi = resid(bank_max);
 
-    let (bank_cmd, resid_cmd) = if f_lo <= 0.0 {
+    let bank_cmd = if f_lo <= 0.0 {
         // Even the least bank over-dissipates: command least dissipation.
-        (bank_min, f_lo)
+        bank_min
     } else if f_hi >= 0.0 {
         // Even the most bank can't dissipate enough (still escaping): command
         // most dissipation.
-        (bank_max, f_hi)
+        bank_max
     } else {
         // f_lo > 0 > f_hi: the bracket straddles the target. Bisect.
         let mut lo = bank_min;
@@ -452,11 +449,10 @@ pub fn fnpag_bank(
             mid = 0.5 * (lo + hi);
             f_mid = resid(mid);
         }
-        (mid, f_mid)
+        mid
     };
 
     state.bank_prev = bank_cmd;
-    state.resid_prev = resid_cmd;
     bank_cmd.clamp(bank_min, bank_max)
 }
 
@@ -665,15 +661,13 @@ mod tests {
 
         let nav_entry = test_nav(5687.0);
         let bank0 = fnpag_bank(&nav_entry, &mut state, &data, &planet, 0.0);
-        let resid_prev0 = state.resid_prev;
         assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
 
         // 1 s later with a substantially different nav state: must hold the
-        // command and leave the secant state untouched.
+        // command and leave the replan state untouched.
         let nav_later = test_nav(4000.0);
         let bank_held = fnpag_bank(&nav_later, &mut state, &data, &planet, 1.0);
         assert_relative_eq!(bank_held, bank0, epsilon = 1e-12);
-        assert_relative_eq!(state.resid_prev, resid_prev0, epsilon = 1e-12);
         assert_relative_eq!(state.last_replan_time, 0.0, epsilon = 1e-12);
 
         // Past the period: replans (timestamp advances).

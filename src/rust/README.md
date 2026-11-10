@@ -113,7 +113,7 @@ src/rust/src/
                                        layers), GuidanceOutput; CommandShaper (acceleration-limited S-curve rate shaping with realized-angle feedback; falls back to legacy hard-clamp when config
                                        absent); constant-bank reference mode handled via the `is_reference` flag (no separate guidance struct); the single signed-bank-scheme predicate + the shared
                                        `securize_cos_bank` (clamp+acos) helper live here
-      ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (FtcCaptureState, ftc_bank_angle)
+      ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (ftc_bank_angle; stateless)
       exit.rs                      — Exit phase guidance: shared pdyn-feedback controller for ascending leg (FTC + 4 unsigned-magnitude schemes)
       lateral.rs                   — Lateral guidance (roll reversal): LateralParams, LateralState, predictive first-order inclination projection (shared by unsigned-magnitude schemes)
       neural.rs                    — NN guidance (JSON architecture v1 or v2; the input vector, the decoders and the normalization are specified in src/data/neural/README.md). Bank decoded

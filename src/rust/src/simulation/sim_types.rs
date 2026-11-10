@@ -86,7 +86,6 @@ pub struct SimStateOptions {
 ///
 /// Expanded to include all mutable loop-local variables from `run_single` so that
 /// `tick::step_one_tick` can take a single `&mut SimState` argument.
-#[allow(dead_code)]
 pub struct SimState {
     // ── Physics state vector: [r, lon, lat, V, gamma, psi, flux, time] ──
     pub(crate) state: [f64; 8],
