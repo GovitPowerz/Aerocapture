@@ -56,7 +56,7 @@ pub struct NavigationState {
     pub bounce_flag: bool,             // true once the trajectory has bounced
     pub guidance_phase: GuidancePhase,
     pub capture_time: f64,       // capture phase duration (s)
-    pub exit_phase_locked: bool, // once true, phase cannot revert from 2 to 1
+    pub exit_phase_locked: bool, // once true, phase cannot revert from exit to capture
 }
 
 impl Default for NavigationState {

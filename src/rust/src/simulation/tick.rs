@@ -110,7 +110,7 @@ pub fn sense_tick(state: &mut SimState, config: &SimInput, data: &SimData, plane
         state.density_estimate_for_photo = nav_out.density_guidance;
         state.guidance_phase_for_photo = nav_out.guidance_phase;
 
-        // Latch reference velocity at the phase 1→2 transition
+        // Latch reference velocity at the capture -> exit transition
         if nav_out.phase_transition_flag {
             state.guidance_state.reference_velocity = nav_out.reference_velocity;
         }
