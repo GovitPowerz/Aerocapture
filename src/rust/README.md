@@ -103,7 +103,9 @@ src/rust/src/
                                        (EKF parity), + gain saturation [0.1, 10.0] (`DENSITY_FACTOR_MIN`/`MAX`) applied unconditionally every tick; EKF mode honors exit-phase irreversibility
                                        (`exit_phase_locked`) like bias mode; shared post-density tail in helpers used verbatim by both modes (`update_bounce_and_phase` for bounce detection +
                                        capture->exit phase management, plus the energy/orbital/crash/SimPhase finalize helper); tests in `estimator_tests.rs`; NavigationOutput includes thermal
-                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs
+                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs. `navigate` / `navigate_ekf` take the truth-side biases as
+                                       `&AeroDispersions`; flags are `bool` and the phase is the `GuidancePhase` enum, whose discriminants (1/2/3) are the photo `phase` column
+                                       (`GuidancePhase::column()`, called by the photo and event-record writers only)
       ekf.rs                       — 13-state Extended Kalman Filter (error-state: pos/vel errors, accel/gyro biases, density correction)
       imu.rs                       — IMU sensor model (accelerometer + gyroscope with bias, scale factor, noise)
       star_tracker.rs              — Star tracker model (position updates with dynamic pressure blackout)
@@ -194,7 +196,7 @@ src/rust/src/
                                        (adaptive terminal events rewind it to the event time), so peak / bounce times, the final record and the final photo row label the state they describe (#141)
     final_record.rs                — Named index constants for the 52-element final-record array; single source of truth for `fr[N]` writes in `finalize.rs` and reads in aerocapture-py
                                        (`results.rs`, `env.rs`)
-    init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` reads;
+    init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` and navigation read;
                                        `RunState::noise_seed` derives the per-draw stochastic-stream seed (ADR-0006)
     photo.rs                       — The 30-column photo record: `build_photo_values` (per-tick snapshot row) + `build_event_photo_values` (sub-tick event row) share one `photo_physics`
                                        core (geodetic position, osculating orbit, inertial energy via `to_absolute_cartesian`, dispersed `aero_loads`) and write columns by `output::PHOTO_*`
