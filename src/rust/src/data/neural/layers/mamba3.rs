@@ -11,6 +11,7 @@
 //! (re, im) to preserve cross-language bit-identity with the Python mirror.
 //! See docs/design/2026-07-07-mamba3-ablation-design.md.
 
+use super::super::Activation;
 use super::helpers::expm1_over_x; // real path reuses expm1_over_x (bit-identity anchor)
 use super::mamba::{MambaScratch, a_from_log, a_is_current};
 use super::tensor::tensor_table;
@@ -27,8 +28,9 @@ pub struct Mamba3Layer {
     pub x_proj_w: nalgebra::DMatrix<f64>, // (dt_rank + 2*d_state, input_size)
     pub dt_proj_w: nalgebra::DMatrix<f64>, // (input_size, dt_rank)
     pub dt_proj_b: nalgebra::DVector<f64>, // (input_size,)
-    // Private with `lambda_logit`: the only write path is a load, which
-    // rebuilds the derived `a` / `lam`.
+    // Private with `lambda_logit`: a load writes them and rebuilds the derived
+    // `a` / `lam`. `tensors_mut()` can also write them without the rebuild;
+    // only the debug assert in `forward` catches that.
     a_log: nalgebra::DMatrix<f64>,              // (input_size, d_state)
     pub a_imag: Option<nalgebra::DMatrix<f64>>, // (input_size, d_state) iff complex
     lambda_logit: Option<nalgebra::DVector<f64>>, // (input_size,) iff trapezoidal
@@ -56,10 +58,6 @@ tensor_table!(
     post_load = rebuild_derived
 );
 
-fn sigmoid(l: f64) -> f64 {
-    1.0 / (1.0 + (-l).exp())
-}
-
 /// Trapezoidal weight `lambda = sigmoid(lambda_logit)`; 1.0 (euler) without one.
 fn lam_from_logit(
     lambda_logit: Option<&nalgebra::DVector<f64>>,
@@ -67,7 +65,7 @@ fn lam_from_logit(
 ) -> nalgebra::DVector<f64> {
     lambda_logit.map_or_else(
         || nalgebra::DVector::from_element(input_size, 1.0),
-        |ll| ll.map(sigmoid),
+        |ll| ll.map(|l| Activation::Sigmoid.apply(l)),
     )
 }
 
@@ -123,7 +121,7 @@ impl Mamba3Layer {
                     .lam
                     .iter()
                     .zip(ll.iter())
-                    .all(|(lam, l)| lam.to_bits() == sigmoid(*l).to_bits()),
+                    .all(|(lam, l)| lam.to_bits() == Activation::Sigmoid.apply(*l).to_bits()),
                 None => self.lam.iter().all(|lam| *lam == 1.0),
             }
     }
@@ -400,7 +398,14 @@ mod tests {
     fn reload_rebuilds_derived_a_and_lam() {
         let fresh = loaded_trapezoidal(1.0);
         assert_eq!(fresh.a, a_from_log(&fresh.a_log));
-        assert_eq!(fresh.lam, fresh.lambda_logit.as_ref().unwrap().map(sigmoid));
+        assert_eq!(
+            fresh.lam,
+            fresh
+                .lambda_logit
+                .as_ref()
+                .unwrap()
+                .map(|l| Activation::Sigmoid.apply(l))
+        );
 
         let mut reloaded = loaded_trapezoidal(-2.0);
         assert_ne!(fly_trapezoidal(&reloaded), fly_trapezoidal(&fresh));

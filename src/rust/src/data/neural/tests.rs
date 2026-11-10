@@ -1742,10 +1742,29 @@ fn mamba_to_flat_from_flat_roundtrip() {
 
     let x_proj_rows = dt_rank + 2 * d_state;
     let expected_n = input_size * (3 * d_state + 2 * dt_rank + 2);
-    // a_log is load-only (the load derives A), so the original is loaded too.
+    // a_log is load-only (the load derives A), so the original is loaded too;
+    // its tensors are checked against an independent row-major parse of the slab.
+    let slab = rand_vec(expected_n);
     let mut original = MambaLayer::zeros(input_size, d_state, dt_rank);
-    original.from_flat(&rand_vec(expected_n));
+    original.from_flat(&slab);
     assert_eq!(original.n_params(), expected_n);
+    let (n_x, n_dt) = (x_proj_rows * input_size, input_size * dt_rank);
+    let (o_dt, o_b) = (n_x, n_x + n_dt);
+    let (o_a, o_d) = (o_b + input_size, o_b + input_size + input_size * d_state);
+    assert_eq!(
+        original.x_proj_w,
+        nalgebra::DMatrix::from_row_slice(x_proj_rows, input_size, &slab[..o_dt])
+    );
+    assert_eq!(
+        original.dt_proj_w,
+        nalgebra::DMatrix::from_row_slice(input_size, dt_rank, &slab[o_dt..o_b])
+    );
+    assert_eq!(original.dt_proj_b.as_slice(), &slab[o_b..o_a]);
+    assert_eq!(
+        *original.a_log(),
+        nalgebra::DMatrix::from_row_slice(input_size, d_state, &slab[o_a..o_d])
+    );
+    assert_eq!(original.d_skip.as_slice(), &slab[o_d..]);
 
     let flat = original.to_flat();
     assert_eq!(flat.len(), expected_n);

@@ -29,7 +29,8 @@ pub struct MambaLayer {
     pub dt_proj_b: nalgebra::DVector<f64>,
     /// HiPPO log-space reparameterization of A. Physical A = -exp(a_log).
     /// Shape: (input_size, d_state). Strictly negative A ensures stable contraction.
-    /// Private: the only write path is a load, which rebuilds `a`.
+    /// Private: a load writes it and rebuilds `a`. `tensors_mut()` can also write
+    /// it without the rebuild; only the debug assert in `forward` catches that.
     a_log: nalgebra::DMatrix<f64>,
     /// Per-channel skip-residual scalar. Paper default init: 1.0.
     pub d_skip: nalgebra::DVector<f64>,

@@ -249,8 +249,7 @@ against the flight before anything is timed.
 `quant_forward` is the Mamba-962 forward pass in f64, f32 and quantized kernels. Its hand-rolled
 kernels are the quantization study's frozen baselines (`articles/paper/data/quant/bench_forward.json`)
 and still evaluate `exp(a_log)` per tick, so since #238 `f64_model` against them is not like for like.
-The numbers and
-how to read them are in [docs/performance.md](../../docs/performance.md).
+The numbers and how to read them are in [docs/performance.md](../../docs/performance.md).
 
 ```bash
 cargo bench --bench tick --manifest-path src/rust/Cargo.toml
