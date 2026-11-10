@@ -23,7 +23,7 @@ pub use committee::{CommitteeLayer, CommitteeRule, combine as combine_heads};
 pub use dense::DenseLayer;
 pub use gru::GruLayer;
 pub use lstm::LstmLayer;
-pub use mamba::MambaLayer;
+pub use mamba::{MambaLayer, MambaScratch};
 pub use mamba3::Mamba3Layer;
 pub use mlstm::MlstmLayer;
 pub use slstm::SlstmLayer;

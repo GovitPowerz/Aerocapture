@@ -159,6 +159,30 @@ The Mamba forward pass alone (`quant_forward`'s deployed f64 runtime, 100 sample
 takes 2.01 µs, 75% of the deployed Mamba guidance call. The rest builds the 35-candidate input
 vector, which includes a per-tick correction-DV prediction on the osculating orbit.
 
+**Since #238 the Mamba rows above are stale.** The layer now derives `A = -exp(a_log)` once at load
+and keeps its forward scratch in the per-sim state (192 of the inner loop's 576 transcendentals and
+nine allocations per tick removed, output bit-identical). The numbers in this note are the one
+exception to this file's rule: they are not in `throughput.json`, which was not regenerated. Same
+machine, criterion medians back to back on the sources before and after the change:
+
+| bench | before | after | change |
+|---|---|---|---|
+| `quant_forward` `forward/f64_model` | 1.975 µs | 1.221 µs | -38% |
+| `tick` Mamba-962 deployed, per flight (730 calls) | 1.838 ms | 1.415 ms | -23% |
+| `tick` Mamba-962 deployed, per call | 2.52 µs | 1.94 µs | -23% |
+
+Every Mamba-962 figure elsewhere in this file is the pre-#238 runtime and overstates the policy by
+about 0.6 µs per guidance call; the other schemes are unaffected. The forward bench gains 0.75 µs
+and the flight replay 0.58 µs per call. The two differ in weights and inputs (synthetic against the
+deployed flight); the gap was not diagnosed. An ad hoc rerun of the section 1 point (n = 1000,
+three repeats, a different session from the committed block) read 2.74 ms/sim at 1 thread against
+3.17 ms.
+
+The same rerun does not explain section 1's early flattening. Mamba-962 scaled 8.0x at 10 threads
+against 7.7x in the committed block, but dense-515, whose code did not change and which still
+allocates per tick, read 8.1x against 7.4x. The unchanged control moved more than the changed
+cell, so the rerun attributes nothing to the removed allocations.
+
 Per-call cost depends on the operating point. Deployed FTC costs half what the golden FTC config
 costs per call; why was not diagnosed. For FNPAG the cause is measured. Its predictor
 integrates forward at `prediction_dt`, which the GA tuned from the default 2.0 s to 3.76 s. The

@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 
-use crate::data::neural::{Layer, NeuralNetModel};
+use crate::data::neural::{Layer, MambaScratch, NeuralNetModel};
 
 #[derive(Debug, Clone)]
 pub enum LayerState {
@@ -29,9 +29,11 @@ pub enum LayerState {
         v_cache: VecDeque<Vec<f64>>,
     },
     /// SSM hidden state for the Mamba S6 layer.
-    /// Shape: (input_size, d_state). Reset fills with zeros.
+    /// Shape: (input_size, d_state). Reset fills with zeros. `scratch` is the
+    /// forward's working memory, not state: reset leaves it alone.
     Mamba {
         h: nalgebra::DMatrix<f64>,
+        scratch: MambaScratch,
     },
     /// Mamba-3 state: complex (h_re, h_im) SSM state + trapezoidal previous-input
     /// carry (x_prev, b_prev). h_im is unused in real mode; x_prev/b_prev in euler
@@ -41,6 +43,7 @@ pub enum LayerState {
         h_im: nalgebra::DMatrix<f64>,
         x_prev: nalgebra::DVector<f64>,
         b_prev: nalgebra::DVector<f64>,
+        scratch: MambaScratch,
     },
     /// CfC hidden state, flat like GRU. Reset zeros it.
     Cfc {
@@ -93,12 +96,14 @@ impl LayerState {
             },
             Layer::Mamba(m) => LayerState::Mamba {
                 h: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
+                scratch: MambaScratch::new(m.input_size, m.d_state, m.dt_rank),
             },
             Layer::Mamba3(m) => LayerState::Mamba3 {
                 h_re: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
                 h_im: nalgebra::DMatrix::<f64>::zeros(m.input_size, m.d_state),
                 x_prev: nalgebra::DVector::<f64>::zeros(m.input_size),
                 b_prev: nalgebra::DVector::<f64>::zeros(m.d_state),
+                scratch: MambaScratch::new(m.input_size, m.d_state, m.dt_rank),
             },
             Layer::Cfc(l) => LayerState::Cfc {
                 h: vec![0.0; l.hidden_size],
@@ -151,7 +156,7 @@ impl LayerState {
                 k_cache.clear();
                 v_cache.clear();
             }
-            LayerState::Mamba { h } => {
+            LayerState::Mamba { h, .. } => {
                 h.fill(0.0);
             }
             LayerState::Mamba3 {
@@ -159,6 +164,7 @@ impl LayerState {
                 h_im,
                 x_prev,
                 b_prev,
+                ..
             } => {
                 h_re.fill(0.0);
                 h_im.fill(0.0);
@@ -510,23 +516,14 @@ mod tests {
 
     fn _make_mamba(input_size: usize, d_state: usize, dt_rank: usize) -> Layer {
         use crate::data::neural::MambaLayer;
-        Layer::Mamba(Box::new(MambaLayer {
-            input_size,
-            d_state,
-            dt_rank,
-            x_proj_w: nalgebra::DMatrix::zeros(dt_rank + 2 * d_state, input_size),
-            dt_proj_w: nalgebra::DMatrix::zeros(input_size, dt_rank),
-            dt_proj_b: nalgebra::DVector::zeros(input_size),
-            a_log: nalgebra::DMatrix::zeros(input_size, d_state),
-            d_skip: nalgebra::DVector::zeros(input_size),
-        }))
+        Layer::Mamba(Box::new(MambaLayer::zeros(input_size, d_state, dt_rank)))
     }
 
     #[test]
     fn layer_state_mamba_for_layer_zero_init_shape() {
         let layer = _make_mamba(8, 4, 2);
         let state = LayerState::for_layer(&layer);
-        if let LayerState::Mamba { h } = state {
+        if let LayerState::Mamba { h, .. } = state {
             assert_eq!(h.nrows(), 8);
             assert_eq!(h.ncols(), 4);
             assert!(h.iter().all(|&v| v == 0.0));
@@ -539,11 +536,11 @@ mod tests {
     fn layer_state_mamba_reset_zeros_h() {
         let layer = _make_mamba(4, 2, 1);
         let mut state = LayerState::for_layer(&layer);
-        if let LayerState::Mamba { h } = &mut state {
+        if let LayerState::Mamba { h, .. } = &mut state {
             h.fill(1.5);
         }
         state.reset();
-        if let LayerState::Mamba { h } = state {
+        if let LayerState::Mamba { h, .. } = state {
             assert!(h.iter().all(|&v| v == 0.0));
         } else {
             panic!("expected LayerState::Mamba after reset");
@@ -556,14 +553,14 @@ mod tests {
         let original = LayerState::for_layer(&layer);
         let mut cloned = original.clone();
 
-        if let LayerState::Mamba { h } = &mut cloned {
+        if let LayerState::Mamba { h, .. } = &mut cloned {
             h[(0, 0)] = 7.0;
             h[(2, 1)] = -3.0;
         } else {
             panic!("expected LayerState::Mamba");
         }
 
-        if let LayerState::Mamba { h } = &original {
+        if let LayerState::Mamba { h, .. } = &original {
             assert_eq!(h.nrows(), 3);
             assert_eq!(h.ncols(), 2);
             assert!(h.iter().all(|&v| v == 0.0));
@@ -582,6 +579,7 @@ mod tests {
                 h_im,
                 x_prev,
                 b_prev,
+                ..
             } => {
                 assert_eq!(h_re.shape(), (5, 4));
                 assert_eq!(h_im.shape(), (5, 4));
