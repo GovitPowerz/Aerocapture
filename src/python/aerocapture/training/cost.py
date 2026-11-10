@@ -26,6 +26,7 @@ from aerocapture.training.parquet_output import (
 from aerocapture.training.toml_utils import reject_unknown_keys
 
 COST_FUNCTION_KEYS = frozenset({"dv_threshold", "g_load_weight", "heat_flux_weight", "heat_load_weight", "cost_transform"})
+COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")  # `metrics.apply_cost_transform`'s branches
 # `[flight.constraints]` key -> the `CostSettings` limit it sets.
 _CONSTRAINT_LIMITS = {"max_load_factor": "g_load_limit", "max_heat_flux": "heat_flux_limit", "max_heat_load": "heat_load_limit"}
 
@@ -43,6 +44,10 @@ class CostSettings:
     heat_flux_weight: float = 1000.0
     heat_load_weight: float = 1000.0
     cost_transform: str = "linear"
+
+    def __post_init__(self) -> None:
+        if self.cost_transform not in COST_TRANSFORMS:
+            raise ValueError(f"unknown cost_transform={self.cost_transform!r} (expected one of {COST_TRANSFORMS})")
 
     @classmethod
     def from_toml(cls, toml_data: dict[str, Any]) -> CostSettings:

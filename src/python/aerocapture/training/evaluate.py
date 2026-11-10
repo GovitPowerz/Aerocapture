@@ -103,8 +103,8 @@ def run_validation_gate(
       2. SKIP_UNCHANGED when the guarded argmin matches the last-validated individual
          (no point re-running the same individual through the validation MC).
       3. VALIDATED otherwise: runs the validation MC and reports `val_rms` plus
-         whether it promotes: feasible on the validation pool (every configured
-         constraint's violation rate <= `max_violation_rate`, ADR-0005) AND
+         whether it promotes: feasible on the validation pool (every constraint's
+         violation rate <= `max_violation_rate` at the `cost_settings` limits, ADR-0005) AND
          `val_rms < champion.val_rms` (ties keep the incumbent, ADR-0002).
 
     Selection uses `nanargmin(where(isfinite, f, inf))`, which also skips NaN-cost

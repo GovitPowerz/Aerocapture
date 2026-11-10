@@ -261,7 +261,7 @@ def _validation_record(toml_path: Path, model: Path, cfg: RLConfig) -> dict[str,
     from aerocapture.training.seeds import VALIDATION_SEED_OFFSET
 
     res = _evaluate_model(toml_path, model, cfg, VALIDATION_SEED_OFFSET)
-    rms_cost = float(compute_cost(res.final_records, read_cost_settings(toml_path)))
+    rms_cost = compute_cost(res.final_records, read_cost_settings(toml_path))
     return {"val_rms_cost": rms_cost, "val_capture_rate": float(np.mean(res.captured))}
 
 

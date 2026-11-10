@@ -5,6 +5,7 @@ print_eval_summary writes to stdout, but as structured data so consumers
 from __future__ import annotations
 
 import numpy as np
+from aerocapture.training.cell_eval import FR_INTEGRATED_FLUX, FR_MAX_G_LOAD, FR_MAX_HEAT_FLUX
 from aerocapture.training.cost import CostSettings
 from aerocapture.training.report import compute_eval_summary, format_eval_summary
 
@@ -64,12 +65,15 @@ def test_compute_eval_summary_handles_zero_captures() -> None:
 
 def test_compute_eval_summary_with_constraint_limits() -> None:
     records = _synthetic_final_records(n=100)
-    cost_settings = CostSettings(heat_flux_limit=195.0, g_load_limit=3.0, heat_load_limit=19.5)
+    cost_settings = CostSettings(heat_flux_limit=195.0, g_load_limit=3.0, heat_load_limit=19500.0)  # kJ/m2; records carry 18-20 MJ/m2
     summary = compute_eval_summary(records, n_sims=100, cost_settings=cost_settings)
-    # viol_pct populated; record sample has values up to 200 → some violations.
-    assert summary["constraints"]["heat_flux"]["limit"] == 195.0
-    assert summary["constraints"]["heat_flux"]["viol_pct"] is not None
-    assert 0.0 <= summary["constraints"]["heat_flux"]["viol_pct"] <= 100.0
+    con = summary["constraints"]
+    assert con["heat_flux"]["limit"] == 195.0 and con["heat_load"]["limit"] == 19500.0
+    # Every rate is the share above its limit, heat load compared in kJ/m2.
+    assert con["heat_flux"]["viol_pct"] == 100.0 * np.mean(records[:, FR_MAX_HEAT_FLUX] > 195.0)
+    assert con["g_load"]["viol_pct"] == 100.0 * np.mean(records[:, FR_MAX_G_LOAD] > 3.0)
+    assert con["heat_load"]["viol_pct"] == 100.0 * np.mean(records[:, FR_INTEGRATED_FLUX] * 1e3 > 19500.0)
+    assert all(0.0 < con[k]["viol_pct"] < 100.0 for k in ("heat_flux", "g_load", "heat_load"))
 
 
 def test_format_eval_summary_lines_match_user_spec() -> None:

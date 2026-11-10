@@ -26,6 +26,7 @@ from aerocapture.training import charts
 from aerocapture.training.cell_eval import evaluate_cell, fly_nominal
 from aerocapture.training.metrics import convergence_speed, stagnation_count
 from aerocapture.training.report_render import render_pdf, staged_assets
+from aerocapture.training.sizing_tail import constraint_exceedances
 
 if TYPE_CHECKING:
     from aerocapture.training.cost import CostSettings
@@ -209,15 +210,16 @@ def compute_eval_summary(
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m2 -> kJ/m2
+    over = constraint_exceedances(final_records, cost_settings)
 
-    def _con_block(arr: npt.NDArray[np.float64], lim: float) -> dict[str, float]:
+    def _con_block(name: str, arr: npt.NDArray[np.float64], lim: float) -> dict[str, float]:
         return {
             "p50": float(np.median(arr)),
             "p95": float(np.percentile(arr, 95)),
             "s3sigma": float(np.percentile(arr, 99.87)),
             "max": float(np.max(arr)),
             "limit": float(lim),
-            "viol_pct": float(np.mean(arr > lim) * 100.0),
+            "viol_pct": float(np.mean(over[name]) * 100.0),
         }
 
     return {
@@ -234,9 +236,9 @@ def compute_eval_summary(
         },
         "captured": captured_stats,
         "constraints": {
-            "heat_flux": _con_block(all_q, cost_settings.heat_flux_limit),
-            "g_load": _con_block(all_g, cost_settings.g_load_limit),
-            "heat_load": _con_block(all_hl, cost_settings.heat_load_limit),
+            "heat_flux": _con_block("heat_flux", all_q, cost_settings.heat_flux_limit),
+            "g_load": _con_block("g_load", all_g, cost_settings.g_load_limit),
+            "heat_load": _con_block("heat_load", all_hl, cost_settings.heat_load_limit),
         },
     }
 
@@ -375,19 +377,13 @@ def _build_metadata(
 # ---------------------------------------------------------------------------
 # Summary table builder
 # ---------------------------------------------------------------------------
-def _build_summary_table(
-    final_records: npt.NDArray[np.float64],
-    cost_settings: CostSettings,
-    heat_flux_limit: float | None = None,
-    g_load_limit: float | None = None,
-    heat_load_limit: float | None = None,
-) -> dict:
+def _build_summary_table(final_records: npt.NDArray[np.float64], cost_settings: CostSettings) -> dict:
     """Build the performance summary table dict for Typst.
 
     Returns dict with ``rows`` key — each row is
     [name, mean, std, min, p5, p25, p50, p75, p95, max].
     Only captured trajectories (eccentricity < 1.0) are included.
-    Adds constraint violation rates when limits are provided.
+    Adds the constraint violation rates at the `cost_settings` limits.
     """
     n_total = len(final_records)
     captured = charts.is_captured(final_records)  # only AtmosphereExit on bound orbit
@@ -435,22 +431,17 @@ def _build_summary_table(
     # Constraint statistics (over ALL sims, not just captured)
     all_g = final_records[:, charts._FR_MAX_G_LOAD]
     all_q = final_records[:, charts._FR_MAX_HEAT_FLUX]
+    all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m² -> kJ/m²
+    exceed = {name: float(np.mean(m) * 100) for name, m in constraint_exceedances(final_records, cost_settings).items()}
 
     n_captured = int(np.sum(captured))
     capture_pct = 100 * n_captured / n_total if n_total > 0 else 0.0
 
     violation_rows: list[list[str]] = []
     violation_rows.append(_row(f"Objective cost, all sims — RMS={rms_cost:.1f}", per_sim_costs))
-    if g_load_limit is not None:
-        g_exceed = float(np.mean(all_g > g_load_limit) * 100)
-        violation_rows.append(_row(f"G-load, all sims (g) — {g_exceed:.1f}% > {g_load_limit:.1f}", all_g))
-    if heat_flux_limit is not None:
-        q_exceed = float(np.mean(all_q > heat_flux_limit) * 100)
-        violation_rows.append(_row(f"Heat flux, all sims (kW/m2) — {q_exceed:.1f}% > {heat_flux_limit:.0f}", all_q))
-    if heat_load_limit is not None:
-        all_hl = final_records[:, charts._FR_INTEGRATED_FLUX] * 1e3  # MJ/m² -> kJ/m²
-        hl_exceed = float(np.mean(all_hl > heat_load_limit) * 100)
-        violation_rows.append(_row(f"Heat load, all sims (kJ/m2) — {hl_exceed:.1f}% > {heat_load_limit:.0f}", all_hl))
+    violation_rows.append(_row(f"G-load, all sims (g) — {exceed['g_load']:.1f}% > {cost_settings.g_load_limit:.1f}", all_g))
+    violation_rows.append(_row(f"Heat flux, all sims (kW/m2) — {exceed['heat_flux']:.1f}% > {cost_settings.heat_flux_limit:.0f}", all_q))
+    violation_rows.append(_row(f"Heat load, all sims (kJ/m2) — {exceed['heat_load']:.1f}% > {cost_settings.heat_load_limit:.0f}", all_hl))
     # Capture rate: single value, fill remaining columns with empty strings
     cr_label = f"Capture rate: {capture_pct:.1f}% ({n_captured}/{n_total})"
     violation_rows.append([cr_label, "", "", "", "", "", "", "", "", ""])
@@ -654,7 +645,7 @@ def _generate_trajectory_charts(
 ) -> None:
     """Generate Part 2 (mission performance) SVG charts from final eval data."""
     # Load constraint limits and classify trajectories
-    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
+    heat_flux_limit, g_load_limit, heat_load_limit = cost_settings.heat_flux_limit, cost_settings.g_load_limit, cost_settings.heat_load_limit
     traj_class = charts.classify_trajectories(final_records, heat_flux_limit=heat_flux_limit, g_load_limit=g_load_limit, heat_load_limit=heat_load_limit)
 
     best_traj = _find_best_trajectory(final_records, trajectories)
@@ -841,15 +832,8 @@ def _render_report_assets(
     (tmp_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
     # Write summary_table.json
-    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
     summary = (
-        _build_summary_table(
-            payload.final_records,
-            payload.cost_settings,
-            heat_flux_limit=heat_flux_limit,
-            g_load_limit=g_load_limit,
-            heat_load_limit=heat_load_limit,
-        )
+        _build_summary_table(payload.final_records, payload.cost_settings)
         if payload.final_records is not None and payload.cost_settings is not None
         else {"rows": [], "violation_rows": []}
     )
@@ -901,7 +885,6 @@ def render_mission_performance_charts(
 
     Returns (has_trajectories, summary_table_dict).
     """
-    heat_flux_limit, g_load_limit, heat_load_limit = _read_constraint_limits(toml_path) if toml_path is not None else (None, None, None)
     corridor_data = _load_corridor_data(scheme_dir) if scheme_dir is not None else None
     undispersed = (
         _run_undispersed_nominal(toml_path, scheme_dir, sim_timeout_secs=sim_timeout_secs) if toml_path is not None and scheme_dir is not None else None
@@ -917,13 +900,7 @@ def render_mission_performance_charts(
         undispersed=undispersed,
         cost_settings=cost_settings,
     )
-    summary = _build_summary_table(
-        final_records,
-        cost_settings,
-        heat_flux_limit=heat_flux_limit,
-        g_load_limit=g_load_limit,
-        heat_load_limit=heat_load_limit,
-    )
+    summary = _build_summary_table(final_records, cost_settings)
     (tmp_dir / "summary_table.json").write_text(json.dumps(summary, indent=2))
     return True, summary
 

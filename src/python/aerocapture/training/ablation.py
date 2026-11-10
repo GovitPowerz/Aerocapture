@@ -14,20 +14,15 @@ import json
 import tempfile
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from aerocapture.training.config import candidate_input_names
+from aerocapture.training.cost import COST_TRANSFORMS, CostSettings, per_sim_cost
 from aerocapture.training.parquet_output import DV_TOTAL_RAW_INDEX as _DV_TOTAL_COL  # noqa: F401  (canary re-export; test_ablation asserts == 41)
-
-if TYPE_CHECKING:
-    from aerocapture.training.cost import CostSettings
 
 # Index-aligned candidate-input names from the Rust contract (see config.candidate_input_names).
 NN_INPUT_NAMES: list[str] = candidate_input_names()
-
-_COST_TRANSFORMS = ("linear", "sqrt", "log", "squared", "cubed")
 
 
 def _resolve_nn_path(toml_path: str) -> Path:
@@ -48,11 +43,7 @@ def _load_cost_settings(toml_path: str, cost_transform: str | None = None) -> Co
     `cost_transform`, when not None, overrides the config's [cost_function] cost_transform
     (e.g. to avoid an inherited "cubed" blowing up the ablation cost ranking).
     """
-    from aerocapture.training.cost import CostSettings
     from aerocapture.training.toml_utils import load_toml_with_bases
-
-    if cost_transform is not None and cost_transform not in _COST_TRANSFORMS:
-        raise ValueError(f"unknown cost_transform={cost_transform!r} (expected one of {_COST_TRANSFORMS})")
 
     settings = CostSettings.from_toml(load_toml_with_bases(Path(toml_path)))
     return settings if cost_transform is None else replace(settings, cost_transform=cost_transform)
@@ -70,8 +61,6 @@ def _noise_seeding(toml_path: str, extra_overrides: dict | None = None) -> str:
 
 def _mean_per_sim_cost(final_records: np.ndarray, cost_settings: CostSettings) -> float:
     """Compute mean per-sim cost using the training cost function."""
-    from aerocapture.training.cost import per_sim_cost
-
     return float(np.mean(per_sim_cost(final_records, cost_settings)))
 
 
@@ -237,7 +226,7 @@ def main() -> None:
     parser.add_argument("--flip", action="store_true", help="freeze binary flags to -1/+1 instead of zero-ablation")
     parser.add_argument(
         "--cost-transform",
-        choices=list(_COST_TRANSFORMS),
+        choices=list(COST_TRANSFORMS),
         default=None,
         help="override [cost_function] cost_transform for this ablation run (e.g. log -- avoids cubed corrupting the ranking)",
     )

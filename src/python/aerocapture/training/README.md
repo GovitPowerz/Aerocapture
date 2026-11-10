@@ -508,9 +508,10 @@ use `--sim-timeout` against NaN hangs).
   `sizing_tail.constraint_exceedances`, the ONE violation rule),
   `_parse_final_to_legacy_array` (test-only: the Rust-CLI subprocess oracle
   `tests/fixtures/subprocess_oracle.py` backing `test_pyo3_matches_subprocess`).
-- `cost.py` — `CostSettings`, the frozen value every scorer takes (`dv_threshold`, the three
+- `cost.py` - `CostSettings`, the frozen value every scorer takes (`dv_threshold`, the three
   limits, the three weights, `cost_transform`; its field defaults are the ONLY default table, and
-  no scoring function has a fallback: a caller without settings does not type-check), with
+  no scoring function has a fallback: a caller without settings does not type-check; construction
+  rejects a `cost_transform` outside `COST_TRANSFORMS`, the list ablation's `--cost-transform` offers), with
   `CostSettings.from_toml(toml_data)`, the ONE `[cost_function]` + `[flight.constraints]` reader
   (train, gate, final selection, report, compare, ablation, quantize; `report.read_cost_settings(path)`
   delegates; unknown keys raise) + the objective: `per_sim_cost(final_records, settings)` maps
