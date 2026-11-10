@@ -9,6 +9,7 @@ use super::sim_types::{DEG_TO_RAD, G0, SimState};
 use crate::config::PlanetConfig;
 use crate::data::{OrbitalElements, SimData};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, norm, to_absolute_cartesian};
+use crate::gnc::navigation::estimator::GuidancePhase;
 use crate::integration::events::EventRecord;
 use crate::orbit::elements;
 use crate::physics::dynamics::{AeroLoads, loads_at};
@@ -79,7 +80,7 @@ pub(crate) fn build_photo_values(
     density_gain: f64,
     run_state: &RunState,
     cumulative_flux: f64,
-    guidance_phase: i32,
+    guidance_phase: GuidancePhase,
 ) -> [f64; PHOTO_LINE_LEN] {
     let ph = photo_physics(&sim.state, sim.aoa, planet, data, run_state);
 
@@ -97,7 +98,7 @@ pub(crate) fn build_photo_values(
     p[PHOTO_RAAN_DEG] = ph.orbit.raan / DEG_TO_RAD;
     p[PHOTO_PERIAPSIS_ALT_KM] = ph.orbit.periapsis_alt / 1e3;
     p[PHOTO_APOAPSIS_ALT_KM] = ph.orbit.apoapsis_alt / 1e3;
-    p[PHOTO_PHASE] = guidance_phase as f64;
+    p[PHOTO_PHASE] = guidance_phase.column();
     p[PHOTO_BANK_DEG] = sim.bank_angle / DEG_TO_RAD;
     p[PHOTO_RADIAL_VEL_MS] = ph.velocity_radial;
     p[PHOTO_AOA_DEG] = sim.aoa / DEG_TO_RAD;

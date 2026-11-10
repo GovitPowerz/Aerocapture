@@ -192,7 +192,7 @@ pub fn build_nn_input(
     raw[12] = nav.acceleration_estimated[1]; // lift acceleration
     raw[13] = nav.orbital_errors[0]; // SMA error
     raw[14] = orbit.apoapsis_alt; // apoapsis altitude
-    raw[15] = nav.bounce_flag as f64; // bounce flag
+    raw[15] = f64::from(u8::from(nav.bounce_flag)); // bounce flag
 
     // -- 4 reference trajectory inputs (indices 16-19) --
     let energy = total_energy(
@@ -1206,7 +1206,7 @@ mod tests {
         };
 
         let mut nav = test_nav();
-        nav.bounce_flag = 0; // pre-bounce
+        nav.bounce_flag = false; // pre-bounce
         let data = test_sim_data_with_ref_traj();
         let planet = PlanetConfig::mars();
         let mut state = NnState::for_model(&nn);

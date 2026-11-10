@@ -376,9 +376,9 @@ fn filter_gain_clamped(#[case] filter_gain_bias: f64, #[case] _label: &str) {
 // ── Test 5: bounce_detection ──
 
 #[rstest]
-#[case::descending(-0.15, 0, "negative gamma (descending) => no bounce")]
-#[case::ascending(0.05, 1, "positive gamma (ascending) => bounce detected")]
-fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: i32, #[case] _label: &str) {
+#[case::descending(-0.15, false, "negative gamma (descending) => no bounce")]
+#[case::ascending(0.05, true, "positive gamma (ascending) => bounce detected")]
+fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: bool, #[case] _label: &str) {
     let data = test_sim_data();
     let r = MARS_REQ + 50_000.0;
     let position_true = [r, 0.0, 0.0];
@@ -966,7 +966,8 @@ fn full_phase_transitions_to_exit() {
         0.0, // filter_gain_bias
     );
     assert_eq!(
-        out1.guidance_phase, 1,
+        out1.guidance_phase,
+        GuidancePhase::Capture,
         "should be capture phase while descending"
     );
 
@@ -986,7 +987,8 @@ fn full_phase_transitions_to_exit() {
         0.0, // filter_gain_bias
     );
     assert_eq!(
-        out2.guidance_phase, 1,
+        out2.guidance_phase,
+        GuidancePhase::Capture,
         "above velocity threshold → still capture"
     );
 
@@ -1007,13 +1009,11 @@ fn full_phase_transitions_to_exit() {
         0.0, // filter_gain_bias
     );
     assert_eq!(
-        out3.guidance_phase, 2,
+        out3.guidance_phase,
+        GuidancePhase::Exit,
         "below velocity threshold after bounce → exit phase"
     );
-    assert_eq!(
-        out3.phase_transition_flag, 1,
-        "transition flag should be set"
-    );
+    assert!(out3.phase_transition_flag, "transition flag should be set");
     assert!(
         out3.reference_velocity.abs() > 0.0,
         "reference_velocity should be latched"
@@ -1060,7 +1060,11 @@ fn capture_only_stays_phase_1() {
         &nominal_aero(),
         0.0, // filter_gain_bias
     );
-    assert_eq!(out.guidance_phase, 1, "CaptureOnly must keep phase 1");
+    assert_eq!(
+        out.guidance_phase,
+        GuidancePhase::Capture,
+        "CaptureOnly must keep phase 1"
+    );
 }
 
 /// SimPhase::ExitOnly: phase stays 2 regardless of state.
@@ -1086,7 +1090,11 @@ fn exit_only_stays_phase_2() {
         &nominal_aero(),
         0.0, // filter_gain_bias
     );
-    assert_eq!(out.guidance_phase, 2, "ExitOnly must force phase 2");
+    assert_eq!(
+        out.guidance_phase,
+        GuidancePhase::Exit,
+        "ExitOnly must force phase 2"
+    );
 }
 
 // ── Fix 4.1: EKF exit-phase irreversibility ──
@@ -1119,13 +1127,11 @@ fn ekf_exit_phase_does_not_revert() {
         &data,
     );
     assert_eq!(
-        out1.guidance_phase, 2,
+        out1.guidance_phase,
+        GuidancePhase::Exit,
         "below threshold after bounce → exit phase"
     );
-    assert_eq!(
-        out1.phase_transition_flag, 1,
-        "transition flag should be set"
-    );
+    assert!(out1.phase_transition_flag, "transition flag should be set");
 
     // Disarm the crash detector for the revert step (orthogonal to the phase-lock
     // bug under test): force prev_radial very negative so the next (negative) radial
@@ -1148,7 +1154,17 @@ fn ekf_exit_phase_does_not_revert() {
         &data,
     );
     assert_eq!(
-        out2.guidance_phase, 2,
+        out2.guidance_phase,
+        GuidancePhase::Exit,
         "exit phase must not revert to capture once latched (EKF parity with bias)"
     );
+}
+
+/// The photo `phase` column (and the validation goldens) carry these integers.
+#[test]
+fn guidance_phase_column_codes() {
+    assert_eq!(GuidancePhase::Capture.column(), 1.0);
+    assert_eq!(GuidancePhase::Exit.column(), 2.0);
+    assert_eq!(GuidancePhase::Emergency.column(), 3.0);
+    assert_eq!(GuidancePhase::default(), GuidancePhase::Capture);
 }

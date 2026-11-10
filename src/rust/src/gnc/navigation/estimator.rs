@@ -32,15 +32,31 @@ pub struct NavigationBiases {
     pub drag: f64,     // drag acceleration measurement bias
 }
 
+/// Guidance phase. The discriminant is the integer the photo `phase` column carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GuidancePhase {
+    #[default]
+    Capture = 1,
+    Exit = 2,
+    Emergency = 3,
+}
+
+impl GuidancePhase {
+    /// The value written to the photo `phase` column.
+    pub fn column(self) -> f64 {
+        f64::from(self as i32)
+    }
+}
+
 /// Navigation filter state (persistent across steps).
 #[derive(Debug, Clone, Copy)]
 pub struct NavigationState {
     pub density_gain: f64,             // density estimation coefficient
     pub previous_radial_velocity: f64, // previous radial velocity (m/s)
-    pub bounce_flag: i32,              // bounce indicator: 0=before, 1=after
-    pub guidance_phase: i32,           // guidance phase: 1=capture, 2=exit, 3=emergency
-    pub capture_time: f64,             // capture phase duration (s)
-    pub exit_phase_locked: bool,       // once true, phase cannot revert from 2 to 1
+    pub bounce_flag: bool,             // true once the trajectory has bounced
+    pub guidance_phase: GuidancePhase,
+    pub capture_time: f64,       // capture phase duration (s)
+    pub exit_phase_locked: bool, // once true, phase cannot revert from 2 to 1
 }
 
 impl Default for NavigationState {
@@ -54,8 +70,8 @@ impl NavigationState {
         Self {
             density_gain: 1.0,
             previous_radial_velocity: 0.0,
-            bounce_flag: 0,
-            guidance_phase: 1,
+            bounce_flag: false,
+            guidance_phase: GuidancePhase::Capture,
             capture_time: 0.0,
             exit_phase_locked: false,
         }
@@ -78,12 +94,12 @@ pub struct NavigationOutput {
     // Orbital parameter errors
     pub orbital_errors: [f64; 4], // [Δa, Δe, Δi, ΔΩ]
     // Phase management
-    pub bounce_flag: i32,
-    pub guidance_phase: i32,
-    pub crash_flag: i32,
-    pub phase_transition_flag: i32, // phase transition flag
-    pub reference_velocity: f64,    // reference radial velocity
-    pub capture_time: f64,          // capture duration
+    pub bounce_flag: bool,
+    pub guidance_phase: GuidancePhase,
+    pub crash_flag: bool,
+    pub phase_transition_flag: bool, // capture -> exit transition happened on this step
+    pub reference_velocity: f64,     // reference radial velocity
+    pub capture_time: f64,           // capture duration
     // Thermal state (for guidance limiter and NN inputs)
     pub heat_flux_fraction: f64, // current_heat_flux / max_heat_flux (0.0 if no limit)
     pub heat_load_fraction: f64, // cumulative_heat_load / max_heat_load (0.0 if no limit)
@@ -103,11 +119,7 @@ pub fn navigate(
     aero: &AeroDispersions, // truth-side dispersions of the measured drag
     filter_gain_bias: f64,  // density filter gain bias (absolute delta)
 ) -> NavigationOutput {
-    let mut out = NavigationOutput {
-        phase_transition_flag: 0,
-        crash_flag: 0,
-        ..Default::default()
-    };
+    let mut out = NavigationOutput::default();
 
     // Add navigation errors (bias constants)
     out.position_estimated[0] = position_true[0] + biases.pos[0];
@@ -243,24 +255,26 @@ fn update_bounce_and_phase(
     sim_time: f64,
     exit_velocity_threshold: f64,
 ) -> f64 {
-    if ns.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
-        ns.bounce_flag = 1;
+    if !ns.bounce_flag && out.velocity_estimated[1].sin() > 0.0 {
+        ns.bounce_flag = true;
     }
 
     let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
 
     // Phase management (once exit phase is entered, it cannot revert to capture)
-    if ns.bounce_flag == 0 {
-        ns.guidance_phase = 1;
+    if !ns.bounce_flag {
+        ns.guidance_phase = GuidancePhase::Capture;
     } else if !ns.exit_phase_locked {
         if velocity_relative >= exit_velocity_threshold && velocity_radial < 0.0 {
-            ns.guidance_phase = 1;
+            ns.guidance_phase = GuidancePhase::Capture;
         }
-        if velocity_relative <= exit_velocity_threshold && ns.guidance_phase == 1 {
-            ns.guidance_phase = 2;
+        if velocity_relative <= exit_velocity_threshold
+            && ns.guidance_phase == GuidancePhase::Capture
+        {
+            ns.guidance_phase = GuidancePhase::Exit;
             ns.exit_phase_locked = true;
             ns.capture_time = sim_time;
-            out.phase_transition_flag = 1;
+            out.phase_transition_flag = true;
             out.reference_velocity = velocity_radial;
         }
     }
@@ -314,32 +328,32 @@ fn finalize_crash_phase_and_output(
     data: &SimData,
 ) {
     // Crash detection after bounce
-    if ns.bounce_flag >= 1 {
+    if ns.bounce_flag {
         let delta_radial_velocity = velocity_radial - ns.previous_radial_velocity;
         ns.previous_radial_velocity = velocity_radial;
         if delta_radial_velocity < 0.0 {
-            out.crash_flag = 1;
+            out.crash_flag = true;
         }
     }
 
-    if out.crash_flag == 1 {
-        ns.guidance_phase = 3;
+    if out.crash_flag {
+        ns.guidance_phase = GuidancePhase::Emergency;
     }
 
     // Apply SimPhase gating
     match data.sim_phase {
         SimPhase::CaptureOnly => {
-            ns.guidance_phase = 1;
+            ns.guidance_phase = GuidancePhase::Capture;
         }
         SimPhase::ExitOnly => {
-            ns.guidance_phase = 2;
+            ns.guidance_phase = GuidancePhase::Exit;
         }
         SimPhase::Full | SimPhase::Preprogrammed => {
             // Phase logic above already computed the correct phase
         }
     }
 
-    if ns.guidance_phase == 1 {
+    if ns.guidance_phase == GuidancePhase::Capture {
         ns.capture_time += nav_dt;
     }
 
@@ -454,11 +468,7 @@ pub fn navigate_ekf(
     planet: &PlanetConfig,
     aero: &AeroDispersions, // truth-side dispersions of the measured acceleration
 ) -> NavigationOutput {
-    let mut out = NavigationOutput {
-        phase_transition_flag: 0,
-        crash_flag: 0,
-        ..Default::default()
-    };
+    let mut out = NavigationOutput::default();
 
     // ── Step 1: Biased estimated state (same as legacy) ──
     let pos_biased = [

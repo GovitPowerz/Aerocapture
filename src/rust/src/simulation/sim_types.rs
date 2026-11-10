@@ -8,7 +8,7 @@
 use crate::data::SimData;
 use crate::gnc::control::pilot::PilotState;
 use crate::gnc::guidance::dispatch::GuidanceState;
-use crate::gnc::navigation::estimator::NavigationFilter;
+use crate::gnc::navigation::estimator::{GuidancePhase, NavigationFilter};
 use crate::integration::dopri45::Dopri45State;
 use crate::integration::events::EventRecord;
 use crate::integration::sequencer::SequencerState;
@@ -138,7 +138,7 @@ pub struct SimState {
     pub(crate) cumulative_bank_change_deg: f64,
     pub(crate) dynamic_pressure_for_photo: f64,
     pub(crate) density_estimate_for_photo: f64,
-    pub(crate) guidance_phase_for_photo: i32,
+    pub(crate) guidance_phase_for_photo: GuidancePhase,
 
     // ── Gauss-Markov density perturbation RNG (None when disabled) ──
     pub(crate) gm_config: Option<crate::data::dispersions::DensityPerturbationConfig>,

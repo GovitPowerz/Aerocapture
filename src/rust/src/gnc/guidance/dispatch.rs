@@ -13,7 +13,7 @@ use crate::gnc::guidance::{
     thermal_limiter,
 };
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
-use crate::gnc::navigation::estimator::NavigationOutput;
+use crate::gnc::navigation::estimator::{GuidancePhase, NavigationOutput};
 
 /// Default fallback bank angle (60°) for schemes with no valid reference trajectory.
 ///
@@ -56,7 +56,7 @@ pub struct GuidanceState {
     pub lateral_state: LateralState,
 
     // Guidance securization (longitudinal only; lateral securization handled by lateral module)
-    pub longi_active: i32, // longitudinal securization indicator (1=active)
+    pub longi_active: bool, // longitudinal securization indicator (cleared in reference mode)
 
     // Reference velocity
     pub reference_velocity: f64,
@@ -99,7 +99,7 @@ impl GuidanceState {
             aoa_commanded: initial_aoa,
             command_shaper: CommandShaper::new(),
             lateral_state: LateralState::new(initial_bank),
-            longi_active: 1,
+            longi_active: true,
             reference_velocity: 0.0,
             energy_ctrl: energy_controller::EnergyControllerState::new(),
             predguid: predguid::PredGuidState::new(),
@@ -117,12 +117,12 @@ impl GuidanceState {
 /// Guidance dispatcher output.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GuidanceOutput {
-    pub bank_angle_commanded: f64, // commanded bank angle (rad)
-    pub aoa_commanded: f64,        // commanded AoA (rad)
-    pub bank_rate: f64,            // bank rate before saturation (rad/s)
-    pub longitudinal_active: i32,  // longitudinal guidance active
-    pub rate_saturated: i32,       // rate saturation occurred
-    pub roll_reversal_active: i32, // roll reversal indicator
+    pub bank_angle_commanded: f64,  // commanded bank angle (rad)
+    pub aoa_commanded: f64,         // commanded AoA (rad)
+    pub bank_rate: f64,             // bank rate before saturation (rad/s)
+    pub longitudinal_active: bool,  // longitudinal guidance active
+    pub rate_saturated: bool,       // rate saturation occurred
+    pub roll_reversal_active: bool, // roll reversal indicator
     /// Bank magnitude after thermal limiter, before lateral sign selection.
     /// Zero for signed-bank schemes (PiecewiseConstant, NN in FullNeural mode).
     pub pre_lateral_magnitude: f64,
@@ -182,20 +182,15 @@ pub fn guidance_step(
         planet,
     );
 
-    let mut longitudinal_active: i32;
-    if energy <= data.guidance.longi_activation && energy >= data.guidance.longi_inhibition {
-        longitudinal_active = 1;
-    } else {
-        longitudinal_active = 0;
-    }
-
-    longitudinal_active *= state.longi_active;
+    let mut longitudinal_active = energy <= data.guidance.longi_activation
+        && energy >= data.guidance.longi_inhibition
+        && state.longi_active;
     out.longitudinal_active = longitudinal_active;
 
     // === Reference trajectory mode ===
     if is_reference {
-        longitudinal_active = 0;
-        state.longi_active = 0;
+        longitudinal_active = false;
+        state.longi_active = false;
     }
 
     // === Longitudinal bank angle command ===
@@ -217,9 +212,9 @@ pub fn guidance_step(
     if is_reference {
         state.bank_angle_commanded = reference_bank_angle;
         bank_angle_longitudinal = reference_bank_angle;
-    } else if longitudinal_active == 0 {
+    } else if !longitudinal_active {
         bank_angle_longitudinal = reference_bank_angle.abs();
-    } else if nav.guidance_phase == 2 && uses_exit_guidance {
+    } else if nav.guidance_phase == GuidancePhase::Exit && uses_exit_guidance {
         // Exit phase: shared pdyn-feedback controller for all unsigned-magnitude schemes
         bank_angle_longitudinal = exit::exit_guidance(nav, data, planet, state.reference_velocity);
     } else {
@@ -275,7 +270,7 @@ pub fn guidance_step(
     // === Thermal safety limiter (unsigned-magnitude schemes only) ===
     // Same gating as exit: NN in MagnitudeOnly mode goes through the limiter.
     let uses_thermal_limiter = !is_signed_bank_scheme;
-    if uses_thermal_limiter && longitudinal_active == 1 && !is_reference {
+    if uses_thermal_limiter && longitudinal_active && !is_reference {
         let cos_bank = bank_angle_longitudinal.cos();
         let cos_limited = thermal_limiter::apply_thermal_limit(
             cos_bank,
@@ -288,10 +283,10 @@ pub fn guidance_step(
 
     // Record the unsigned magnitude post-thermal-limiter, before lateral sign selection.
     // For signed-bank schemes (PiecewiseConstant, NN FullNeural) this is 0.0 (not meaningful).
-    // Also gate on `longitudinal_active == 1`: when guidance is inhibited the magnitude
+    // Also gate on `longitudinal_active`: when guidance is inhibited the magnitude
     // is just `|reference_bank_angle|` regardless of state — recording those ticks would
     // pollute supervised datasets with constant rows that have zero variance vs. inputs.
-    if longitudinal_active == 1 && !is_signed_bank_scheme {
+    if longitudinal_active && !is_signed_bank_scheme {
         out.pre_lateral_magnitude = bank_angle_longitudinal;
     }
 
@@ -340,7 +335,7 @@ pub fn guidance_step(
     // Use pilot-realized angle as baseline (feedback fix)
     let angle_diff = shortest_angle_diff(state.bank_angle_realized, state.bank_angle_commanded);
     let raw_rate = angle_diff / guidance_period;
-    let mut rate_saturated = 0;
+    let mut rate_saturated = false;
 
     let bank_rate;
     if let Some(ref shaping) = data.guidance.command_shaping {
@@ -357,7 +352,7 @@ pub fn guidance_step(
         if clamped_delta.abs() < rate_delta.abs() - 1e-10
             || state.command_shaper.shaped_rate.abs() >= max_bank_rate - 1e-10
         {
-            rate_saturated = 1;
+            rate_saturated = true;
         }
 
         state.bank_angle_commanded =
@@ -367,7 +362,7 @@ pub fn guidance_step(
         // Legacy hard-clamp (backward compatible when shaping absent)
         bank_rate = raw_rate;
         if raw_rate.abs() - max_bank_rate > 1e-10 {
-            rate_saturated = 1;
+            rate_saturated = true;
             state.bank_angle_commanded =
                 state.bank_angle_realized + max_bank_rate.copysign(angle_diff) * guidance_period;
         }
@@ -376,7 +371,7 @@ pub fn guidance_step(
     out.bank_angle_commanded = state.bank_angle_commanded;
     out.bank_rate = bank_rate;
     out.rate_saturated = rate_saturated;
-    out.roll_reversal_active = if roll_reversal_active { 1 } else { 0 };
+    out.roll_reversal_active = roll_reversal_active;
 
     out
 }
@@ -403,7 +398,7 @@ mod tests {
         SphericalState, TimePeriods,
     };
     use crate::gnc::guidance::lateral::LateralParams;
-    use crate::gnc::navigation::estimator::NavigationOutput;
+    use crate::gnc::navigation::estimator::{GuidancePhase, NavigationOutput};
     use std::sync::Arc;
 
     // ─── Fixture builders ───────────────────────────────────────────────────
@@ -635,13 +630,13 @@ mod tests {
         );
     }
 
-    /// longitudinal_active=0 (guidance inactive) should still return a finite bank
+    /// longitudinal_active=false (guidance inactive) should still return a finite bank
     /// equal to |reference_bank_angle|, without saturating.
     #[test]
     fn inactive_longitudinal_guidance_uses_reference_bank() {
         let nav = test_nav();
         let mut data = test_sim_data();
-        // Force energy outside activation window so longitudinal_active=0
+        // Force energy outside activation window so longitudinal_active=false
         data.guidance.longi_activation = -1e12;
         data.guidance.longi_inhibition = -2e12;
         data.guidance.lateral.lateral_activation = -2e12;
@@ -714,7 +709,7 @@ mod tests {
 
     /// `enabled = false` at config layer produces `command_shaping = None` at runtime.
     /// This test verifies that `None` (the output of that conversion) triggers the legacy
-    /// hard-clamp path: rate clamped to max_bank_rate, `rate_saturated = 1`, shaped_rate untouched.
+    /// hard-clamp path: rate clamped to max_bank_rate, `rate_saturated = true`, shaped_rate untouched.
     #[test]
     fn shaper_config_disabled_uses_legacy_hardclamp() {
         let nav = test_nav();
@@ -750,7 +745,7 @@ mod tests {
             out.bank_angle_commanded,
             out.bank_angle_commanded.to_degrees(),
         );
-        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+        assert!(out.rate_saturated, "rate should saturate");
         assert!(
             state.command_shaper.shaped_rate.abs() < 1e-10,
             "shaped_rate should remain 0 when shaping is disabled (enabled=false), got {:.2e}",
@@ -824,7 +819,7 @@ mod tests {
             out.bank_rate.to_degrees()
         );
         // Rate-limited by acceleration, so saturation flag should be set
-        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+        assert!(out.rate_saturated, "rate should saturate");
         // Commanded angle = realized + shaped_rate * dt
         let expected_commanded = realized + expected_rate * guidance_period;
         assert!(
@@ -865,7 +860,7 @@ mod tests {
             "shaped_rate ({:.4} deg/s) exceeds max_bank_rate (15 deg/s)",
             out.bank_rate.to_degrees()
         );
-        assert_eq!(out.rate_saturated, 1, "rate_saturated should be 1");
+        assert!(out.rate_saturated, "rate should saturate");
     }
 
     /// After reversing the commanded direction, shaped_rate should decelerate (not immediately flip).
@@ -978,10 +973,7 @@ mod tests {
 
         // raw_rate = 2 deg/s; max_rate_delta = 5 deg/s*s * 1s = 5 deg/s > 2 => no accel saturation
         // shaped_rate goes from 0 to 2 deg/s in one step; max_bank_rate=15 => no rate cap
-        assert_eq!(
-            out.rate_saturated, 0,
-            "small correction should not saturate"
-        );
+        assert!(!out.rate_saturated, "small correction should not saturate");
         // commanded should be close to target
         assert!(
             (out.bank_angle_commanded - target).abs() < 1e-9,
@@ -1163,8 +1155,8 @@ mod tests {
     #[test]
     fn phase_2_dispatches_to_exit_guidance() {
         let mut nav = test_nav();
-        nav.guidance_phase = 2;
-        nav.bounce_flag = 1;
+        nav.guidance_phase = GuidancePhase::Exit;
+        nav.bounce_flag = true;
         nav.density_exit = 1e-6;
         nav.velocity_estimated[1] = 0.05; // positive FPA (ascending)
 
@@ -1378,8 +1370,8 @@ mod tests {
     #[test]
     fn piecewise_constant_ignores_exit_phase() {
         let mut nav = test_nav();
-        nav.guidance_phase = 2;
-        nav.bounce_flag = 1;
+        nav.guidance_phase = GuidancePhase::Exit;
+        nav.bounce_flag = true;
 
         let mut data = test_sim_data();
         data.guidance.piecewise_constant = crate::data::guidance_params::PiecewiseConstantParams {

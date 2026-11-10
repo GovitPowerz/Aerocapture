@@ -174,7 +174,7 @@ pub fn build_sim_state(
         cumulative_bank_change_deg: 0.0,
         dynamic_pressure_for_photo: 0.0,
         density_estimate_for_photo: 0.0,
-        guidance_phase_for_photo: 1,
+        guidance_phase_for_photo: estimator::GuidancePhase::Capture,
         gm_config,
         gm_rng,
         gm_normal,

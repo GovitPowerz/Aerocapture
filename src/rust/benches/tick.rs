@@ -145,7 +145,7 @@ fn fly(config: &str, model: Option<&str>) -> Flight {
         step_one_tick(&mut sim, &input, &data, &input.planet, None, &defs, &ctx);
         let nav = sim.last_nav_output();
         // The tick latches the reference velocity into the guidance state just before the call.
-        if nav.phase_transition_flag == 1 {
+        if nav.phase_transition_flag {
             state.reference_velocity = nav.reference_velocity;
         }
         flown.push(sim.guidance_state.bank_angle_commanded);

@@ -109,7 +109,7 @@ src/rust/src/
       star_tracker.rs              — Star tracker model (position updates with dynamic pressure blackout)
       coordinates.rs               — Spherical<>Cartesian, geodetic, total energy
     guidance/
-      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2), GuidanceState (carries `nn_state: Option<NnState>` for stateful NN
+      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance in `GuidancePhase::Exit`), GuidanceState (carries `nn_state: Option<NnState>` for stateful NN
                                        layers), GuidanceOutput; CommandShaper (acceleration-limited S-curve rate shaping with realized-angle feedback; falls back to legacy hard-clamp when config
                                        absent); constant-bank reference mode handled via the `is_reference` flag (no separate guidance struct); the single signed-bank-scheme predicate + the shared
                                        `securize_cos_bank` (clamp+acos) helper live here
