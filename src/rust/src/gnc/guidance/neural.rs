@@ -47,25 +47,6 @@ use crate::gnc::navigation::coordinates::sin_cos_fused;
 use crate::gnc::navigation::estimator::NavigationOutput;
 use crate::orbit::maneuver;
 
-/// Build the masked NN input vector from navigation state.
-///
-/// Constructs the full 35-element candidate input vector, applies ablation zeroing
-/// (if configured), then applies the input_mask (or legacy [0..16] default).
-/// Returns the masked `Vec<f64>` ready for `nn.forward()`.
-///
-/// `input_mask`, `ablated_input`, and `ablated_value` are taken directly so this
-/// function can be called without a `NeuralNetModel` (e.g. supervised-trace capture
-/// during FTC runs). When `ablated_input = Some(idx)`, `full_input[idx]` is frozen
-/// to `ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
-///
-/// The last 4 parameters (`prev_inclination_error`, `prev_bank_signed`,
-/// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
-/// 21-24. They MUST be sourced from GuidanceState (telemetry updated each tick
-/// by `tick.rs`) so they reflect the previous-tick state at NN-evaluation time.
-///
-/// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
-/// PREVIOUS tick. It populates indices 29-30 as a (sin, cos) pair and also
-/// serves as the base for the `Delta` output decoder in `nn_bank_angle`.
 /// Telemetry the candidate inputs need beyond the navigation output: the target
 /// inclination and the previous-tick guidance state that makes the signed-bank
 /// decision Markovian (inputs 20-31, and the base of the `delta` decoder).
@@ -127,6 +108,17 @@ impl NnModelView<'_> {
     }
 }
 
+/// Build the masked NN input vector from navigation state.
+///
+/// Evaluates only the candidates `view.input_mask` selects (`None` = the legacy
+/// first 16), normalizes them, and returns them in mask order, ready for
+/// `nn.forward()`. When `view.ablated_input = Some(idx)` and `idx` is selected, it is
+/// emitted as `view.ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
+///
+/// The view is taken directly so this can run without a `NeuralNetModel` (the
+/// supervised-trace capture during teacher runs). `ctx` must come from
+/// `NnInputContext::from_guidance_state` so inputs 21-24 and the bank history
+/// reflect the previous-tick state at NN-evaluation time.
 pub fn build_nn_input(
     nav: &NavigationOutput,
     view: NnModelView<'_>,
@@ -155,8 +147,11 @@ pub fn build_nn_input(
     // normalization is independent of the others, so skipping one cannot move another.
     const LEGACY_FIRST_16: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
     let selected: &[usize] = input_mask.unwrap_or(&LEGACY_FIRST_16);
-    let wanted = selected.iter().fold(0_u64, |bits, &i| bits | (1 << i));
-    let wants = |i: usize| wanted & (1 << i) != 0;
+    let mut wanted = [false; NN_FULL_INPUT_SIZE];
+    for &i in selected {
+        wanted[i] = true;
+    }
+    let wants = |i: usize| wanted[i];
 
     // Extract RAW physical values into raw[]; normalization is applied uniformly
     // below from a per-input NormSpec table (model's or DEFAULT_NORMALIZATION).

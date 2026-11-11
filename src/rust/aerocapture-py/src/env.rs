@@ -458,9 +458,9 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
 }
 
 /// Predicted correction delta-v [dv1, dv2, dv3] (raw m/s) on the current
-/// osculating orbit for one env. Mirrors `build_obs_for_env`'s orbit
-/// construction so the aux DV equals candidate inputs 32-34 that
-/// `build_nn_input` produces (pre-normalization). Consumed by the DV-reward
+/// osculating orbit for one env. Reads the navigation's `orbit_estimated`, as
+/// `build_nn_input` does, so the aux DV equals candidate inputs 32-34
+/// (pre-normalization). Consumed by the DV-reward
 /// potential (`StepRewardCalculator`, potential = "dv").
 fn predicted_dv_for_state(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> [f64; 3] {
     let nav = state.last_nav_output();

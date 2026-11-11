@@ -241,7 +241,8 @@ mod tests {
         let x = std::hint::black_box(0.5092481926616239_f64);
         let (s, c) = sin_cos_fused(x);
         assert_eq!(c.to_bits(), lone_cos(x).to_bits());
-        assert!((s - lone_sin(x)).abs() <= f64::EPSILON);
+        // Same sign, so the bit patterns differ by the ulp count.
+        assert!(s.to_bits().abs_diff(lone_sin(x).to_bits()) <= 1);
     }
 
     #[test]

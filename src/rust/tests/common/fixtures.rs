@@ -28,6 +28,7 @@ use std::sync::Arc;
 /// * `density`     — estimated atmospheric density (kg/m³)
 /// * `drag_accel`  — drag acceleration magnitude (m/s²)
 /// * `lift_accel`  — lift acceleration (m/s², signed)
+/// * `planet`      — derives the energy and the orbit (the radius stays Mars' 3396.2 km)
 pub fn nav_from_state(
     altitude: f64,
     velocity: f64,

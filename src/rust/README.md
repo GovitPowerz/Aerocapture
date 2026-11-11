@@ -107,7 +107,8 @@ src/rust/src/
                                        fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs, and carries `energy_estimated` and `orbit_estimated`
                                        (`OrbitalElements`), the one derivation of the estimated state per tick (`compute_energy_and_orbit`): `guidance_step`, lateral guidance, the NN input
                                        builder, the tick telemetry and the RL env read them, nothing re-derives. A hand-built output (tests, benches) starts from
-                                       `NavigationOutput::from_estimated_state` / `set_estimated_state` so the derived fields cannot disagree with the state. `navigate` / `navigate_ekf` take the truth-side biases as
+                                       `NavigationOutput::from_estimated_state` / `set_estimated_state` so the derived fields match the state (the state fields stay `pub`; a direct write to
+                                       them is not re-derived). `navigate` / `navigate_ekf` take the truth-side biases as
                                        `&AeroDispersions`; flags are `bool` and the phase is the `GuidancePhase` enum, whose discriminants (1/2/3) are the photo `phase` column
                                        (`GuidancePhase::column()`, called by the photo and event-record writers only)
       ekf.rs                       — 13-state Extended Kalman Filter (error-state: pos/vel errors, accel/gyro biases, density correction)

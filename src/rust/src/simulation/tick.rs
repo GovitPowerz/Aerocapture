@@ -200,8 +200,7 @@ pub fn act_tick(
             forced_bank,
         );
 
-        // Compute current inclination error once -- needed by both supervised collect
-        // (when active) and the post-guidance telemetry update for the next tick.
+        // Inclination error for the post-guidance telemetry update (next tick's NN inputs).
         let current_incl_err = nav_out.orbit_estimated.inclination - data.target_orbit.inclination;
 
         // Supervised-trace push gates on guidance.longitudinal_active so we
