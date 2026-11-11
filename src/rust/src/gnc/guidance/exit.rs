@@ -1,6 +1,6 @@
 //! Exit-phase longitudinal guidance.
 //!
-//! Stateless bank angle controller for the exit phase (guidance_phase == 2).
+//! Stateless bank angle controller for the exit phase (`GuidancePhase::Exit`).
 //! Uses dynamic pressure feedback with radial velocity damping to steer the
 //! vehicle to an acceptable apoapsis after the atmospheric bounce.
 //!
@@ -181,8 +181,8 @@ mod tests {
             density_exit,
             dynamic_pressure_estimated: 0.5 * density_guidance * velocity * velocity,
             energy_estimated: -1e6,
-            guidance_phase: 2,
-            bounce_flag: 1,
+            guidance_phase: crate::gnc::navigation::estimator::GuidancePhase::Exit,
+            bounce_flag: true,
             ..Default::default()
         }
     }

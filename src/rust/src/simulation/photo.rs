@@ -77,11 +77,9 @@ pub(crate) fn build_photo_values(
     cumulative_bank_change: f64,
     data: &SimData,
     density_gain: f64,
-    run_state: &RunState,
     cumulative_flux: f64,
-    guidance_phase: i32,
 ) -> [f64; PHOTO_LINE_LEN] {
-    let ph = photo_physics(&sim.state, sim.aoa, planet, data, run_state);
+    let ph = photo_physics(&sim.state, sim.aoa, planet, data, &sim.run_state);
 
     let mut p = [0.0; PHOTO_LINE_LEN];
     p[PHOTO_TIME_S] = sim_time;
@@ -97,7 +95,7 @@ pub(crate) fn build_photo_values(
     p[PHOTO_RAAN_DEG] = ph.orbit.raan / DEG_TO_RAD;
     p[PHOTO_PERIAPSIS_ALT_KM] = ph.orbit.periapsis_alt / 1e3;
     p[PHOTO_APOAPSIS_ALT_KM] = ph.orbit.apoapsis_alt / 1e3;
-    p[PHOTO_PHASE] = guidance_phase as f64;
+    p[PHOTO_PHASE] = sim.last_nav.guidance_phase.column();
     p[PHOTO_BANK_DEG] = sim.bank_angle / DEG_TO_RAD;
     p[PHOTO_RADIAL_VEL_MS] = ph.velocity_radial;
     p[PHOTO_AOA_DEG] = sim.aoa / DEG_TO_RAD;
@@ -113,7 +111,7 @@ pub(crate) fn build_photo_values(
     p[PHOTO_NAV_DENSITY_RATIO] = density_gain; // estimated / model
     p[PHOTO_TRUTH_DENSITY] = ph.rho_truth;
     p[PHOTO_HEAT_LOAD_KJ_M2] = cumulative_flux / 1e3; // J/m2 -> kJ/m2
-    p[PHOTO_DENSITY_PERTURBATION] = run_state.density_perturbation; // fractional GM value
+    p[PHOTO_DENSITY_PERTURBATION] = sim.run_state.density_perturbation; // fractional GM value
     p
 }
 
@@ -177,28 +175,17 @@ pub(crate) fn build_event_photo_values(
 /// Append the current state's snapshot row to `state.photo_lines`: the per-tick
 /// photo row in `tick::step_one_tick` and the final row in `runner::run_single`.
 pub(crate) fn push_photo_snapshot(state: &mut SimState, planet: &PlanetConfig, data: &SimData) {
-    let sim_time = state.sim_time;
-    let dynamic_pressure_for_photo = state.dynamic_pressure_for_photo;
-    let density_estimate_for_photo = state.density_estimate_for_photo;
-    let sim_idx = state.sim_idx;
-    let cumulative_bank_change_deg = state.cumulative_bank_change_deg;
-    let density_gain = state.nav_filter.density_gain();
-    let run_state_snap = state.run_state;
-    let cumulative_flux = state.state[6];
-    let guidance_phase_for_photo = state.guidance_phase_for_photo;
     let photo_line = build_photo_values(
         state,
-        sim_time,
+        state.sim_time,
         planet,
-        dynamic_pressure_for_photo,
-        density_estimate_for_photo,
-        sim_idx + 1,
-        cumulative_bank_change_deg * DEG_TO_RAD,
+        state.dynamic_pressure_for_photo,
+        state.density_estimate_for_photo,
+        state.sim_idx + 1,
+        state.cumulative_bank_change_deg * DEG_TO_RAD,
         data,
-        density_gain,
-        &run_state_snap,
-        cumulative_flux,
-        guidance_phase_for_photo,
+        state.nav_filter.density_gain(),
+        state.state[6],
     );
     state.photo_lines.push(photo_line);
 }

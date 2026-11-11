@@ -104,7 +104,6 @@ pub fn build_sim_state(
         }
     };
 
-    let nav_biases = run_state.nav_biases;
     let gm_config = data.density_perturbation.filter(|g| !g.is_disabled());
     let (gm_rng, gm_normal) = if gm_config.is_some() {
         use rand::SeedableRng;
@@ -168,13 +167,11 @@ pub fn build_sim_state(
         term: TermReason::None,
         step: 0,
         run_state,
-        nav_biases,
         supervised_trace: Vec::new(),
         photo_lines: Vec::new(),
         cumulative_bank_change_deg: 0.0,
         dynamic_pressure_for_photo: 0.0,
         density_estimate_for_photo: 0.0,
-        guidance_phase_for_photo: 1,
         gm_config,
         gm_rng,
         gm_normal,

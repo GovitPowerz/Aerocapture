@@ -129,6 +129,8 @@ and 0.3% capture rate on a different one, so swapping the reference is always a 
 committed config carried two keys Rust never read for five months); section-level `deny_unknown_fields` + the recursive `every_committed_config_parses_and_validates` gate + the
 `toml_keys_reachable_in_sim_data` table are the test. Neither gate sees a key relayed into a runtime field nothing reads: #128 found four LIVE GA genes (3 FTC, 1 EC) that trained as a pure
 noise walk for months; the dead-code lint on allow-free runtime structs is that gate, and the model JSON / `[cost_function]` channels now deny unknown keys too.
+The lint's reach is narrow (#242): it reports a `pub(crate)` field that is set and never touched again, not a `pub` field of the library and not a field that is written again
+(`+=`, reassignment) and never read; those are found by reading.
 
 ### Run-local deploy path
 

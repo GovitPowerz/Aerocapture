@@ -30,7 +30,6 @@ use crate::simulation::runner::{
 /// Events triggered during a tick (bounce, atmosphere_exit, crash, phase_transition) are
 /// accumulated in `SimState::event_records`. Consumers (e.g. `BatchedSimulation`) can drain
 /// them between ticks via `std::mem::take(&mut state.event_records)`.
-#[allow(dead_code)]
 pub struct TickOutcome {
     /// Pilot-realized bank angle at the end of this tick (rad).
     pub bank_commanded: f64,
@@ -109,10 +108,9 @@ pub fn sense_tick(state: &mut SimState, config: &SimInput, data: &SimData, plane
 
         state.dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
         state.density_estimate_for_photo = nav_out.density_guidance;
-        state.guidance_phase_for_photo = nav_out.guidance_phase;
 
-        // Latch reference velocity at the phase 1→2 transition
-        if nav_out.phase_transition_flag == 1 {
+        // Latch reference velocity at the capture -> exit transition
+        if nav_out.phase_transition_flag {
             state.guidance_state.reference_velocity = nav_out.reference_velocity;
         }
 
@@ -216,11 +214,11 @@ pub fn act_tick(
         );
         let current_incl_err = current_orbit.inclination - data.target_orbit.inclination;
 
-        // Supervised-trace push gates on guidance.longitudinal_active=1 so we
+        // Supervised-trace push gates on guidance.longitudinal_active so we
         // don't pollute the dataset with inhibited-guidance ticks where the
         // recorded magnitude is just |reference_bank_angle| (constant per
         // config). Active-only rows give the regression target real signal.
-        if config.collect_supervised && guidance_out.longitudinal_active == 1 {
+        if config.collect_supervised && guidance_out.longitudinal_active {
             // Explicit full mask: select ALL candidate inputs (NN_FULL_INPUT_SIZE wide).
             // Passing None would trigger the backward-compat default (first 16 only).
             let full_mask: Vec<usize> = (0..crate::data::neural::NN_FULL_INPUT_SIZE).collect();
@@ -306,7 +304,7 @@ pub fn act_tick(
                 state.sim_time,
                 state.bank_angle.to_degrees(),
                 state.aoa.to_degrees(),
-                guidance_out.longitudinal_active,
+                u8::from(guidance_out.longitudinal_active),
                 dbg_alt / 1e3,
                 state.state[3],
             );
@@ -322,11 +320,9 @@ pub fn act_tick(
     let mut adaptive_events: Vec<events::TriggeredEvent> = Vec::new();
     match &data.integration_mode {
         IntegrationMode::FixedGill => {
-            let run_state_snap = state.run_state;
-            integrate_step(state, dt, planet, data, &run_state_snap);
+            integrate_step(state, dt, planet, data);
         }
         IntegrationMode::AdaptiveDopri45(adaptive_config) => {
-            let run_state_snap = state.run_state;
             let sim_time = state.sim_time;
             let result = integrate_adaptive_with_events(
                 state,
@@ -334,7 +330,6 @@ pub fn act_tick(
                 adaptive_config,
                 planet,
                 data,
-                &run_state_snap,
                 event_defs,
                 event_ctx,
                 sim_time,
@@ -352,7 +347,7 @@ pub fn act_tick(
         rec.bank_angle_deg = state.bank_angle / DEG_TO_RAD;
         rec.aoa_deg = state.aoa / DEG_TO_RAD;
         rec.cumulative_bank_change_deg = state.cumulative_bank_change_deg;
-        rec.guidance_phase = state.guidance_phase_for_photo as f64;
+        rec.guidance_phase = state.last_nav.guidance_phase.column();
         rec.density_gain = density_gain;
     }
 
@@ -396,9 +391,8 @@ pub fn act_tick(
     }
 
     // After the event pass so a terminal event's time labels the peak it may hold.
-    let run_state_snap = state.run_state;
     let sim_time = state.sim_time;
-    track_peak_values(state, altitude, sim_time, data, &run_state_snap);
+    track_peak_values(state, altitude, sim_time, data);
 
     // NaN/Inf safety net: extreme GA parameters can blow up numerically.
     // All termination checks evaluate to false on NaN, so the loop would spin forever.

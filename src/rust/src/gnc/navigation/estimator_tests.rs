@@ -106,8 +106,19 @@ fn zero_biases() -> NavigationBiases {
     NavigationBiases::default()
 }
 
-fn no_run_biases() -> [f64; 7] {
-    [0.0; 7] // density, cx, cz, mass, incidence, ref_area, filter_gain
+/// Undispersed truth-side aerodynamics (wind identity).
+fn nominal_aero() -> AeroDispersions {
+    AeroDispersions {
+        density_bias: 0.0,
+        density_perturbation: 0.0,
+        cx_bias: 0.0,
+        cz_bias: 0.0,
+        mass_bias: 0.0,
+        incidence_bias: 0.0,
+        ref_area_bias: 0.0,
+        wind_scale: 1.0,
+        wind_direction_bias: 0.0,
+    }
 }
 
 /// Build EKF/IMU/StarTracker state with noise-free configs for deterministic
@@ -137,7 +148,7 @@ fn quiet_ekf_states() -> (
     )
 }
 
-/// Helper: call navigate_ekf with zero run biases.
+/// Helper: call navigate_ekf with undispersed aerodynamics.
 #[allow(clippy::too_many_arguments)]
 fn call_navigate_ekf(
     position_true: &[f64; 3],
@@ -166,42 +177,29 @@ fn call_navigate_ekf(
         ekf_config,
         data,
         &PlanetConfig::mars(),
-        0.0, // density
-        0.0, // density_perturbation
-        0.0, // cx
-        0.0, // cz
-        0.0, // mass
-        0.0, // incidence
-        0.0, // ref_area
+        &nominal_aero(),
     )
 }
 
-/// Helper: call navigate with a convenient tuple of run biases.
+/// Helper: call navigate with undispersed aerodynamics and a filter-gain bias.
 fn call_navigate(
     position_true: &[f64; 3],
     velocity_true: &[f64; 3],
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
-    run_biases: &[f64; 7],
+    filter_gain_bias: f64,
 ) -> NavigationOutput {
     navigate(
         position_true,
         velocity_true,
         data.entry.initial_aoa,
-        0.0, // sim_time
         biases,
         nav_state,
         data,
         &PlanetConfig::mars(),
-        run_biases[0], // density
-        0.0,           // density_perturbation
-        run_biases[1], // cx
-        run_biases[2], // cz
-        run_biases[3], // mass
-        run_biases[4], // incidence
-        run_biases[5], // ref_area
-        run_biases[6], // filter_gain
+        &nominal_aero(),
+        filter_gain_bias,
     )
 }
 
@@ -240,7 +238,7 @@ fn biases_are_additive(
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     for i in 0..3 {
@@ -270,24 +268,17 @@ fn density_filter_convergence() {
     let mut nav_state = NavigationState::new();
 
     let mut density_gain_values = Vec::new();
-    for step in 0..50 {
+    for _ in 0..50 {
         let _out = navigate(
             &position_true,
             &velocity_true,
             data.entry.initial_aoa,
-            step as f64,
             &biases,
             &mut nav_state,
             &data,
             &PlanetConfig::mars(),
-            0.0, // density_bias
-            0.0, // density_perturbation
-            0.0, // cx
-            0.0, // cz
-            0.0, // mass
-            0.0, // incidence
-            0.0, // ref_area
-            0.0, // filter_gain
+            &nominal_aero(),
+            0.0, // filter_gain_bias
         );
         density_gain_values.push(nav_state.density_gain);
     }
@@ -333,7 +324,7 @@ fn high_altitude_resets_density_gain() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     assert_relative_eq!(nav_state.density_gain, 1.0, max_relative = 1e-14,);
@@ -352,15 +343,13 @@ fn filter_gain_clamped(#[case] filter_gain_bias: f64, #[case] _label: &str) {
     let velocity_true = [5000.0, -0.10, 1.0];
     let biases = zero_biases();
     let mut nav_state = NavigationState::new();
-
-    let run_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, filter_gain_bias];
     let out = call_navigate(
         &position_true,
         &velocity_true,
         &biases,
         &mut nav_state,
         &data,
-        &run_biases,
+        filter_gain_bias,
     );
 
     // Function should not crash, and all outputs should be finite
@@ -385,9 +374,9 @@ fn filter_gain_clamped(#[case] filter_gain_bias: f64, #[case] _label: &str) {
 // ── Test 5: bounce_detection ──
 
 #[rstest]
-#[case::descending(-0.15, 0, "negative gamma (descending) => no bounce")]
-#[case::ascending(0.05, 1, "positive gamma (ascending) => bounce detected")]
-fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: i32, #[case] _label: &str) {
+#[case::descending(-0.15, false, "negative gamma (descending) => no bounce")]
+#[case::ascending(0.05, true, "positive gamma (ascending) => bounce detected")]
+fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: bool, #[case] _label: &str) {
     let data = test_sim_data();
     let r = MARS_REQ + 50_000.0;
     let position_true = [r, 0.0, 0.0];
@@ -401,7 +390,7 @@ fn bounce_detection(#[case] gamma: f64, #[case] expected_bounce_flag: i32, #[cas
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     assert_eq!(
@@ -433,7 +422,7 @@ fn density_filter_stability() {
             &biases,
             &mut nav_state,
             &data,
-            &no_run_biases(),
+            0.0,
         );
         assert!(
             nav_state.density_gain.is_finite(),
@@ -467,7 +456,7 @@ fn density_gain_rate_limited() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // With rate limit of 0.05, density_gain cannot move more than 0.05 from 1.0
@@ -475,6 +464,56 @@ fn density_gain_rate_limited() {
     assert!(
         delta <= 0.05 + 1e-14,
         "density_gain delta {delta} exceeded max_delta 0.05"
+    );
+}
+
+// ── Test: each truth-side dispersion reaches the measured drag ──
+
+/// One filter step from gain 1.0 with the rate limit off moves the gain to
+/// `1 + lambda * (measured / nominal drag - 1)`; the expected drag ratio is
+/// derived from the drag law independently of `navigate`.
+#[rstest]
+#[case::density(AeroDispersions { density_bias: 0.1, ..nominal_aero() })]
+#[case::density_perturbation(AeroDispersions { density_perturbation: 0.1, ..nominal_aero() })]
+#[case::cx(AeroDispersions { cx_bias: 0.1, ..nominal_aero() })]
+#[case::cz(AeroDispersions { cz_bias: 0.1, ..nominal_aero() })]
+#[case::mass(AeroDispersions { mass_bias: 0.1, ..nominal_aero() })]
+#[case::incidence(AeroDispersions { incidence_bias: 0.05, ..nominal_aero() })]
+#[case::ref_area(AeroDispersions { ref_area_bias: 0.1, ..nominal_aero() })]
+fn aero_dispersions_reach_measured_drag(#[case] aero: AeroDispersions) {
+    let mut data = test_sim_data();
+    data.guidance.density_gain_max_delta = 10.0;
+    let mut nav_state = NavigationState::new();
+    navigate(
+        &[MARS_REQ + 40_000.0, 0.0, 0.0],
+        &[5000.0, -0.10, 1.0],
+        data.entry.initial_aoa,
+        &zero_biases(),
+        &mut nav_state,
+        &data,
+        &PlanetConfig::mars(),
+        &aero,
+        0.0,
+    );
+
+    let (cx, cz) = (data.aero.nominal_cx, data.aero.nominal_cz);
+    let drag = |aoa: f64, cx: f64, cz: f64| cx * aoa.cos() + cz * aoa.sin();
+    let aoa = data.entry.initial_aoa;
+    let ratio =
+        (1.0 + aero.density_bias) * (1.0 + aero.density_perturbation) * (1.0 + aero.ref_area_bias)
+            / (1.0 + aero.mass_bias)
+            * drag(
+                aoa + aero.incidence_bias,
+                cx * (1.0 + aero.cx_bias),
+                cz * (1.0 + aero.cz_bias),
+            )
+            / drag(aoa, cx, cz);
+    let lambda = data.guidance.density_filter_gain;
+    assert!((ratio - 1.0).abs() > 1e-3, "case must move the drag");
+    assert_relative_eq!(
+        nav_state.density_gain,
+        1.0 + lambda * (ratio - 1.0),
+        max_relative = 1e-9
     );
 }
 
@@ -499,7 +538,7 @@ fn density_gain_saturated() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     assert!(
@@ -537,7 +576,7 @@ fn rate_limit_before_saturation() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // density_gain should be in [0.10, 0.14] (0.12 +/- 0.02, then clamped to [0.1, 10.0])
@@ -585,7 +624,7 @@ proptest::proptest! {
             &biases,
             &mut nav_state,
             &data,
-            &no_run_biases(),
+            0.0,
         );
 
         proptest::prop_assert!(out.position_estimated[0].is_finite(), "position_estimated[0] non-finite");
@@ -615,15 +654,13 @@ proptest::proptest! {
         let biases = zero_biases();
         let mut nav_state = NavigationState::new();
         nav_state.density_gain = initial_gain;
-
-        let run_biases = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, filter_gain_bias];
         let _out = call_navigate(
             &position_true,
             &velocity_true,
             &biases,
             &mut nav_state,
             &data,
-            &run_biases,
+            filter_gain_bias,
         );
 
         proptest::prop_assert!(
@@ -651,7 +688,7 @@ fn zero_biases_no_nav_errors() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // With zero biases, output position should exactly equal input
@@ -691,14 +728,7 @@ fn density_gain_diverges_with_onboard_model() {
     let velocity = [5000.0, -0.15, 0.6];
 
     for _ in 0..10 {
-        call_navigate(
-            &position,
-            &velocity,
-            &biases,
-            &mut nav_state,
-            &data,
-            &no_run_biases(),
-        );
+        call_navigate(&position, &velocity, &biases, &mut nav_state, &data, 0.0);
     }
 
     assert!(
@@ -732,7 +762,7 @@ fn lift_correction_at_zero_aoa() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // At alpha=0, cos(0)=1, sin(0)=0, so correction factor = 1.0
@@ -770,7 +800,7 @@ fn lift_correction_at_nonzero_aoa() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // The corrected denominator at AoA=10deg: 1.6*cos(10) + (-0.2)*sin(10)
@@ -818,7 +848,7 @@ fn lift_correction_denom_guard() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // Guard triggered: density_estimated = 0.0, filter stays near initial gain
@@ -866,7 +896,7 @@ fn negative_denom_rejected_in_density_inversion() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // density_estimated is rejected (= 0), and the guard-tripped filter step is
@@ -911,7 +941,7 @@ fn bias_filter_holds_gain_on_guard_tripped_step() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // Filter skipped → gain held at 5.0. The OLD bias trigger (rho_model only)
@@ -949,7 +979,7 @@ fn density_gain_clamped_when_filter_skipped() {
         &biases,
         &mut nav_state,
         &data,
-        &no_run_biases(),
+        0.0,
     );
 
     // Clamp hoisted out of the filter `if` → runs unconditionally. The OLD code
@@ -969,29 +999,22 @@ fn full_phase_transitions_to_exit() {
     let r = planet.equatorial_radius + 50_000.0;
     let biases = zero_biases();
     let mut nav_state = NavigationState::new();
-    let run_biases = no_run_biases();
 
     // First call: descending (FPA negative, pre-bounce) — should be phase 1
     let out1 = navigate(
         &[r, 0.0, 0.0],
         &[5000.0, -0.05, 0.6], // negative FPA → sin < 0 → no bounce
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
     assert_eq!(
-        out1.guidance_phase, 1,
+        out1.guidance_phase,
+        GuidancePhase::Capture,
         "should be capture phase while descending"
     );
 
@@ -1002,22 +1025,16 @@ fn full_phase_transitions_to_exit() {
         &[r, 0.0, 0.0],
         &[5000.0, 0.02, 0.6], // positive FPA → sin > 0 → bounce; radial < 120 m/s
         data.entry.initial_aoa,
-        20.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
     assert_eq!(
-        out2.guidance_phase, 1,
+        out2.guidance_phase,
+        GuidancePhase::Capture,
         "above velocity threshold → still capture"
     );
 
@@ -1029,28 +1046,19 @@ fn full_phase_transitions_to_exit() {
         &[r, 0.0, 0.0],
         &[4000.0, 0.028, 0.6], // below 4400 threshold; radial ≈ 112 m/s > prev, no crash
         data.entry.initial_aoa,
-        30.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
     assert_eq!(
-        out3.guidance_phase, 2,
+        out3.guidance_phase,
+        GuidancePhase::Exit,
         "below velocity threshold after bounce → exit phase"
     );
-    assert_eq!(
-        out3.phase_transition_flag, 1,
-        "transition flag should be set"
-    );
+    assert!(out3.phase_transition_flag, "transition flag should be set");
     assert!(
         out3.reference_velocity.abs() > 0.0,
         "reference_velocity should be latched"
@@ -1067,26 +1075,18 @@ fn capture_only_stays_phase_1() {
     let r = planet.equatorial_radius + 50_000.0;
     let biases = zero_biases();
     let mut nav_state = NavigationState::new();
-    let run_biases = no_run_biases();
 
     // Trigger bounce (small FPA so velocity_radial < 120 m/s, avoiding the radial override)
     let _ = navigate(
         &[r, 0.0, 0.0],
         &[5000.0, 0.02, 0.6], // positive FPA, radial ≈ 100 m/s < 120
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
 
     // Below threshold after bounce — would normally be phase 2, but CaptureOnly keeps phase 1.
@@ -1096,21 +1096,18 @@ fn capture_only_stays_phase_1() {
         &[r, 0.0, 0.0],
         &[4000.0, 0.028, 0.6], // below 4400 threshold, radial ≈ 112 m/s > prev, no crash
         data.entry.initial_aoa,
-        20.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
-    assert_eq!(out.guidance_phase, 1, "CaptureOnly must keep phase 1");
+    assert_eq!(
+        out.guidance_phase,
+        GuidancePhase::Capture,
+        "CaptureOnly must keep phase 1"
+    );
 }
 
 /// SimPhase::ExitOnly: phase stays 2 regardless of state.
@@ -1122,28 +1119,24 @@ fn exit_only_stays_phase_2() {
     let r = planet.equatorial_radius + 50_000.0;
     let biases = zero_biases();
     let mut nav_state = NavigationState::new();
-    let run_biases = no_run_biases();
 
     // Descending, pre-bounce — would normally be phase 1
     let out = navigate(
         &[r, 0.0, 0.0],
         &[5000.0, -0.05, 0.6],
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,
         &planet,
-        run_biases[0],
-        0.0, // density_perturbation
-        run_biases[1],
-        run_biases[2],
-        run_biases[3],
-        run_biases[4],
-        run_biases[5],
-        run_biases[6],
+        &nominal_aero(),
+        0.0, // filter_gain_bias
     );
-    assert_eq!(out.guidance_phase, 2, "ExitOnly must force phase 2");
+    assert_eq!(
+        out.guidance_phase,
+        GuidancePhase::Exit,
+        "ExitOnly must force phase 2"
+    );
 }
 
 // ── Fix 4.1: EKF exit-phase irreversibility ──
@@ -1176,13 +1169,11 @@ fn ekf_exit_phase_does_not_revert() {
         &data,
     );
     assert_eq!(
-        out1.guidance_phase, 2,
+        out1.guidance_phase,
+        GuidancePhase::Exit,
         "below threshold after bounce → exit phase"
     );
-    assert_eq!(
-        out1.phase_transition_flag, 1,
-        "transition flag should be set"
-    );
+    assert!(out1.phase_transition_flag, "transition flag should be set");
 
     // Disarm the crash detector for the revert step (orthogonal to the phase-lock
     // bug under test): force prev_radial very negative so the next (negative) radial
@@ -1205,7 +1196,17 @@ fn ekf_exit_phase_does_not_revert() {
         &data,
     );
     assert_eq!(
-        out2.guidance_phase, 2,
+        out2.guidance_phase,
+        GuidancePhase::Exit,
         "exit phase must not revert to capture once latched (EKF parity with bias)"
     );
+}
+
+/// The photo `phase` column (and the validation goldens) carry these integers.
+#[test]
+fn guidance_phase_column_codes() {
+    assert_eq!(GuidancePhase::Capture.column(), 1.0);
+    assert_eq!(GuidancePhase::Exit.column(), 2.0);
+    assert_eq!(GuidancePhase::Emergency.column(), 3.0);
+    assert_eq!(GuidancePhase::default(), GuidancePhase::Capture);
 }

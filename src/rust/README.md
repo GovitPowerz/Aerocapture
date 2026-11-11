@@ -58,7 +58,8 @@ src/rust/src/
     guidance_params.rs             — Guidance law config: FTC gains, LateralParams, ThermalLimiterParams, EqGlide, EnergyCtrl, PredGuid, FNPAG params (`energy_tol` is an apoapsis-radius tolerance in
                                        meters since the apoapsis retarget; TOML key name kept for compat); ReferenceTrajectory loader (file contract: energy column in MJ/kg, converted to J/kg at load;
                                        hard-errors when the post-conversion magnitude exceeds 1e9 J/kg — i.e. the file is in J/kg — and on a MISSING/unreadable file, which would otherwise be a
-                                       silent empty table that ref-tracking schemes interpolate as 0.0; strictly-descending tables get an O(log n) bracket lookup, bit-identical to the legacy walk)
+                                       silent empty table that ref-tracking schemes interpolate as 0.0; strictly-descending tables get an O(log n) bracket lookup, bit-identical to the legacy walk;
+                                       keeps only the energy, pressure, radial-velocity and cos-bank columns, the file's altitude-rate, inclination and time columns have no reader)
     dispersions.rs                 — Monte Carlo dispersion profiles (all domains use level presets: Off/Low/Medium/High/Custom) + Gauss-Markov density perturbation (OU process config + step
                                        function) + SamplingMethod enum (Random/LHS/Sobol) + norm_ppf (Acklam inverse normal CDF) + DimTransform enum (Gaussian/Uniform/UniformRange/Fixed) +
                                        build_dim_transforms() mapping 26 dispersion dims to their transforms + generate_lhs_unit_samples() (stratified Fisher-Yates) + generate_sobol_unit_samples()
@@ -103,17 +104,19 @@ src/rust/src/
                                        (EKF parity), + gain saturation [0.1, 10.0] (`DENSITY_FACTOR_MIN`/`MAX`) applied unconditionally every tick; EKF mode honors exit-phase irreversibility
                                        (`exit_phase_locked`) like bias mode; shared post-density tail in helpers used verbatim by both modes (`update_bounce_and_phase` for bounce detection +
                                        capture->exit phase management, plus the energy/orbital/crash/SimPhase finalize helper); tests in `estimator_tests.rs`; NavigationOutput includes thermal
-                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs
+                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs. `navigate` / `navigate_ekf` take the truth-side biases as
+                                       `&AeroDispersions`; flags are `bool` and the phase is the `GuidancePhase` enum, whose discriminants (1/2/3) are the photo `phase` column
+                                       (`GuidancePhase::column()`, called by the photo and event-record writers only)
       ekf.rs                       — 13-state Extended Kalman Filter (error-state: pos/vel errors, accel/gyro biases, density correction)
       imu.rs                       — IMU sensor model (accelerometer + gyroscope with bias, scale factor, noise)
       star_tracker.rs              — Star tracker model (position updates with dynamic pressure blackout)
       coordinates.rs               — Spherical<>Cartesian, geodetic, total energy
     guidance/
-      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance when guidance_phase=2), GuidanceState (carries `nn_state: Option<NnState>` for stateful NN
+      dispatch.rs                  — Central guidance dispatch (phase-aware: routes to exit guidance in `GuidancePhase::Exit`), GuidanceState (carries `nn_state: Option<NnState>` for stateful NN
                                        layers), GuidanceOutput; CommandShaper (acceleration-limited S-curve rate shaping with realized-angle feedback; falls back to legacy hard-clamp when config
-                                       absent); constant-bank reference mode handled via the `is_reference` flag (no separate guidance struct); the single signed-bank-scheme predicate + the shared
-                                       `securize_cos_bank` (clamp+acos) helper live here
-      ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (FtcCaptureState, ftc_bank_angle)
+                                       absent); constant-bank reference mode handled via the `is_reference` flag (no separate guidance struct; only unit tests pass it true, since `act_tick`
+                                       skips guidance in reference runs); the single signed-bank-scheme predicate + the shared `securize_cos_bank` (clamp+acos) helper live here
+      ftc.rs                       — FTC capture-phase guidance: altitude-gain predictor-corrector (ftc_bank_angle; stateless)
       exit.rs                      — Exit phase guidance: shared pdyn-feedback controller for ascending leg (FTC + 4 unsigned-magnitude schemes)
       lateral.rs                   — Lateral guidance (roll reversal): LateralParams, LateralState, predictive first-order inclination projection (shared by unsigned-magnitude schemes)
       neural.rs                    — NN guidance (JSON architecture v1 or v2; the input vector, the decoders and the normalization are specified in src/data/neural/README.md). Bank decoded
@@ -144,7 +147,7 @@ src/rust/src/
                                        `replan_period` s (default 2.0, `[guidance.fnpag]`; deliberately NOT a GA gene — the wall-time-blind GA would floor it) and holds the command in between (the
                                        held command is re-clamped at the CURRENT altitude's bank limits, so a 140-deg command issued above the 50 km switch can't persist below it where bank_max_low
                                        applies); the corrector is BISECTION over [bank_min, bank_max] on the monotonic apoapsis-vs-bank curve (low bank → escape/`UNBOUND_APOAPSIS_RADIUS_M` sentinel,
-                                       high bank → crash/0; ~11 forward integrations/replan) — a secant collapses capture to ~19% on the escape/crash plateaus where its gradient is zero.
+                                       high bank → crash/0; <=10 forward integrations/replan) — a secant collapses capture to ~19% on the escape/crash plateaus where its gradient is zero.
                                        `prediction_dt` GA bounds floored at 2.0 s (dt=0.5 individuals ran ~3.6x slower for no fitness gain). ~166 sims/s at the GA optimum, vs ~8000 for FTC.
       piecewise_constant.rs        — N-segment bank angle profile (`bank_angles: Vec<f64>`, count tunable via TOML `n_segments` / `bank_angles = [...]`, default 10; GA-optimized, produces ref
                                        trajectory + corridor)
@@ -194,7 +197,7 @@ src/rust/src/
                                        (adaptive terminal events rewind it to the event time), so peak / bounce times, the final record and the final photo row label the state they describe (#141)
     final_record.rs                — Named index constants for the 52-element final-record array; single source of truth for `fr[N]` writes in `finalize.rs` and reads in aerocapture-py
                                        (`results.rs`, `env.rs`)
-    init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` reads;
+    init.rs                        — Per-run initialization: `RunState` (draw-derived biases) from a `DispersionDraw`; `RunState::aero()` is the `AeroDispersions` view `physics::dynamics` and navigation read;
                                        `RunState::noise_seed` derives the per-draw stochastic-stream seed (ADR-0006)
     photo.rs                       — The 30-column photo record: `build_photo_values` (per-tick snapshot row) + `build_event_photo_values` (sub-tick event row) share one `photo_physics`
                                        core (geodetic position, osculating orbit, inertial energy via `to_absolute_cartesian`, dispersed `aero_loads`) and write columns by `output::PHOTO_*`

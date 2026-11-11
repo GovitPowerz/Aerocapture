@@ -65,23 +65,17 @@ pub(crate) fn navigate_from_state(
 ) -> crate::gnc::navigation::estimator::NavigationOutput {
     let position_true = [state.state[0], state.state[1], state.state[2]];
     let velocity_true = [state.state[3], state.state[4], state.state[5]];
+    let aero = state.run_state.aero();
     match &mut state.nav_filter {
         NavigationFilter::Bias(nav_state) => estimator::navigate(
             &position_true,
             &velocity_true,
             state.guidance_state.aoa_commanded,
-            state.sim_time,
-            &state.nav_biases,
+            &state.run_state.nav_biases,
             nav_state,
             data,
             planet,
-            state.run_state.density_bias,
-            state.run_state.density_perturbation,
-            state.run_state.cx_bias,
-            state.run_state.cz_bias,
-            state.run_state.mass_bias,
-            state.run_state.incidence_bias,
-            state.run_state.ref_area_bias,
+            &aero,
             state.run_state.filter_gain_bias,
         ),
         NavigationFilter::Ekf {
@@ -98,7 +92,7 @@ pub(crate) fn navigate_from_state(
             state.guidance_state.aoa_commanded,
             state.sim_time,
             data.periods.navigation,
-            &state.nav_biases,
+            &state.run_state.nav_biases,
             legacy,
             ekf,
             imu,
@@ -107,13 +101,7 @@ pub(crate) fn navigate_from_state(
             ekf_config,
             data,
             planet,
-            state.run_state.density_bias,
-            state.run_state.density_perturbation,
-            state.run_state.cx_bias,
-            state.run_state.cz_bias,
-            state.run_state.mass_bias,
-            state.run_state.incidence_bias,
-            state.run_state.ref_area_bias,
+            &aero,
         ),
     }
 }
@@ -513,15 +501,9 @@ pub fn run_single_collect(
 }
 
 /// Perform one integration step using Gill's RK4.
-pub(crate) fn integrate_step(
-    sim: &mut SimState,
-    dt: f64,
-    planet: &PlanetConfig,
-    data: &SimData,
-    run_state: &init::RunState,
-) {
+pub(crate) fn integrate_step(sim: &mut SimState, dt: f64, planet: &PlanetConfig, data: &SimData) {
     sim.gill_toggle = 0;
-    let aero = run_state.aero();
+    let aero = sim.run_state.aero();
 
     for k in 1..=4 {
         let derivs = compute_derivatives(&sim.state, sim.bank_angle, sim.aoa, planet, data, &aero);
@@ -548,7 +530,6 @@ pub(crate) fn integrate_adaptive_with_events(
     config: &AdaptiveConfig,
     planet: &PlanetConfig,
     data: &SimData,
-    run_state: &init::RunState,
     event_defs: &[EventDef],
     event_ctx: &EventContext,
     tick_start_time: f64,
@@ -557,7 +538,7 @@ pub(crate) fn integrate_adaptive_with_events(
 
     let bank_angle = sim.bank_angle;
     let aoa = sim.aoa;
-    let aero = run_state.aero();
+    let aero = sim.run_state.aero();
     let mut t_remaining = dt_outer;
     let mut h = config.initial_dt.min(t_remaining).max(config.min_dt);
     let mut n_substeps: u32 = 0;
@@ -688,20 +669,14 @@ pub(crate) fn integrate_adaptive_with_events(
 
 /// Update peak tracking values (heat flux, load factor, dynamic pressure)
 /// after each integration step.
-pub(crate) fn track_peak_values(
-    sim: &mut SimState,
-    altitude: f64,
-    sim_time: f64,
-    data: &SimData,
-    run_state: &init::RunState,
-) {
+pub(crate) fn track_peak_values(sim: &mut SimState, altitude: f64, sim_time: f64, data: &SimData) {
     // Heat flux (W/m²), dynamic pressure (Pa), load factor (m/s²): the shared laws
     // in `physics::dynamics` (same operands as dflux in compute_derivatives).
     let AeroLoads {
         heat_flux,
         pdyn,
         load_factor,
-    } = loads_at(&sim.state, altitude, sim.aoa, data, &run_state.aero());
+    } = loads_at(&sim.state, altitude, sim.aoa, data, &sim.run_state.aero());
 
     if heat_flux > sim.max_heat_flux {
         sim.max_heat_flux = heat_flux;

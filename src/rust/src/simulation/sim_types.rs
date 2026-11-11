@@ -86,7 +86,6 @@ pub struct SimStateOptions {
 ///
 /// Expanded to include all mutable loop-local variables from `run_single` so that
 /// `tick::step_one_tick` can take a single `&mut SimState` argument.
-#[allow(dead_code)]
 pub struct SimState {
     // ── Physics state vector: [r, lon, lat, V, gamma, psi, flux, time] ──
     pub(crate) state: [f64; 8],
@@ -128,12 +127,9 @@ pub struct SimState {
 
     // ── Dispersed run state (copied from init::RunState; density_perturbation mutated each tick) ──
     pub(crate) run_state: init::RunState,
-    pub(crate) nav_biases: crate::gnc::navigation::estimator::NavigationBiases,
 
     // ── Supervised trace (only populated when config.collect_supervised=true) ──
-    // Lives on SimState (not RunState) so that the per-tick run_state copy
-    // calls in tick.rs do NOT deep-copy the growing trace vector. This was
-    // O(N²) memory churn during supervised data collection.
+    // Lives on SimState, not RunState, so RunState stays `Copy`.
     pub(crate) supervised_trace: Vec<(Vec<f64>, f64, f64, f64, f64)>,
 
     // ── Photo output accumulators ──
@@ -141,7 +137,6 @@ pub struct SimState {
     pub(crate) cumulative_bank_change_deg: f64,
     pub(crate) dynamic_pressure_for_photo: f64,
     pub(crate) density_estimate_for_photo: f64,
-    pub(crate) guidance_phase_for_photo: i32,
 
     // ── Gauss-Markov density perturbation RNG (None when disabled) ──
     pub(crate) gm_config: Option<crate::data::dispersions::DensityPerturbationConfig>,

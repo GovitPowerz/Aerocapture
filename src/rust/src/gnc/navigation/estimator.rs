@@ -11,6 +11,7 @@ use crate::gnc::navigation::imu::{ImuConfig, ImuState};
 use crate::gnc::navigation::star_tracker::{StarTrackerConfig, StarTrackerState};
 use crate::orbit::elements;
 use crate::physics::atmosphere;
+use crate::physics::dynamics::AeroDispersions;
 use nalgebra::{SMatrix, SVector};
 
 /// Density multiplicative correction factor bounds.
@@ -31,15 +32,30 @@ pub struct NavigationBiases {
     pub drag: f64,     // drag acceleration measurement bias
 }
 
+/// Guidance phase. The discriminant is the integer the photo `phase` column carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GuidancePhase {
+    #[default]
+    Capture = 1,
+    Exit = 2,
+    Emergency = 3,
+}
+
+impl GuidancePhase {
+    /// The value written to the photo `phase` column.
+    pub fn column(self) -> f64 {
+        f64::from(self as i32)
+    }
+}
+
 /// Navigation filter state (persistent across steps).
 #[derive(Debug, Clone, Copy)]
 pub struct NavigationState {
     pub density_gain: f64,             // density estimation coefficient
     pub previous_radial_velocity: f64, // previous radial velocity (m/s)
-    pub bounce_flag: i32,              // bounce indicator: 0=before, 1=after
-    pub guidance_phase: i32,           // guidance phase: 1=capture, 2=exit, 3=emergency
-    pub capture_time: f64,             // capture phase duration (s)
-    pub exit_phase_locked: bool,       // once true, phase cannot revert from 2 to 1
+    pub bounce_flag: bool,             // true once the trajectory has bounced
+    pub guidance_phase: GuidancePhase,
+    pub exit_phase_locked: bool, // once true, phase cannot revert from exit to capture
 }
 
 impl Default for NavigationState {
@@ -53,9 +69,8 @@ impl NavigationState {
         Self {
             density_gain: 1.0,
             previous_radial_velocity: 0.0,
-            bounce_flag: 0,
-            guidance_phase: 1,
-            capture_time: 0.0,
+            bounce_flag: false,
+            guidance_phase: GuidancePhase::Capture,
             exit_phase_locked: false,
         }
     }
@@ -77,12 +92,10 @@ pub struct NavigationOutput {
     // Orbital parameter errors
     pub orbital_errors: [f64; 4], // [Δa, Δe, Δi, ΔΩ]
     // Phase management
-    pub bounce_flag: i32,
-    pub guidance_phase: i32,
-    pub crash_flag: i32,
-    pub phase_transition_flag: i32, // phase transition flag
-    pub reference_velocity: f64,    // reference radial velocity
-    pub capture_time: f64,          // capture duration
+    pub bounce_flag: bool,
+    pub guidance_phase: GuidancePhase,
+    pub phase_transition_flag: bool, // capture -> exit transition happened on this step
+    pub reference_velocity: f64,     // reference radial velocity
     // Thermal state (for guidance limiter and NN inputs)
     pub heat_flux_fraction: f64, // current_heat_flux / max_heat_flux (0.0 if no limit)
     pub heat_load_fraction: f64, // cumulative_heat_load / max_heat_load (0.0 if no limit)
@@ -94,25 +107,14 @@ pub fn navigate(
     position_true: &[f64; 3], // true position [r, lon, lat]
     velocity_true: &[f64; 3], // true velocity [V, gamma, psi]
     aoa_commanded: f64,       // commanded AoA
-    sim_time: f64,            // current time
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
     planet: &PlanetConfig,
-    run_density_bias: f64,
-    run_density_perturbation: f64,
-    run_cx_bias: f64,
-    run_cz_bias: f64,
-    run_mass_bias: f64,
-    run_incidence_bias: f64,
-    run_ref_area_bias: f64,
-    run_filter_gain_bias: f64,
+    aero: &AeroDispersions, // truth-side dispersions of the measured drag
+    filter_gain_bias: f64,  // density filter gain bias (absolute delta)
 ) -> NavigationOutput {
-    let mut out = NavigationOutput {
-        phase_transition_flag: 0,
-        crash_flag: 0,
-        ..Default::default()
-    };
+    let mut out = NavigationOutput::default();
 
     // Add navigation errors (bias constants)
     out.position_estimated[0] = position_true[0] + biases.pos[0];
@@ -130,14 +132,14 @@ pub fn navigate(
     let rho_true = atmosphere::density(
         &data.atmosphere,
         alt_true,
-        run_density_bias,
-        run_density_perturbation,
+        aero.density_bias,
+        aero.density_perturbation,
     );
-    let aoa_true = aoa_commanded + run_incidence_bias;
-    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
-    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
-    let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
-    let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
+    let aoa_true = aoa_commanded + aero.incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + aero.cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + aero.cz_bias);
+    let mass_true = data.capsule.mass * (1.0 + aero.mass_bias);
+    let ref_area_true = data.capsule.reference_area * (1.0 + aero.ref_area_bias);
     let aero_factor_true =
         rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
     let accel_body_x_true =
@@ -179,7 +181,7 @@ pub fn navigate(
     // density_gain = (1-λ)*density_gain + λ*(density_estimated/rho_model)
     // Skip guard-tripped steps (density_estimated == 0) so a rejected estimate
     // does not drag the gain toward the floor — matches the EKF trigger.
-    let lambda = (data.guidance.density_filter_gain + run_filter_gain_bias).clamp(0.01, 0.99);
+    let lambda = (data.guidance.density_filter_gain + filter_gain_bias).clamp(0.01, 0.99);
     if rho_model.abs() > 1e-30 && density_estimated > 0.0 {
         let raw_gain =
             (1.0 - lambda) * nav_state.density_gain + lambda * (density_estimated / rho_model);
@@ -223,17 +225,10 @@ pub fn navigate(
         &mut out,
         nav_state,
         velocity_relative,
-        sim_time,
         data.guidance.exit_velocity_threshold,
     );
 
-    finalize_crash_phase_and_output(
-        &mut out,
-        nav_state,
-        velocity_radial,
-        data.periods.navigation,
-        data,
-    );
+    finalize_crash_phase_and_output(&mut out, nav_state, velocity_radial, data);
 
     out
 }
@@ -245,27 +240,27 @@ fn update_bounce_and_phase(
     out: &mut NavigationOutput,
     ns: &mut NavigationState,
     velocity_relative: f64,
-    sim_time: f64,
     exit_velocity_threshold: f64,
 ) -> f64 {
-    if ns.bounce_flag == 0 && out.velocity_estimated[1].sin() > 0.0 {
-        ns.bounce_flag = 1;
+    if !ns.bounce_flag && out.velocity_estimated[1].sin() > 0.0 {
+        ns.bounce_flag = true;
     }
 
     let velocity_radial = velocity_relative * out.velocity_estimated[1].sin();
 
     // Phase management (once exit phase is entered, it cannot revert to capture)
-    if ns.bounce_flag == 0 {
-        ns.guidance_phase = 1;
+    if !ns.bounce_flag {
+        ns.guidance_phase = GuidancePhase::Capture;
     } else if !ns.exit_phase_locked {
         if velocity_relative >= exit_velocity_threshold && velocity_radial < 0.0 {
-            ns.guidance_phase = 1;
+            ns.guidance_phase = GuidancePhase::Capture;
         }
-        if velocity_relative <= exit_velocity_threshold && ns.guidance_phase == 1 {
-            ns.guidance_phase = 2;
+        if velocity_relative <= exit_velocity_threshold
+            && ns.guidance_phase == GuidancePhase::Capture
+        {
+            ns.guidance_phase = GuidancePhase::Exit;
             ns.exit_phase_locked = true;
-            ns.capture_time = sim_time;
-            out.phase_transition_flag = 1;
+            out.phase_transition_flag = true;
             out.reference_velocity = velocity_radial;
         }
     }
@@ -306,7 +301,7 @@ fn compute_energy_and_orbital_errors(
     out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
 }
 
-/// Crash detection, SimPhase gating, capture-time accumulation, and final output population.
+/// Crash detection, SimPhase gating, and final output population.
 ///
 /// Shared by both the bias and EKF navigation paths. Both callers now share the same
 /// guarded phase-management block (with `exit_phase_locked` guard); only the post-phase
@@ -315,42 +310,32 @@ fn finalize_crash_phase_and_output(
     out: &mut NavigationOutput,
     ns: &mut NavigationState,
     velocity_radial: f64,
-    nav_dt: f64,
     data: &SimData,
 ) {
-    // Crash detection after bounce
-    if ns.bounce_flag >= 1 {
+    // Crash detection after bounce: a falling radial velocity switches to the emergency phase
+    if ns.bounce_flag {
         let delta_radial_velocity = velocity_radial - ns.previous_radial_velocity;
         ns.previous_radial_velocity = velocity_radial;
         if delta_radial_velocity < 0.0 {
-            out.crash_flag = 1;
+            ns.guidance_phase = GuidancePhase::Emergency;
         }
-    }
-
-    if out.crash_flag == 1 {
-        ns.guidance_phase = 3;
     }
 
     // Apply SimPhase gating
     match data.sim_phase {
         SimPhase::CaptureOnly => {
-            ns.guidance_phase = 1;
+            ns.guidance_phase = GuidancePhase::Capture;
         }
         SimPhase::ExitOnly => {
-            ns.guidance_phase = 2;
+            ns.guidance_phase = GuidancePhase::Exit;
         }
         SimPhase::Full | SimPhase::Preprogrammed => {
             // Phase logic above already computed the correct phase
         }
     }
 
-    if ns.guidance_phase == 1 {
-        ns.capture_time += nav_dt;
-    }
-
     out.bounce_flag = ns.bounce_flag;
     out.guidance_phase = ns.guidance_phase;
-    out.capture_time = ns.capture_time;
 }
 
 /// Full navigation system state: bias (legacy) or EKF.
@@ -457,19 +442,9 @@ pub fn navigate_ekf(
     ekf_config: &EkfConfig,
     data: &SimData,
     planet: &PlanetConfig,
-    run_density_bias: f64,
-    run_density_perturbation: f64,
-    run_cx_bias: f64,
-    run_cz_bias: f64,
-    run_mass_bias: f64,
-    run_incidence_bias: f64,
-    run_ref_area_bias: f64,
+    aero: &AeroDispersions, // truth-side dispersions of the measured acceleration
 ) -> NavigationOutput {
-    let mut out = NavigationOutput {
-        phase_transition_flag: 0,
-        crash_flag: 0,
-        ..Default::default()
-    };
+    let mut out = NavigationOutput::default();
 
     // ── Step 1: Biased estimated state (same as legacy) ──
     let pos_biased = [
@@ -489,14 +464,14 @@ pub fn navigate_ekf(
     let rho_true = atmosphere::density(
         &data.atmosphere,
         alt_true,
-        run_density_bias,
-        run_density_perturbation,
+        aero.density_bias,
+        aero.density_perturbation,
     );
-    let aoa_true = aoa_commanded + run_incidence_bias;
-    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + run_cx_bias);
-    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + run_cz_bias);
-    let mass_true = data.capsule.mass * (1.0 + run_mass_bias);
-    let ref_area_true = data.capsule.reference_area * (1.0 + run_ref_area_bias);
+    let aoa_true = aoa_commanded + aero.incidence_bias;
+    let cx_true = data.aero.interpolate_cx(aoa_true) * (1.0 + aero.cx_bias);
+    let cz_true = data.aero.interpolate_cz(aoa_true) * (1.0 + aero.cz_bias);
+    let mass_true = data.capsule.mass * (1.0 + aero.mass_bias);
+    let ref_area_true = data.capsule.reference_area * (1.0 + aero.ref_area_bias);
     let aero_factor_true =
         rho_true * ref_area_true * velocity_true[0] * velocity_true[0] / (2.0 * mass_true);
     let accel_body_x_true =
@@ -619,11 +594,10 @@ pub fn navigate_ekf(
         &mut out,
         legacy,
         velocity_relative,
-        sim_time,
         data.guidance.exit_velocity_threshold,
     );
 
-    finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, nav_dt, data);
+    finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, data);
 
     out
 }

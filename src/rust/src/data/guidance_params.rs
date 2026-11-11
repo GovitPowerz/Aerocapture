@@ -218,13 +218,10 @@ pub struct GuidanceParams {
 #[derive(Debug, Clone, Default)]
 pub struct ReferenceTrajectory {
     pub n_points: usize,
-    pub energy: Vec<f64>,        // energy (J/kg)
-    pub pressure: Vec<f64>,      // dynamic pressure (Pa)
-    pub radial_vel: Vec<f64>,    // radial velocity (m/s)
-    pub altitude_rate: Vec<f64>, // altitude rate (m/s)
-    pub inclination: Vec<f64>,   // inclination (rad)
-    pub time: Vec<f64>,          // time (s)
-    pub cos_bank: Vec<f64>,      // cos(bank angle)
+    pub energy: Vec<f64>,     // energy (J/kg)
+    pub pressure: Vec<f64>,   // dynamic pressure (Pa)
+    pub radial_vel: Vec<f64>, // radial velocity (m/s)
+    pub cos_bank: Vec<f64>,   // cos(bank angle)
     /// True when `energy` is strictly descending (computed by the loader).
     /// Enables the O(log n) bracket lookup in `interpolate`; false (including
     /// the `Default`) falls back to the legacy walk, which also handles
@@ -238,6 +235,7 @@ impl ReferenceTrajectory {
     /// File format: 7 whitespace-separated columns per line (E-notation floats).
     /// Column order: energy (MJ/kg), dynamic_pressure_equilibrium (Pa), velocity_radial (m/s),
     ///               altitude_rate (m/s), inclination_error (rad), time (s), cos(reference_bank_angle)
+    /// Columns 3-5 are not read by any guidance scheme and are skipped.
     pub fn load(path: &str) -> Result<Self, DataError> {
         // A missing/unreadable file is a hard error, NOT an empty table: the
         // ref-tracking schemes silently interpolate 0.0 everywhere on an empty
@@ -254,9 +252,6 @@ impl ReferenceTrajectory {
         let mut energy = Vec::new();
         let mut pressure = Vec::new();
         let mut radial_vel = Vec::new();
-        let mut altitude_rate = Vec::new();
-        let mut inclination = Vec::new();
-        let mut time = Vec::new();
         let mut cos_bank = Vec::new();
 
         for line in content.lines() {
@@ -275,9 +270,6 @@ impl ReferenceTrajectory {
                 energy.push(tokens[0] * 1e6); // MJ/kg → J/kg
                 pressure.push(tokens[1]);
                 radial_vel.push(tokens[2]);
-                altitude_rate.push(tokens[3]);
-                inclination.push(tokens[4]);
-                time.push(tokens[5]);
                 cos_bank.push(tokens[6]);
             }
         }
@@ -303,9 +295,6 @@ impl ReferenceTrajectory {
             energy,
             pressure,
             radial_vel,
-            altitude_rate,
-            inclination,
-            time,
             cos_bank,
             monotonic_descending,
         })
@@ -475,9 +464,6 @@ mod tests {
             energy: energy.clone(),
             pressure: table.clone(),
             radial_vel: table.clone(),
-            altitude_rate: table.clone(),
-            inclination: table.clone(),
-            time: table.clone(),
             cos_bank: table.clone(),
             monotonic_descending: fast,
         };

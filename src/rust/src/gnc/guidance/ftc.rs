@@ -3,21 +3,8 @@
 use crate::data::SimData;
 use crate::gnc::navigation::estimator::NavigationOutput;
 
-/// FTC capture-phase persistent state.
-#[derive(Debug, Clone, Default)]
-pub struct FtcCaptureState {
-    pub securization_counters: [i32; 2],
-    pub n_secur: i32,
-}
-
 /// Compute FTC capture-phase bank angle (unsigned magnitude).
-pub fn ftc_bank_angle(
-    nav: &NavigationOutput,
-    capture_state: &mut FtcCaptureState,
-    data: &SimData,
-    altitude: f64,
-    energy: f64,
-) -> f64 {
+pub fn ftc_bank_angle(nav: &NavigationOutput, data: &SimData, altitude: f64, energy: f64) -> f64 {
     let ref_traj = &data.guidance.ref_trajectory;
 
     let velocity_relative = nav.velocity_estimated[0];
@@ -29,7 +16,6 @@ pub fn ftc_bank_angle(
     let cos_bank_nominal = ref_traj.interpolate(energy, &ref_traj.cos_bank);
     let dynamic_pressure_nominal = ref_traj.interpolate(energy, &ref_traj.pressure);
     let altitude_rate_nominal = ref_traj.interpolate(energy, &ref_traj.radial_vel);
-    let _httnom = ref_traj.interpolate(energy, &ref_traj.altitude_rate);
 
     // Compute gains
     let (gain_altitude_rate, gain_dynamic_pressure) =
@@ -48,20 +34,10 @@ pub fn ftc_bank_angle(
             / dynamic_pressure_equilibrium_safe;
 
     // Securization: clamp cos to [-1, 1]
-    let is_securized = if cos_bank_commanded.abs() > 1.0 {
+    if cos_bank_commanded.abs() > 1.0 {
         cos_bank_commanded = cos_bank_commanded.signum();
-        1
-    } else {
-        0
-    };
-    let bank_angle_longitudinal = cos_bank_commanded.acos();
-
-    if is_securized == 1 {
-        capture_state.securization_counters[0] += 1;
-        capture_state.n_secur += 1;
     }
-
-    bank_angle_longitudinal
+    cos_bank_commanded.acos()
 }
 
 /// Cosine fade: 1.0 below `start`, 0.0 above `end`, smooth cosine taper between.
