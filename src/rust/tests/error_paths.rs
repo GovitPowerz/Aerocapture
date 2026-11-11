@@ -36,7 +36,15 @@ fn planet() -> PlanetConfig {
 
 #[test]
 fn eq_glide_zero_velocity() {
-    let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
+    let nav = nav_from_state(
+        60_000.0,
+        0.0,
+        -10.0_f64.to_radians(),
+        1e-4,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let p = planet();
     let (alt, _) = geodetic_from_spherical(
@@ -57,7 +65,15 @@ fn eq_glide_zero_density() {
     let data = minimal_sim_data();
     // equilibrium_glide recomputes density from the atmosphere table itself,
     // so we use a very high altitude to get near-zero density from the table.
-    let nav_high = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav_high = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let p = planet();
     let (alt, _) = geodetic_from_spherical(
         nav_high.position_estimated[0],
@@ -82,6 +98,7 @@ fn eq_glide_extreme_fpa_down() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let p = planet();
@@ -108,6 +125,7 @@ fn eq_glide_extreme_fpa_up() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let p = planet();
@@ -127,7 +145,15 @@ fn eq_glide_extreme_fpa_up() {
 #[test]
 fn eq_glide_very_high_altitude() {
     // 300 km — well above the stub atmosphere table
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let p = planet();
     let (alt, _) = geodetic_from_spherical(
@@ -147,7 +173,15 @@ fn eq_glide_very_high_altitude() {
 
 #[test]
 fn fnpag_zero_velocity() {
-    let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
+    let nav = nav_from_state(
+        60_000.0,
+        0.0,
+        -10.0_f64.to_radians(),
+        1e-4,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
@@ -160,7 +194,15 @@ fn fnpag_zero_velocity() {
 #[test]
 fn fnpag_zero_density() {
     // 300 km → tabulated density ≈ 0, FNPAG should return previous bank
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let init_bank = 60.0_f64.to_radians();
     let mut state = FnpagState::new(init_bank);
@@ -180,6 +222,7 @@ fn fnpag_extreme_fpa_down() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
@@ -199,6 +242,7 @@ fn fnpag_extreme_fpa_up() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
@@ -211,7 +255,15 @@ fn fnpag_extreme_fpa_up() {
 
 #[test]
 fn fnpag_very_high_altitude() {
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let mut state = FnpagState::new(60.0_f64.to_radians());
     let bank = fnpag_bank(&nav, &mut state, &data, &planet(), 0.0);
@@ -231,7 +283,15 @@ fn fnpag_very_high_altitude() {
 
 #[test]
 fn energy_ctrl_zero_velocity() {
-    let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
+    let nav = nav_from_state(
+        60_000.0,
+        0.0,
+        -10.0_f64.to_radians(),
+        1e-4,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
@@ -253,7 +313,15 @@ fn energy_ctrl_zero_velocity() {
 
 #[test]
 fn energy_ctrl_zero_density() {
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
@@ -282,6 +350,7 @@ fn energy_ctrl_extreme_fpa_down() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
@@ -311,6 +380,7 @@ fn energy_ctrl_extreme_fpa_up() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
@@ -333,7 +403,15 @@ fn energy_ctrl_extreme_fpa_up() {
 
 #[test]
 fn energy_ctrl_very_high_altitude() {
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = EnergyControllerState::new();
     let p = planet();
@@ -360,7 +438,15 @@ fn energy_ctrl_very_high_altitude() {
 
 #[test]
 fn predguid_zero_velocity() {
-    let nav = nav_from_state(60_000.0, 0.0, -10.0_f64.to_radians(), 1e-4, 0.0, 0.0);
+    let nav = nav_from_state(
+        60_000.0,
+        0.0,
+        -10.0_f64.to_radians(),
+        1e-4,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
@@ -382,7 +468,15 @@ fn predguid_zero_velocity() {
 
 #[test]
 fn predguid_zero_density() {
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();
@@ -411,6 +505,7 @@ fn predguid_extreme_fpa_down() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
@@ -440,6 +535,7 @@ fn predguid_extreme_fpa_up() {
         1e-4,
         10.0,
         -2.0,
+        &planet(),
     );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
@@ -462,7 +558,15 @@ fn predguid_extreme_fpa_up() {
 
 #[test]
 fn predguid_very_high_altitude() {
-    let nav = nav_from_state(300_000.0, 5_000.0, -10.0_f64.to_radians(), 0.0, 0.0, 0.0);
+    let nav = nav_from_state(
+        300_000.0,
+        5_000.0,
+        -10.0_f64.to_radians(),
+        0.0,
+        0.0,
+        0.0,
+        &planet(),
+    );
     let data = minimal_sim_data();
     let state = PredGuidState::new();
     let p = planet();

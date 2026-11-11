@@ -104,7 +104,10 @@ src/rust/src/
                                        (EKF parity), + gain saturation [0.1, 10.0] (`DENSITY_FACTOR_MIN`/`MAX`) applied unconditionally every tick; EKF mode honors exit-phase irreversibility
                                        (`exit_phase_locked`) like bias mode; shared post-density tail in helpers used verbatim by both modes (`update_bounce_and_phase` for bounce detection +
                                        capture->exit phase management, plus the energy/orbital/crash/SimPhase finalize helper); tests in `estimator_tests.rs`; NavigationOutput includes thermal
-                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs. `navigate` / `navigate_ekf` take the truth-side biases as
+                                       fractions (heat_flux_fraction, heat_load_fraction) for guidance limiter and NN inputs, and carries `energy_estimated` and `orbit_estimated`
+                                       (`OrbitalElements`), the one derivation of the estimated state per tick (`compute_energy_and_orbit`): `guidance_step`, lateral guidance, the NN input
+                                       builder, the tick telemetry and the RL env read them, nothing re-derives. A hand-built output (tests, benches) starts from
+                                       `NavigationOutput::from_estimated_state` / `set_estimated_state` so the derived fields cannot disagree with the state. `navigate` / `navigate_ekf` take the truth-side biases as
                                        `&AeroDispersions`; flags are `bool` and the phase is the `GuidancePhase` enum, whose discriminants (1/2/3) are the photo `phase` column
                                        (`GuidancePhase::column()`, called by the photo and event-record writers only)
       ekf.rs                       — 13-state Extended Kalman Filter (error-state: pos/vel errors, accel/gyro biases, density correction)
@@ -121,8 +124,8 @@ src/rust/src/
       lateral.rs                   — Lateral guidance (roll reversal): LateralParams, LateralState, predictive first-order inclination projection (shared by unsigned-magnitude schemes)
       neural.rs                    — NN guidance (JSON architecture v1 or v2; the input vector, the decoders and the normalization are specified in src/data/neural/README.md). Bank decoded
                                        per `output_param` via `match` in `nn_bank_angle`: `atan2_signed`/`acos_tanh`/`scaled_pi` (`wrap_to_pi(n*pi*tanh(out[0]))`)/`delta`
-                                       (`wrap_to_pi(prev_realized_bank + delta_max*tanh(out[0]))`), the signed decoders reusing `angle_utils::wrap_to_pi`. `build_nn_input` extracts the 35
-                                       raw candidate scalars then applies a uniform per-input `apply_norm(raw, &NormSpec{transform, scale, center})` = `transform((raw - center)/scale)`;
+                                       (`wrap_to_pi(prev_realized_bank + delta_max*tanh(out[0]))`), the signed decoders reusing `angle_utils::wrap_to_pi`. `build_nn_input` extracts the raw
+                                       candidate scalars the mask selects (table lookups, the exit law, the DV prediction and every transcendental are skipped when unselected) then applies a per-input `apply_norm(raw, &NormSpec{transform, scale, center})` = `transform((raw - center)/scale)`;
                                        specs resolve loaded model > `SimData::nn_normalization_override` (the TOML `[network.normalization]`, populated regardless of guidance type so the
                                        `collect_supervised` trace of a teacher scheme normalizes on the deployed NN's scales) > `DEFAULT_NORMALIZATION`. Ablation via `ablated_input` /
                                        `ablated_value`. `nn_bank_angle(nav, nn, &mut NnState, data, planet, &NnInputContext)`: `NnInputContext::from_guidance_state(&GuidanceState, sim_time,

@@ -29,7 +29,7 @@ use aerocapture::config::{GuidanceType, SimInput};
 use aerocapture::data::SimData;
 use aerocapture::data::guidance_params::NeuralNetMode;
 use aerocapture::integration::events::{EventContext, EventDef};
-use aerocapture::orbit::{elements, maneuver};
+use aerocapture::orbit::maneuver;
 use aerocapture::simulation::final_record::{
     FINAL_RECORD_LEN, FR_DV_TOTAL_MS, FR_ECC, FR_ENERGY_MJKG, FR_G_LOAD, FR_HEAT_FLUX_KW_M2,
     FR_HEAT_LOAD_MJM2,
@@ -464,17 +464,8 @@ fn build_obs_for_env(state: &SimState, data: &Arc<SimData>, config: &SimInput) -
 /// potential (`StepRewardCalculator`, potential = "dv").
 fn predicted_dv_for_state(state: &SimState, data: &Arc<SimData>, config: &SimInput) -> [f64; 3] {
     let nav = state.last_nav_output();
-    let orbit = elements::from_spherical(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        &config.planet,
-    );
     maneuver::predicted_dv_for_nn(
-        &orbit,
+        &nav.orbit_estimated,
         &data.target_orbit,
         &data.parking_orbit,
         &config.planet,

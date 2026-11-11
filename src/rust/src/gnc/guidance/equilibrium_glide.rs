@@ -119,15 +119,16 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         NavigationOutput {
-            position_estimated: [r, 0.0, 0.0],
-            velocity_estimated: [velocity, -0.15, 0.6],
             acceleration_estimated: [50.0, -8.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance: 0.001,
             density_exit: 1e-6,
             dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
-            energy_estimated: -1e6,
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.0, 0.0],
+                [velocity, -0.15, 0.6],
+                &PlanetConfig::mars(),
+            )
         }
     }
 
@@ -325,6 +326,7 @@ mod tests {
                 let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
                 nav.velocity_estimated[1] = fpa;
+                nav.set_estimated_state(nav.position_estimated, nav.velocity_estimated, &PlanetConfig::mars());
                 nav.density_guidance = rho;
                 nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
 

@@ -12,7 +12,7 @@ use crate::gnc::guidance::{
     energy_controller, equilibrium_glide, exit, fnpag, neural, piecewise_constant, predguid,
     thermal_limiter,
 };
-use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
+use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::gnc::navigation::estimator::{GuidancePhase, NavigationOutput};
 
 /// Default fallback bank angle (60°) for schemes with no valid reference trajectory.
@@ -167,15 +167,7 @@ pub fn guidance_step(
     out.aoa_commanded = state.aoa_commanded;
 
     // === Longitudinal guidance activation ===
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
+    let energy = nav.energy_estimated;
 
     // Inactive in reference trajectory mode.
     let longitudinal_active = !is_reference
@@ -302,7 +294,6 @@ pub fn guidance_step(
             energy,
             bank_angle_longitudinal,
             sim_time,
-            planet,
         );
     }
     // === Combine longitudinal and lateral commands ===
@@ -394,15 +385,16 @@ mod tests {
     fn test_nav() -> NavigationOutput {
         let r = PlanetConfig::mars().equatorial_radius + 50_000.0; // Mars + 50 km
         NavigationOutput {
-            position_estimated: [r, 0.0, 0.0],
-            velocity_estimated: [5000.0, -0.15, 0.6],
             acceleration_estimated: [50.0, -8.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance: 0.001,
             density_exit: 1e-6,
             dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
-            energy_estimated: -1e6,
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.0, 0.0],
+                [5000.0, -0.15, 0.6],
+                &PlanetConfig::mars(),
+            )
         }
     }
 
@@ -989,15 +981,12 @@ mod tests {
                 let r = PlanetConfig::mars().equatorial_radius + alt;
                 let initial_bank = bank_deg.to_radians();
                 let nav = NavigationOutput {
-                    position_estimated: [r, 0.0, 0.0],
-                    velocity_estimated: [vel, fpa, 0.6],
                     acceleration_estimated: [50.0, -8.0],
                     aero_coefficients: [1.269, -0.205],
                     density_guidance: 1e-4,
                     density_exit: 1e-6,
                     dynamic_pressure_estimated: 0.5 * 1e-4 * vel * vel,
-                    energy_estimated: -1e6,
-                    ..Default::default()
+                    ..NavigationOutput::from_estimated_state([r, 0.0, 0.0], [vel, fpa, 0.6], &PlanetConfig::mars())
                 };
 
                 let data = test_sim_data();
@@ -1041,15 +1030,12 @@ mod tests {
                 let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
                 state.bank_angle_realized = realized;
                 let nav = NavigationOutput {
-                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
-                    velocity_estimated: [5000.0, -0.15, 0.6],
                     acceleration_estimated: [50.0, -8.0],
                     aero_coefficients: [1.269, -0.205],
                     density_guidance: 0.001,
                     density_exit: 1e-6,
                     dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
-                    energy_estimated: -1e6,
-                    ..Default::default()
+                    ..NavigationOutput::from_estimated_state([PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0], [5000.0, -0.15, 0.6], &PlanetConfig::mars())
                 };
 
                 let out = guidance_step(
@@ -1079,15 +1065,12 @@ mod tests {
                 state.bank_angle_realized = realized;
                 // shaped_rate starts at 0 (new state)
                 let nav = NavigationOutput {
-                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
-                    velocity_estimated: [5000.0, -0.15, 0.6],
                     acceleration_estimated: [50.0, -8.0],
                     aero_coefficients: [1.269, -0.205],
                     density_guidance: 0.001,
                     density_exit: 1e-6,
                     dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
-                    energy_estimated: -1e6,
-                    ..Default::default()
+                    ..NavigationOutput::from_estimated_state([PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0], [5000.0, -0.15, 0.6], &PlanetConfig::mars())
                 };
 
                 let out = guidance_step(
@@ -1117,15 +1100,12 @@ mod tests {
                 let mut state = GuidanceState::new(realized, -0.48_f64.to_radians(), None);
                 state.bank_angle_realized = realized;
                 let nav = NavigationOutput {
-                    position_estimated: [PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0],
-                    velocity_estimated: [5000.0, -0.15, 0.6],
                     acceleration_estimated: [50.0, -8.0],
                     aero_coefficients: [1.269, -0.205],
                     density_guidance: 0.001,
                     density_exit: 1e-6,
                     dynamic_pressure_estimated: 0.5 * 0.001 * 5000.0 * 5000.0,
-                    energy_estimated: -1e6,
-                    ..Default::default()
+                    ..NavigationOutput::from_estimated_state([PlanetConfig::mars().equatorial_radius + 50_000.0, 0.0, 0.0], [5000.0, -0.15, 0.6], &PlanetConfig::mars())
                 };
 
                 let out = guidance_step(
@@ -1147,6 +1127,11 @@ mod tests {
         nav.bounce_flag = true;
         nav.density_exit = 1e-6;
         nav.velocity_estimated[1] = 0.05; // positive FPA (ascending)
+        nav.set_estimated_state(
+            nav.position_estimated,
+            nav.velocity_estimated,
+            &PlanetConfig::mars(),
+        );
 
         let mut data = test_sim_data();
         data.guidance.exit_pdyn_margin = 1.75;

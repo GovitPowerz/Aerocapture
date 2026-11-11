@@ -6,6 +6,7 @@
 //! (see `gnc/guidance/equilibrium_glide.rs` lines 107–194 for the source
 //! of truth).
 
+use aerocapture::config::PlanetConfig;
 use aerocapture::data::aerodynamics::AeroTables;
 use aerocapture::data::atmosphere::{AtmosphereModel, DensityProfile};
 use aerocapture::data::capsule::Capsule;
@@ -34,18 +35,20 @@ pub fn nav_from_state(
     density: f64,
     drag_accel: f64,
     lift_accel: f64,
+    planet: &PlanetConfig,
 ) -> NavigationOutput {
     let r = 3_396_200.0 + altitude; // Mars mean equatorial radius + altitude
     NavigationOutput {
-        position_estimated: [r, 0.0, 0.0],
-        velocity_estimated: [velocity, flight_path, 0.6],
         acceleration_estimated: [drag_accel, lift_accel],
         aero_coefficients: [1.269, -0.205],
         density_guidance: density,
         density_exit: 1e-6,
         dynamic_pressure_estimated: 0.5 * density * velocity * velocity,
-        energy_estimated: -1e6,
-        ..Default::default()
+        ..NavigationOutput::from_estimated_state(
+            [r, 0.0, 0.0],
+            [velocity, flight_path, 0.6],
+            planet,
+        )
     }
 }
 

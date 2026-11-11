@@ -191,6 +191,29 @@ against 7.7x in the committed block, but dense-515, whose code did not change an
 allocates per tick, read 8.1x against 7.4x. The unchanged control moved more than the changed
 cell, so the rerun attributes nothing to the removed allocations.
 
+**Since #239 every per-call figure above is stale.** Navigation derives the energy and the
+osculating orbit of the estimated state once per tick and carries both on its output; `guidance_step`,
+the lateral logic, the NN input builder and the tick telemetry read them instead of deriving them
+again, and the builder evaluates and normalizes only the candidates the model's mask selects (17 of
+35 for the deployed models). Output is byte-identical (300-draw Monte Carlo CSVs of each scheme
+compared between the two builds). Not in `throughput.json`. Same machine, criterion medians back to
+back on the sources before and after the change, the bench's built-in rows (golden configs; the NN
+rows fly the training configs with the deployed models, 781 and 731 calls):
+
+| bench row | before, per call | after, per call | change |
+|---|---|---|---|
+| FTC golden | 0.50 µs | 0.48 µs | -4% |
+| Equilibrium glide golden | 0.161 µs | 0.103 µs | -36% |
+| Energy controller golden | 0.219 µs | 0.167 µs | -24% |
+| PredGuid golden | 0.190 µs | 0.146 µs | -23% |
+| Piecewise constant | 0.120 µs | 0.080 µs | -33% |
+| NN dense-515 | 1.07 µs | 0.78 µs | -27% |
+| NN Mamba-962 | 2.00 µs | 1.73 µs | -13% |
+| FNPAG golden | 272 µs | 267 µs | -2%, inside the run-to-run spread |
+
+The bench replays `guidance_step` only. The tick also dropped one orbit derivation outside it (the
+inclination error for the NN telemetry), which this table does not see.
+
 Per-call cost depends on the operating point. Deployed FTC costs half what the golden FTC config
 costs per call; why was not diagnosed. For FNPAG the cause is measured. Its predictor
 integrates forward at `prediction_dt`, which the GA tuned from the default 2.0 s to 3.76 s. The

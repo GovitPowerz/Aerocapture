@@ -4,7 +4,7 @@
 //! estimates atmospheric density, and manages guidance phase transitions.
 
 use crate::config::{PlanetConfig, SimPhase};
-use crate::data::SimData;
+use crate::data::{OrbitalElements, SimData};
 use crate::gnc::navigation::coordinates::{geodetic_from_spherical, total_energy};
 use crate::gnc::navigation::ekf::{EkfConfig, EkfState};
 use crate::gnc::navigation::imu::{ImuConfig, ImuState};
@@ -89,8 +89,7 @@ pub struct NavigationOutput {
     pub density_exit: f64,                // estimated exit density
     pub dynamic_pressure_estimated: f64,  // estimated dynamic pressure
     pub energy_estimated: f64,            // total energy
-    // Orbital parameter errors
-    pub orbital_errors: [f64; 4], // [Δa, Δe, Δi, ΔΩ]
+    pub orbit_estimated: OrbitalElements, // osculating orbit of the estimated state
     // Phase management
     pub bounce_flag: bool,
     pub guidance_phase: GuidancePhase,
@@ -99,6 +98,33 @@ pub struct NavigationOutput {
     // Thermal state (for guidance limiter and NN inputs)
     pub heat_flux_fraction: f64, // current_heat_flux / max_heat_flux (0.0 if no limit)
     pub heat_load_fraction: f64, // cumulative_heat_load / max_heat_load (0.0 if no limit)
+}
+
+impl NavigationOutput {
+    /// An output at the given estimated state; every other field is the default.
+    pub fn from_estimated_state(
+        position: [f64; 3], // [r, lon, lat]
+        velocity: [f64; 3], // [V, gamma, psi]
+        planet: &PlanetConfig,
+    ) -> Self {
+        let mut out = Self::default();
+        out.set_estimated_state(position, velocity, planet);
+        out
+    }
+
+    /// Set the estimated state and derive the energy and the orbit from it the
+    /// way `navigate` does. Hand-built outputs (tests, benches) go through this
+    /// so the derived fields cannot disagree with the state.
+    pub fn set_estimated_state(
+        &mut self,
+        position: [f64; 3],
+        velocity: [f64; 3],
+        planet: &PlanetConfig,
+    ) {
+        self.position_estimated = position;
+        self.velocity_estimated = velocity;
+        compute_energy_and_orbit(self, planet);
+    }
 }
 
 /// Run one navigation step.
@@ -219,7 +245,7 @@ pub fn navigate(
         .density_at(alt_exit, &data.atmosphere);
     out.density_exit = nav_state.density_gain * rho_exit_model;
 
-    compute_energy_and_orbital_errors(&mut out, planet, data);
+    compute_energy_and_orbit(&mut out, planet);
 
     let velocity_radial = update_bounce_and_phase(
         &mut out,
@@ -267,15 +293,13 @@ fn update_bounce_and_phase(
     velocity_radial
 }
 
-/// Compute total energy and orbital element errors into `out`.
+/// Derive the total energy and the osculating orbit of the estimated state.
 ///
-/// Shared by both the bias and EKF navigation paths. Reads `out.position_estimated`
-/// and `out.velocity_estimated`; writes `out.energy_estimated` and `out.orbital_errors`.
-fn compute_energy_and_orbital_errors(
-    out: &mut NavigationOutput,
-    planet: &PlanetConfig,
-    data: &SimData,
-) {
+/// The one derivation per tick: guidance, lateral logic, the NN input builder and
+/// the tick telemetry read `energy_estimated` and `orbit_estimated` instead of
+/// recomputing them. Must run after the last write to `position_estimated` /
+/// `velocity_estimated`.
+fn compute_energy_and_orbit(out: &mut NavigationOutput, planet: &PlanetConfig) {
     out.energy_estimated = total_energy(
         out.position_estimated[0],
         out.position_estimated[1],
@@ -285,8 +309,7 @@ fn compute_energy_and_orbital_errors(
         out.velocity_estimated[2],
         planet,
     );
-
-    let orbit = elements::from_spherical(
+    out.orbit_estimated = elements::from_spherical(
         out.position_estimated[0],
         out.position_estimated[1],
         out.position_estimated[2],
@@ -295,10 +318,6 @@ fn compute_energy_and_orbital_errors(
         out.velocity_estimated[2],
         planet,
     );
-    out.orbital_errors[0] = orbit.semi_major_axis - data.target_orbit.semi_major_axis;
-    out.orbital_errors[1] = orbit.eccentricity - data.target_orbit.eccentricity;
-    out.orbital_errors[2] = orbit.inclination - data.target_orbit.inclination;
-    out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
 }
 
 /// Crash detection, SimPhase gating, and final output population.
@@ -587,7 +606,7 @@ pub fn navigate_ekf(
     out.density_exit = ekf.density_correction() * rho_exit_model;
 
     // ── Step 10: Energy + orbital elements (same as legacy) ──
-    compute_energy_and_orbital_errors(&mut out, planet, data);
+    compute_energy_and_orbit(&mut out, planet);
 
     // ── Step 11: Bounce/phase management (delegated to legacy) ──
     let velocity_radial = update_bounce_and_phase(

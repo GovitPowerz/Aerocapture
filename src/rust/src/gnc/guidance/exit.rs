@@ -173,17 +173,18 @@ mod tests {
     ) -> NavigationOutput {
         let r = PlanetConfig::mars().equatorial_radius + 50_000.0;
         NavigationOutput {
-            position_estimated: [r, 0.0, 0.0],
-            velocity_estimated: [velocity, fpa, 0.6],
             acceleration_estimated: [50.0, -8.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance,
             density_exit,
             dynamic_pressure_estimated: 0.5 * density_guidance * velocity * velocity,
-            energy_estimated: -1e6,
             guidance_phase: crate::gnc::navigation::estimator::GuidancePhase::Exit,
             bounce_flag: true,
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.0, 0.0],
+                [velocity, fpa, 0.6],
+                &PlanetConfig::mars(),
+            )
         }
     }
 

@@ -476,15 +476,16 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         NavigationOutput {
-            position_estimated: [r, 0.0, 0.0],
-            velocity_estimated: [velocity, -0.15, 0.6],
             acceleration_estimated: [50.0, -8.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance: 0.001,
             density_exit: 1e-6,
             dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
-            energy_estimated: -1e6,
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.0, 0.0],
+                [velocity, -0.15, 0.6],
+                &PlanetConfig::mars(),
+            )
         }
     }
 
@@ -581,6 +582,11 @@ mod tests {
         // Place spacecraft at 200 km — exponential tail gives ≈9e-12 kg/m³ < 1e-10
         let mut nav = test_nav(5000.0);
         nav.position_estimated[0] = PlanetConfig::mars().equatorial_radius + 200_000.0;
+        nav.set_estimated_state(
+            nav.position_estimated,
+            nav.velocity_estimated,
+            &PlanetConfig::mars(),
+        );
 
         let prev_bank = 55.0_f64.to_radians();
         let mut state = FnpagState::new(prev_bank);
@@ -692,6 +698,11 @@ mod tests {
         // 40 km altitude: below the switch, within the hold window (t = 1.0 s).
         let mut nav = test_nav(5000.0);
         nav.position_estimated[0] = planet.equatorial_radius + 40_000.0;
+        nav.set_estimated_state(
+            nav.position_estimated,
+            nav.velocity_estimated,
+            &PlanetConfig::mars(),
+        );
 
         let bank = fnpag_bank(&nav, &mut state, &data, &planet, 1.0);
 
@@ -838,6 +849,7 @@ mod tests {
                 nav.position_estimated[2] = lat;
                 nav.velocity_estimated[1] = fpa;
                 nav.velocity_estimated[2] = psi;
+                nav.set_estimated_state(nav.position_estimated, nav.velocity_estimated, &PlanetConfig::mars());
                 nav.density_guidance = 0.001;
                 nav.dynamic_pressure_estimated = 0.5 * 0.001 * vel * vel;
 
