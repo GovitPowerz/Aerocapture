@@ -194,7 +194,6 @@ fn call_navigate(
         position_true,
         velocity_true,
         data.entry.initial_aoa,
-        0.0, // sim_time
         biases,
         nav_state,
         data,
@@ -269,12 +268,11 @@ fn density_filter_convergence() {
     let mut nav_state = NavigationState::new();
 
     let mut density_gain_values = Vec::new();
-    for step in 0..50 {
+    for _ in 0..50 {
         let _out = navigate(
             &position_true,
             &velocity_true,
             data.entry.initial_aoa,
-            step as f64,
             &biases,
             &mut nav_state,
             &data,
@@ -466,6 +464,56 @@ fn density_gain_rate_limited() {
     assert!(
         delta <= 0.05 + 1e-14,
         "density_gain delta {delta} exceeded max_delta 0.05"
+    );
+}
+
+// ── Test: each truth-side dispersion reaches the measured drag ──
+
+/// One filter step from gain 1.0 with the rate limit off moves the gain to
+/// `1 + lambda * (measured / nominal drag - 1)`; the expected drag ratio is
+/// derived from the drag law independently of `navigate`.
+#[rstest]
+#[case::density(AeroDispersions { density_bias: 0.1, ..nominal_aero() })]
+#[case::density_perturbation(AeroDispersions { density_perturbation: 0.1, ..nominal_aero() })]
+#[case::cx(AeroDispersions { cx_bias: 0.1, ..nominal_aero() })]
+#[case::cz(AeroDispersions { cz_bias: 0.1, ..nominal_aero() })]
+#[case::mass(AeroDispersions { mass_bias: 0.1, ..nominal_aero() })]
+#[case::incidence(AeroDispersions { incidence_bias: 0.05, ..nominal_aero() })]
+#[case::ref_area(AeroDispersions { ref_area_bias: 0.1, ..nominal_aero() })]
+fn aero_dispersions_reach_measured_drag(#[case] aero: AeroDispersions) {
+    let mut data = test_sim_data();
+    data.guidance.density_gain_max_delta = 10.0;
+    let mut nav_state = NavigationState::new();
+    navigate(
+        &[MARS_REQ + 40_000.0, 0.0, 0.0],
+        &[5000.0, -0.10, 1.0],
+        data.entry.initial_aoa,
+        &zero_biases(),
+        &mut nav_state,
+        &data,
+        &PlanetConfig::mars(),
+        &aero,
+        0.0,
+    );
+
+    let (cx, cz) = (data.aero.nominal_cx, data.aero.nominal_cz);
+    let drag = |aoa: f64, cx: f64, cz: f64| cx * aoa.cos() + cz * aoa.sin();
+    let aoa = data.entry.initial_aoa;
+    let ratio =
+        (1.0 + aero.density_bias) * (1.0 + aero.density_perturbation) * (1.0 + aero.ref_area_bias)
+            / (1.0 + aero.mass_bias)
+            * drag(
+                aoa + aero.incidence_bias,
+                cx * (1.0 + aero.cx_bias),
+                cz * (1.0 + aero.cz_bias),
+            )
+            / drag(aoa, cx, cz);
+    let lambda = data.guidance.density_filter_gain;
+    assert!((ratio - 1.0).abs() > 1e-3, "case must move the drag");
+    assert_relative_eq!(
+        nav_state.density_gain,
+        1.0 + lambda * (ratio - 1.0),
+        max_relative = 1e-9
     );
 }
 
@@ -957,7 +1005,6 @@ fn full_phase_transitions_to_exit() {
         &[r, 0.0, 0.0],
         &[5000.0, -0.05, 0.6], // negative FPA → sin < 0 → no bounce
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,
@@ -978,7 +1025,6 @@ fn full_phase_transitions_to_exit() {
         &[r, 0.0, 0.0],
         &[5000.0, 0.02, 0.6], // positive FPA → sin > 0 → bounce; radial < 120 m/s
         data.entry.initial_aoa,
-        20.0,
         &biases,
         &mut nav_state,
         &data,
@@ -1000,7 +1046,6 @@ fn full_phase_transitions_to_exit() {
         &[r, 0.0, 0.0],
         &[4000.0, 0.028, 0.6], // below 4400 threshold; radial ≈ 112 m/s > prev, no crash
         data.entry.initial_aoa,
-        30.0,
         &biases,
         &mut nav_state,
         &data,
@@ -1036,7 +1081,6 @@ fn capture_only_stays_phase_1() {
         &[r, 0.0, 0.0],
         &[5000.0, 0.02, 0.6], // positive FPA, radial ≈ 100 m/s < 120
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,
@@ -1052,7 +1096,6 @@ fn capture_only_stays_phase_1() {
         &[r, 0.0, 0.0],
         &[4000.0, 0.028, 0.6], // below 4400 threshold, radial ≈ 112 m/s > prev, no crash
         data.entry.initial_aoa,
-        20.0,
         &biases,
         &mut nav_state,
         &data,
@@ -1082,7 +1125,6 @@ fn exit_only_stays_phase_2() {
         &[r, 0.0, 0.0],
         &[5000.0, -0.05, 0.6],
         data.entry.initial_aoa,
-        10.0,
         &biases,
         &mut nav_state,
         &data,

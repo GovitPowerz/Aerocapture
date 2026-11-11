@@ -55,7 +55,6 @@ pub struct NavigationState {
     pub previous_radial_velocity: f64, // previous radial velocity (m/s)
     pub bounce_flag: bool,             // true once the trajectory has bounced
     pub guidance_phase: GuidancePhase,
-    pub capture_time: f64,       // capture phase duration (s)
     pub exit_phase_locked: bool, // once true, phase cannot revert from exit to capture
 }
 
@@ -72,7 +71,6 @@ impl NavigationState {
             previous_radial_velocity: 0.0,
             bounce_flag: false,
             guidance_phase: GuidancePhase::Capture,
-            capture_time: 0.0,
             exit_phase_locked: false,
         }
     }
@@ -96,10 +94,8 @@ pub struct NavigationOutput {
     // Phase management
     pub bounce_flag: bool,
     pub guidance_phase: GuidancePhase,
-    pub crash_flag: bool,
     pub phase_transition_flag: bool, // capture -> exit transition happened on this step
     pub reference_velocity: f64,     // reference radial velocity
-    pub capture_time: f64,           // capture duration
     // Thermal state (for guidance limiter and NN inputs)
     pub heat_flux_fraction: f64, // current_heat_flux / max_heat_flux (0.0 if no limit)
     pub heat_load_fraction: f64, // cumulative_heat_load / max_heat_load (0.0 if no limit)
@@ -111,7 +107,6 @@ pub fn navigate(
     position_true: &[f64; 3], // true position [r, lon, lat]
     velocity_true: &[f64; 3], // true velocity [V, gamma, psi]
     aoa_commanded: f64,       // commanded AoA
-    sim_time: f64,            // current time
     biases: &NavigationBiases,
     nav_state: &mut NavigationState,
     data: &SimData,
@@ -230,17 +225,10 @@ pub fn navigate(
         &mut out,
         nav_state,
         velocity_relative,
-        sim_time,
         data.guidance.exit_velocity_threshold,
     );
 
-    finalize_crash_phase_and_output(
-        &mut out,
-        nav_state,
-        velocity_radial,
-        data.periods.navigation,
-        data,
-    );
+    finalize_crash_phase_and_output(&mut out, nav_state, velocity_radial, data);
 
     out
 }
@@ -252,7 +240,6 @@ fn update_bounce_and_phase(
     out: &mut NavigationOutput,
     ns: &mut NavigationState,
     velocity_relative: f64,
-    sim_time: f64,
     exit_velocity_threshold: f64,
 ) -> f64 {
     if !ns.bounce_flag && out.velocity_estimated[1].sin() > 0.0 {
@@ -273,7 +260,6 @@ fn update_bounce_and_phase(
         {
             ns.guidance_phase = GuidancePhase::Exit;
             ns.exit_phase_locked = true;
-            ns.capture_time = sim_time;
             out.phase_transition_flag = true;
             out.reference_velocity = velocity_radial;
         }
@@ -315,7 +301,7 @@ fn compute_energy_and_orbital_errors(
     out.orbital_errors[3] = orbit.raan - data.target_orbit.raan;
 }
 
-/// Crash detection, SimPhase gating, capture-time accumulation, and final output population.
+/// Crash detection, SimPhase gating, and final output population.
 ///
 /// Shared by both the bias and EKF navigation paths. Both callers now share the same
 /// guarded phase-management block (with `exit_phase_locked` guard); only the post-phase
@@ -324,20 +310,15 @@ fn finalize_crash_phase_and_output(
     out: &mut NavigationOutput,
     ns: &mut NavigationState,
     velocity_radial: f64,
-    nav_dt: f64,
     data: &SimData,
 ) {
-    // Crash detection after bounce
+    // Crash detection after bounce: a falling radial velocity switches to the emergency phase
     if ns.bounce_flag {
         let delta_radial_velocity = velocity_radial - ns.previous_radial_velocity;
         ns.previous_radial_velocity = velocity_radial;
         if delta_radial_velocity < 0.0 {
-            out.crash_flag = true;
+            ns.guidance_phase = GuidancePhase::Emergency;
         }
-    }
-
-    if out.crash_flag {
-        ns.guidance_phase = GuidancePhase::Emergency;
     }
 
     // Apply SimPhase gating
@@ -353,13 +334,8 @@ fn finalize_crash_phase_and_output(
         }
     }
 
-    if ns.guidance_phase == GuidancePhase::Capture {
-        ns.capture_time += nav_dt;
-    }
-
     out.bounce_flag = ns.bounce_flag;
     out.guidance_phase = ns.guidance_phase;
-    out.capture_time = ns.capture_time;
 }
 
 /// Full navigation system state: bias (legacy) or EKF.
@@ -618,11 +594,10 @@ pub fn navigate_ekf(
         &mut out,
         legacy,
         velocity_relative,
-        sim_time,
         data.guidance.exit_velocity_threshold,
     );
 
-    finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, nav_dt, data);
+    finalize_crash_phase_and_output(&mut out, legacy, velocity_radial, data);
 
     out
 }

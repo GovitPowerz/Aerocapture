@@ -55,9 +55,6 @@ pub struct GuidanceState {
     // Roll sign and reversal tracking
     pub lateral_state: LateralState,
 
-    // Guidance securization (longitudinal only; lateral securization handled by lateral module)
-    pub longi_active: bool, // longitudinal securization indicator (cleared in reference mode)
-
     // Reference velocity
     pub reference_velocity: f64,
 
@@ -99,7 +96,6 @@ impl GuidanceState {
             aoa_commanded: initial_aoa,
             command_shaper: CommandShaper::new(),
             lateral_state: LateralState::new(initial_bank),
-            longi_active: true,
             reference_velocity: 0.0,
             energy_ctrl: energy_controller::EnergyControllerState::new(),
             predguid: predguid::PredGuidState::new(),
@@ -117,12 +113,11 @@ impl GuidanceState {
 /// Guidance dispatcher output.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GuidanceOutput {
-    pub bank_angle_commanded: f64,  // commanded bank angle (rad)
-    pub aoa_commanded: f64,         // commanded AoA (rad)
-    pub bank_rate: f64,             // bank rate before saturation (rad/s)
-    pub longitudinal_active: bool,  // longitudinal guidance active
-    pub rate_saturated: bool,       // rate saturation occurred
-    pub roll_reversal_active: bool, // roll reversal indicator
+    pub bank_angle_commanded: f64, // commanded bank angle (rad)
+    pub aoa_commanded: f64,        // commanded AoA (rad)
+    pub bank_rate: f64,            // bank rate before saturation (rad/s)
+    pub longitudinal_active: bool, // longitudinal guidance active
+    pub rate_saturated: bool,      // rate saturation occurred
     /// Bank magnitude after thermal limiter, before lateral sign selection.
     /// Zero for signed-bank schemes (PiecewiseConstant, NN in FullNeural mode).
     pub pre_lateral_magnitude: f64,
@@ -182,16 +177,11 @@ pub fn guidance_step(
         planet,
     );
 
-    let mut longitudinal_active = energy <= data.guidance.longi_activation
-        && energy >= data.guidance.longi_inhibition
-        && state.longi_active;
+    // Inactive in reference trajectory mode.
+    let longitudinal_active = !is_reference
+        && energy <= data.guidance.longi_activation
+        && energy >= data.guidance.longi_inhibition;
     out.longitudinal_active = longitudinal_active;
-
-    // === Reference trajectory mode ===
-    if is_reference {
-        longitudinal_active = false;
-        state.longi_active = false;
-    }
 
     // === Longitudinal bank angle command ===
     // reference_bank_angle passed as parameter from config.reference_bank_angle
@@ -303,9 +293,8 @@ pub fn guidance_step(
     }
 
     // === Lateral guidance ===
-    let mut roll_reversal_active = false;
     if !skip_lateral {
-        roll_reversal_active = lateral::lateral_guidance(
+        lateral::lateral_guidance(
             &data.guidance.lateral,
             &mut state.lateral_state,
             nav,
@@ -371,7 +360,6 @@ pub fn guidance_step(
     out.bank_angle_commanded = state.bank_angle_commanded;
     out.bank_rate = bank_rate;
     out.rate_saturated = rate_saturated;
-    out.roll_reversal_active = roll_reversal_active;
 
     out
 }

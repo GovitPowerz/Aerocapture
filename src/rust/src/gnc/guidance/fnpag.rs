@@ -35,8 +35,8 @@ const BANK_LIMIT_SWITCH_ALTITUDE_M: f64 = 50e3;
 
 /// Bisection steps for the apoapsis corrector. Halves the bank bracket each
 /// step; 8 takes the ~110-deg bank range to ~0.4-deg resolution, well below the
-/// noise floor of the dt~=2 s onboard predictor. Plus 2 endpoint evals + 1
-/// initial midpoint, the corrector costs ~11 forward integrations per replan.
+/// noise floor of the dt~=2 s onboard predictor. Plus 2 endpoint evals, the
+/// corrector costs at most 10 forward integrations per replan.
 const N_BISECT_STEPS: usize = 8;
 
 /// Apoapsis-radius sentinel (m) returned when the predicted exit orbit is
@@ -392,7 +392,7 @@ pub fn fnpag_bank(
     };
 
     // Replan throttle: between replans, hold the previous command. The command
-    // evolves slowly mid-pass and each replan costs ~11 forward integrations.
+    // evolves slowly mid-pass and each replan costs up to 10 forward integrations.
     // Re-clamp at the CURRENT altitude's limits: a command issued above
     // BANK_LIMIT_SWITCH_ALTITUDE_M (bank_max_high) and held across the descent
     // would otherwise violate bank_max_low for up to replan_period seconds.
@@ -436,8 +436,8 @@ pub fn fnpag_bank(
         let mut lo = bank_min;
         let mut hi = bank_max;
         let mut mid = 0.5 * (lo + hi);
-        let mut f_mid = resid(mid);
         for _ in 0..N_BISECT_STEPS {
+            let f_mid = resid(mid);
             if f_mid.abs() < params.energy_tol {
                 break;
             }
@@ -447,7 +447,6 @@ pub fn fnpag_bank(
                 hi = mid; // apoapsis too low -> need less bank
             }
             mid = 0.5 * (lo + hi);
-            f_mid = resid(mid);
         }
         mid
     };

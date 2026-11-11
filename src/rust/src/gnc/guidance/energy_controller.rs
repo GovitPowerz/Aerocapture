@@ -195,9 +195,6 @@ mod tests {
             energy: vec![-1e6, -3e6, -5e6],
             pressure: vec![500.0, 800.0, 300.0],
             radial_vel: vec![-100.0, -50.0, 50.0],
-            altitude_rate: vec![-500.0, -200.0, 100.0],
-            inclination: vec![0.87, 0.87, 0.87],
-            time: vec![0.0, 300.0, 600.0],
             cos_bank: vec![0.4, 0.3, 0.5],
             monotonic_descending: false, // exercise the legacy walk
         });

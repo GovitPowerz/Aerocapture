@@ -108,7 +108,6 @@ pub fn sense_tick(state: &mut SimState, config: &SimInput, data: &SimData, plane
 
         state.dynamic_pressure_for_photo = nav_out.dynamic_pressure_estimated;
         state.density_estimate_for_photo = nav_out.density_guidance;
-        state.guidance_phase_for_photo = nav_out.guidance_phase;
 
         // Latch reference velocity at the capture -> exit transition
         if nav_out.phase_transition_flag {
@@ -348,7 +347,7 @@ pub fn act_tick(
         rec.bank_angle_deg = state.bank_angle / DEG_TO_RAD;
         rec.aoa_deg = state.aoa / DEG_TO_RAD;
         rec.cumulative_bank_change_deg = state.cumulative_bank_change_deg;
-        rec.guidance_phase = state.guidance_phase_for_photo.column();
+        rec.guidance_phase = state.last_nav.guidance_phase.column();
         rec.density_gain = density_gain;
     }
 
