@@ -183,6 +183,23 @@ pub fn to_absolute_cartesian(
     (position_abs, velocity_abs)
 }
 
+/// `(sin x, cos x)` computed as one fused call.
+///
+/// When `x.sin()` and `x.cos()` meet in one basic block LLVM fuses them into a
+/// single sincos call, and on macOS that call (`__sincos_stret`) returns a sine
+/// one ulp away from plain `sin(x)` for about 0.35% of arguments (the cosine is
+/// the same). Whether a lone `x.sin()` gets fused therefore depends on what the
+/// optimizer inlines next to it, so removing an unrelated call can move a result.
+/// Use this where a value was produced by a fused sine and must keep its bits.
+///
+/// Optimized builds only (a debug build fuses nothing).
+/// Never inlined, and the cosine is made opaque: under LTO an unused cosine
+/// return is eliminated across the call, which leaves a plain sine again.
+#[inline(never)]
+pub fn sin_cos_fused(x: f64) -> (f64, f64) {
+    (x.sin(), std::hint::black_box(x.cos()))
+}
+
 /// Compute total orbital energy from spherical state.
 ///
 /// E = |v_abs|^2/2 - mu/|r|
@@ -208,6 +225,25 @@ mod tests {
     use std::f64::consts::PI;
 
     // ── Vector math ──
+
+    #[inline(never)]
+    fn lone_sin(x: f64) -> f64 {
+        x.sin()
+    }
+
+    #[inline(never)]
+    fn lone_cos(x: f64) -> f64 {
+        x.cos()
+    }
+
+    #[test]
+    fn sin_cos_fused_is_within_an_ulp_of_the_lone_calls() {
+        let x = std::hint::black_box(0.5092481926616239_f64);
+        let (s, c) = sin_cos_fused(x);
+        assert_eq!(c.to_bits(), lone_cos(x).to_bits());
+        // Same sign, so the bit patterns differ by the ulp count.
+        assert!(s.to_bits().abs_diff(lone_sin(x).to_bits()) <= 1);
+    }
 
     #[test]
     fn cross_product_orthogonal() {

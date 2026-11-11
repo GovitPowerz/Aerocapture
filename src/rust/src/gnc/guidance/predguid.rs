@@ -122,15 +122,16 @@ mod tests {
     fn test_nav(velocity: f64) -> NavigationOutput {
         let r = 3_396_200.0 + 50_000.0;
         NavigationOutput {
-            position_estimated: [r, 0.0, 0.0],
-            velocity_estimated: [velocity, -0.15, 0.6],
             acceleration_estimated: [50.0, -8.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance: 0.001,
             density_exit: 1e-6,
             dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
-            energy_estimated: -1e6,
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.0, 0.0],
+                [velocity, -0.15, 0.6],
+                &PlanetConfig::mars(),
+            )
         }
     }
 
@@ -233,16 +234,7 @@ mod tests {
         let nav = test_nav(4500.0);
         let state = PredGuidState::new();
         let data = test_sim_data(); // ref_trajectory.n_points == 0
-        let planet = PlanetConfig::mars();
-        let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0],
-            nav.position_estimated[1],
-            nav.position_estimated[2],
-            nav.velocity_estimated[0],
-            nav.velocity_estimated[1],
-            nav.velocity_estimated[2],
-            &planet,
-        );
+        let energy = nav.energy_estimated;
 
         let bank = predguid_bank(&nav, &state, &data, energy);
 
@@ -288,16 +280,7 @@ mod tests {
         let nav = test_nav(velocity);
         let state = PredGuidState::new();
         let data = test_sim_data_with_ref_traj();
-        let planet = PlanetConfig::mars();
-        let energy = crate::gnc::navigation::coordinates::total_energy(
-            nav.position_estimated[0],
-            nav.position_estimated[1],
-            nav.position_estimated[2],
-            nav.velocity_estimated[0],
-            nav.velocity_estimated[1],
-            nav.velocity_estimated[2],
-            &planet,
-        );
+        let energy = nav.energy_estimated;
 
         let bank = predguid_bank(&nav, &state, &data, energy);
 
@@ -330,17 +313,13 @@ mod tests {
                 let r = PlanetConfig::mars().equatorial_radius + alt;
                 nav.position_estimated[0] = r;
                 nav.velocity_estimated[1] = fpa;
+                nav.set_estimated_state(nav.position_estimated, nav.velocity_estimated, &PlanetConfig::mars());
                 nav.density_guidance = rho;
                 nav.dynamic_pressure_estimated = 0.5 * rho * vel * vel;
 
                 let state = PredGuidState::new();
                 let data = test_sim_data_with_ref_traj();
-                let planet = PlanetConfig::mars();
-                let energy = crate::gnc::navigation::coordinates::total_energy(
-                    nav.position_estimated[0], nav.position_estimated[1], nav.position_estimated[2],
-                    nav.velocity_estimated[0], nav.velocity_estimated[1], nav.velocity_estimated[2],
-                    &planet,
-                );
+                let energy = nav.energy_estimated;
                 let bank = predguid_bank(&nav, &state, &data, energy);
 
                 prop_assert!(bank.is_finite(), "bank not finite: {}", bank);

@@ -17,9 +17,17 @@ epilogue.
 ## Inputs: the 35-element candidate vector
 
 `NN_FULL_INPUT_SIZE = 35`. `build_nn_input` (`gnc/guidance/neural.rs`) extracts the raw scalars
-into a `[f64; NN_FULL_INPUT_SIZE]` then applies the per-input spec in a uniform loop
+into a `[f64; NN_FULL_INPUT_SIZE]` then applies the per-input spec to each selected one
 (extract-then-normalize; the only non-trivial extraction is angle -> (sin, cos)). A configurable
-`input_mask` selects the subset that reaches the network (absent = `[0..16]`).
+`input_mask` selects the subset that reaches the network (absent = `[0..16]`), and only that subset
+is evaluated: plain reads are filled unconditionally, while the reference-table lookups (16-19), the
+exit law (20, 25, 26), the bank-history pairs (27-30), the DV prediction (32-34), the radial velocity
+(2) and the acceleration magnitude (5) are computed only when the mask asks for them. Each candidate
+is independent of the others, so a masked vector equals the same indices of the full one bit for bit
+(`masked_input_is_the_selected_slice_of_the_full_vector`). The energy and the orbit come from the
+navigation output; the builder derives neither. Two details are load-bearing for bit identity: a
+(sin, cos) pair is computed in one branch, and candidate 2 takes its sine from
+`coordinates::sin_cos_fused` (see the sin/cos fusion lesson in `CLAUDE.md`).
 
 | indices | content |
 |---|---|
@@ -66,7 +74,7 @@ out-of-range, negative or duplicate `input_mask` indices at load. The contract i
 `candidate_input_normalization()` derive the Python names, width and lookups from it (fallback
 tuple asserted equal by `tests/test_record_index_drift.py`). Scales are data-driven via
 `calibrate_inputs.py` (training README). Ablation: `ablated_input` zeros one input,
-`ablated_value` freezes it to a value instead (`build_nn_input` writes it to `full_input[idx]`).
+`ablated_value` freezes it to a value instead (`build_nn_input` emits it in place of the normalized candidate).
 The per-tick candidate trace recorded for `collect_supervised` / `collect_nn_inputs` uses a full
 mask of width `NN_FULL_INPUT_SIZE`.
 

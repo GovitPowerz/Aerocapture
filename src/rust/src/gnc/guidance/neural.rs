@@ -43,29 +43,10 @@ use crate::data::SimData;
 use crate::data::neural::{NN_FULL_INPUT_SIZE, NeuralNetModel};
 use crate::data::nn_state::NnState;
 use crate::gnc::guidance::exit;
-use crate::gnc::navigation::coordinates::total_energy;
+use crate::gnc::navigation::coordinates::sin_cos_fused;
 use crate::gnc::navigation::estimator::NavigationOutput;
-use crate::orbit::{elements, maneuver};
+use crate::orbit::maneuver;
 
-/// Build the masked NN input vector from navigation state.
-///
-/// Constructs the full 35-element candidate input vector, applies ablation zeroing
-/// (if configured), then applies the input_mask (or legacy [0..16] default).
-/// Returns the masked `Vec<f64>` ready for `nn.forward()`.
-///
-/// `input_mask`, `ablated_input`, and `ablated_value` are taken directly so this
-/// function can be called without a `NeuralNetModel` (e.g. supervised-trace capture
-/// during FTC runs). When `ablated_input = Some(idx)`, `full_input[idx]` is frozen
-/// to `ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
-///
-/// The last 4 parameters (`prev_inclination_error`, `prev_bank_signed`,
-/// `time_since_last_sign_flip`, `inclination_error_integral`) populate indices
-/// 21-24. They MUST be sourced from GuidanceState (telemetry updated each tick
-/// by `tick.rs`) so they reflect the previous-tick state at NN-evaluation time.
-///
-/// `prev_realized_bank` (radians) is the pilot-realized bank angle from the
-/// PREVIOUS tick. It populates indices 29-30 as a (sin, cos) pair and also
-/// serves as the base for the `Delta` output decoder in `nn_bank_angle`.
 /// Telemetry the candidate inputs need beyond the navigation output: the target
 /// inclination and the previous-tick guidance state that makes the signed-bank
 /// decision Markovian (inputs 20-31, and the base of the `delta` decoder).
@@ -127,6 +108,17 @@ impl NnModelView<'_> {
     }
 }
 
+/// Build the masked NN input vector from navigation state.
+///
+/// Evaluates only the candidates `view.input_mask` selects (`None` = the legacy
+/// first 16), normalizes them, and returns them in mask order, ready for
+/// `nn.forward()`. When `view.ablated_input = Some(idx)` and `idx` is selected, it is
+/// emitted as `view.ablated_value` (0.0 => classic zero-ablation; ±1 => flip-ablation).
+///
+/// The view is taken directly so this can run without a `NeuralNetModel` (the
+/// supervised-trace capture during teacher runs). `ctx` must come from
+/// `NnInputContext::from_guidance_state` so inputs 21-24 and the bank history
+/// reflect the previous-tick state at NN-evaluation time.
 pub fn build_nn_input(
     nav: &NavigationOutput,
     view: NnModelView<'_>,
@@ -149,80 +141,78 @@ pub fn build_nn_input(
         prev_realized_bank,
     } = *ctx;
     let mu = planet.mu;
+    let orbit = &nav.orbit_estimated;
 
-    // Radial velocity: V * sin(gamma)
-    let velocity_radial = nav.velocity_estimated[0] * nav.velocity_estimated[1].sin();
-
-    // Orbital elements
-    let orbit = elements::from_spherical(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
-
-    // Acceleration magnitude: sqrt(drag^2 + lift^2)
-    let accel_mag = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0]
-        + nav.acceleration_estimated[1] * nav.acceleration_estimated[1])
-        .sqrt();
-
-    // Altitude in km
-    let altitude_km = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3;
+    // Only the candidates the model consumes are evaluated: each raw value and its
+    // normalization is independent of the others, so skipping one cannot move another.
+    const LEGACY_FIRST_16: [usize; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+    let selected: &[usize] = input_mask.unwrap_or(&LEGACY_FIRST_16);
+    let mut wanted = [false; NN_FULL_INPUT_SIZE];
+    for &i in selected {
+        wanted[i] = true;
+    }
+    let wants = |i: usize| wanted[i];
 
     // Extract RAW physical values into raw[]; normalization is applied uniformly
     // below from a per-input NormSpec table (model's or DEFAULT_NORMALIZATION).
+    // Plain reads and one-operation values are filled unconditionally; anything
+    // with a transcendental, a table lookup or a guidance law is gated.
     let mut raw = [0.0_f64; NN_FULL_INPUT_SIZE];
 
     // -- 16 existing inputs (indices 0-15) --
     raw[0] = orbit.eccentricity; // eccentricity excess
     raw[1] = (orbit.inclination - target_inclination).to_degrees(); // inclination error
-    raw[2] = velocity_radial; // radial velocity
+    if wants(2) {
+        // Radial velocity V * sin(gamma). The fused sine: this value used to share a
+        // block with the energy derivation's cos(gamma), see `sin_cos_fused`.
+        raw[2] = nav.velocity_estimated[0] * sin_cos_fused(nav.velocity_estimated[1]).0;
+    }
     raw[3] = -mu / (2.0 * orbit.semi_major_axis); // orbital energy
     raw[4] = nav.velocity_estimated[0]; // velocity
-    raw[5] = accel_mag; // accel magnitude
+    if wants(5) {
+        // accel magnitude: sqrt(drag^2 + lift^2)
+        raw[5] = (nav.acceleration_estimated[0] * nav.acceleration_estimated[0]
+            + nav.acceleration_estimated[1] * nav.acceleration_estimated[1])
+            .sqrt();
+    }
     raw[6] = nav.heat_flux_fraction; // heat flux fraction
     raw[7] = nav.heat_load_fraction; // heat load fraction
-    raw[8] = altitude_km; // altitude
+    raw[8] = (nav.position_estimated[0] - planet.equatorial_radius) / 1e3; // altitude (km)
     raw[9] = nav.velocity_estimated[1]; // flight path angle
     raw[10] = nav.position_estimated[2]; // latitude
     raw[11] = nav.acceleration_estimated[0]; // drag acceleration
     raw[12] = nav.acceleration_estimated[1]; // lift acceleration
-    raw[13] = nav.orbital_errors[0]; // SMA error
+    raw[13] = orbit.semi_major_axis - data.target_orbit.semi_major_axis; // SMA error
     raw[14] = orbit.apoapsis_alt; // apoapsis altitude
     raw[15] = f64::from(nav.bounce_flag); // bounce flag
 
     // -- 4 reference trajectory inputs (indices 16-19) --
-    let energy = total_energy(
-        nav.position_estimated[0],
-        nav.position_estimated[1],
-        nav.position_estimated[2],
-        nav.velocity_estimated[0],
-        nav.velocity_estimated[1],
-        nav.velocity_estimated[2],
-        planet,
-    );
+    let energy = nav.energy_estimated;
     let ref_traj = &data.guidance.ref_trajectory;
-    let cos_bank_nominal = ref_traj.interpolate(energy, &ref_traj.cos_bank);
-    let pdyn_nominal = ref_traj.interpolate(energy, &ref_traj.pressure);
-    let hdot_nominal = ref_traj.interpolate(energy, &ref_traj.radial_vel);
-    let pdyn_current =
-        0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
-    let pdyn_error = pdyn_current - pdyn_nominal;
+    if wants(16) {
+        raw[16] = ref_traj.interpolate(energy, &ref_traj.cos_bank); // ref cos(bank)
+    }
+    if wants(17) || wants(19) {
+        let pdyn_nominal = ref_traj.interpolate(energy, &ref_traj.pressure);
+        let pdyn_current =
+            0.5 * nav.density_guidance * nav.velocity_estimated[0] * nav.velocity_estimated[0];
+        raw[17] = pdyn_nominal; // ref dynamic pressure
+        raw[19] = pdyn_current - pdyn_nominal; // dynamic pressure error
+    }
+    if wants(18) {
+        raw[18] = ref_traj.interpolate(energy, &ref_traj.radial_vel); // ref radial velocity
+    }
 
-    raw[16] = cos_bank_nominal; // ref cos(bank)
-    raw[17] = pdyn_nominal; // ref dynamic pressure
-    raw[18] = hdot_nominal; // ref radial velocity
-    raw[19] = pdyn_error; // dynamic pressure error
-
-    // -- Exit-bank teacher signal (index 20), always live --
+    // -- Exit-bank teacher signal (index 20) and its (sin, cos) pair (25, 26) --
     // Closed-loop FTC exit-phase pdyn-feedback law, fed every step as a
     // teacher signal. Pre-bounce, ref_velocity_latched = 0 so this degenerates
     // to pure radial-velocity damping.
-    let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
-    raw[20] = exit_bank;
+    if wants(20) || wants(25) || wants(26) {
+        let exit_bank = exit::exit_guidance(nav, data, planet, ref_velocity_latched);
+        raw[20] = exit_bank;
+        raw[25] = exit_bank.sin();
+        raw[26] = exit_bank.cos();
+    }
 
     // -- Lateral-state telemetry (indices 21-24) --
     // These make the supervisor's signed-bank decision a Markovian function of
@@ -238,15 +228,17 @@ pub fn build_nn_input(
     raw[23] = time_since_last_sign_flip; // time since last sign flip (s)
     raw[24] = inclination_error_integral.to_degrees(); // integrated inclination error (deg·s)
 
-    // -- (sin, cos) bank-history pairs (indices 25-30), seam-free cyclic encoding --
+    // -- (sin, cos) bank-history pairs (indices 27-30), seam-free cyclic encoding --
     // Bank angles fed as (sin, cos) pairs avoid the +π/-π representation seam.
-    // `exit_bank` is the raw radian value already computed above.
-    raw[25] = exit_bank.sin();
-    raw[26] = exit_bank.cos();
-    raw[27] = prev_bank_signed.sin();
-    raw[28] = prev_bank_signed.cos();
-    raw[29] = prev_realized_bank.sin();
-    raw[30] = prev_realized_bank.cos();
+    // Each pair stays in one branch so its sine keeps the fused path (`sin_cos_fused`).
+    if wants(27) || wants(28) {
+        raw[27] = prev_bank_signed.sin();
+        raw[28] = prev_bank_signed.cos();
+    }
+    if wants(29) || wants(30) {
+        raw[29] = prev_realized_bank.sin();
+        raw[30] = prev_realized_bank.cos();
+    }
 
     // -- Periapsis altitude (index 31) --
     raw[31] = orbit.periapsis_alt;
@@ -254,12 +246,15 @@ pub fn build_nn_input(
     // -- Live correction-DV inputs (indices 32-34): smooth, always-defined --
     // `predicted_dv_for_nn` is guarded to return 0.0 for degenerate/hyperbolic
     // orbits, so no sentinel branch is needed.
-    let dv = maneuver::predicted_dv_for_nn(&orbit, &data.target_orbit, &data.parking_orbit, planet);
-    raw[32] = dv[0];
-    raw[33] = dv[1];
-    raw[34] = dv[2];
+    if wants(32) || wants(33) || wants(34) {
+        let dv =
+            maneuver::predicted_dv_for_nn(orbit, &data.target_orbit, &data.parking_orbit, planet);
+        raw[32] = dv[0];
+        raw[33] = dv[1];
+        raw[34] = dv[2];
+    }
 
-    // -- Uniform normalization: full_input[i] = apply_norm(raw[i], &norm[i]) --
+    // -- Uniform normalization: input = apply_norm(raw[i], &norm[i]) --
     // Precedence mirrors deploy-time resolution: loaded model's table (already
     // carries the [network.normalization] override) > the config override on
     // SimData (used when no model is loaded, e.g. supervised-collect teacher
@@ -271,22 +266,19 @@ pub fn build_nn_input(
         .map(|m| m.normalization.as_slice())
         .or(data.nn_normalization_override.as_deref())
         .unwrap_or(&crate::data::neural::DEFAULT_NORMALIZATION);
-    let mut full_input = [0.0_f64; NN_FULL_INPUT_SIZE];
-    for i in 0..NN_FULL_INPUT_SIZE {
-        full_input[i] = crate::data::neural::apply_norm(raw[i], &norm[i]);
-    }
 
-    // Apply ablation: freeze a single input to `ablated_value` (default 0.0 =>
-    // classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
-    if let Some(idx) = ablated_input {
-        full_input[idx] = ablated_value;
-    }
-
-    // Apply input mask: select subset of inputs, or default to first 16 for backward compat
-    match input_mask {
-        Some(mask) => mask.iter().map(|&i| full_input[i]).collect(),
-        None => full_input[..16].to_vec(),
-    }
+    // Ablation freezes one input to `ablated_value` after normalization (default
+    // 0.0 => classic zero-ablation; flip-ablation freezes a binary ±1 flag to -1 / +1).
+    selected
+        .iter()
+        .map(|&i| {
+            if ablated_input == Some(i) {
+                ablated_value
+            } else {
+                crate::data::neural::apply_norm(raw[i], &norm[i])
+            }
+        })
+        .collect()
 }
 
 /// Compute NN-guided longitudinal bank angle.
@@ -327,6 +319,9 @@ mod tests {
     use super::*;
     use approx::assert_relative_eq;
 
+    use crate::gnc::navigation::coordinates::total_energy;
+    use crate::orbit::elements;
+
     use crate::data::aerodynamics::AeroTables;
     use crate::data::atmosphere::{AtmosphereModel, DensityProfile};
     use crate::data::capsule::Capsule;
@@ -347,16 +342,16 @@ mod tests {
         let r = 3_396_200.0 + 50_000.0; // Mars radius + 50 km
         let velocity = 5000.0;
         NavigationOutput {
-            position_estimated: [r, 0.1, 0.05],
-            velocity_estimated: [velocity, -0.10, 0.5],
             acceleration_estimated: [80.0, -12.0],
             aero_coefficients: [1.269, -0.205],
             density_guidance: 0.001,
             density_exit: 1e-6,
             dynamic_pressure_estimated: 0.5 * 0.001 * velocity * velocity,
-            energy_estimated: -1e6,
-            orbital_errors: [1000.0, 0.01, 0.001, 0.002],
-            ..Default::default()
+            ..NavigationOutput::from_estimated_state(
+                [r, 0.1, 0.05],
+                [velocity, -0.10, 0.5],
+                &PlanetConfig::mars(),
+            )
         }
     }
 
@@ -576,6 +571,11 @@ mod tests {
         // Set radial speed below escape so the osculating orbit is provably elliptical.
         let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
         nav.velocity_estimated[0] = v_circ * 0.9;
+        nav.set_estimated_state(
+            nav.position_estimated,
+            nav.velocity_estimated,
+            &PlanetConfig::mars(),
+        );
         let orbit = elements::from_spherical(
             nav.position_estimated[0],
             nav.position_estimated[1],
@@ -1810,14 +1810,11 @@ mod tests {
             ) {
                 let r = PlanetConfig::mars().equatorial_radius + alt;
                 let nav = NavigationOutput {
-                    position_estimated: [r, 0.1, 0.05],
-                    velocity_estimated: [vel, fpa, az],
                     acceleration_estimated: [50.0, -8.0],
                     aero_coefficients: [1.269, -0.205],
                     density_guidance: 0.001,
                     dynamic_pressure_estimated: 0.5 * 0.001 * vel * vel,
-                    energy_estimated: -1e6,
-                    ..Default::default()
+                    ..NavigationOutput::from_estimated_state([r, 0.1, 0.05], [vel, fpa, az], &PlanetConfig::mars())
                 };
 
                 let nn = fixed_small_nn();
@@ -2153,6 +2150,11 @@ mod tests {
         // Make the osculating orbit provably elliptical.
         let v_circ = (planet.mu / nav.position_estimated[0]).sqrt();
         nav.velocity_estimated[0] = v_circ * 0.9;
+        nav.set_estimated_state(
+            nav.position_estimated,
+            nav.velocity_estimated,
+            &PlanetConfig::mars(),
+        );
 
         // Negative target semi-major axis: the old compute_deltav produced a
         // non-finite dv3 here; predicted_dv_for_nn's rayneu > 0.0 guard absorbs it.
@@ -2217,7 +2219,6 @@ mod tests {
     #[test]
     fn build_nn_input_characterization_0_to_31() {
         let planet = PlanetConfig::mars();
-        let data = test_sim_data_with_ref_traj();
         let full_mask: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
         // Pre-refactor snapshot (Task 3). The extract-then-normalize refactor must
         // reproduce indices 0-31 bit-identically. Do NOT update these; they are
@@ -2295,6 +2296,14 @@ mod tests {
         for (fi, scale_v) in [1.0_f64, 0.45].iter().enumerate() {
             let mut nav = test_nav();
             nav.velocity_estimated[0] *= scale_v;
+            nav.set_estimated_state(
+                nav.position_estimated,
+                nav.velocity_estimated,
+                &PlanetConfig::mars(),
+            );
+            // The snapshot was taken with a 1000 m semi-major-axis error.
+            let mut data = test_sim_data_with_ref_traj();
+            data.target_orbit.semi_major_axis = nav.orbit_estimated.semi_major_axis - 1000.0;
             let inp = build_nn_input(
                 &nav,
                 NnModelView {
@@ -2321,6 +2330,57 @@ mod tests {
                     inp[i],
                     reference[fi][i]
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn masked_input_is_the_selected_slice_of_the_full_vector() {
+        // The mask of the paper's deployed models, a permuted one, and the legacy default.
+        const HEADLINE: [usize; 17] =
+            [0, 2, 3, 5, 6, 7, 11, 12, 18, 19, 27, 28, 29, 30, 32, 33, 34];
+        const PERMUTED: [usize; 6] = [26, 20, 16, 1, 17, 25];
+        let planet = PlanetConfig::mars();
+        let data = test_sim_data_with_ref_traj();
+        let ctx = NnInputContext {
+            target_inclination: 50.0_f64.to_radians(),
+            ref_velocity_latched: -40.0,
+            prev_inclination_error: Some(0.01),
+            prev_bank_signed: 0.2,
+            time_since_last_sign_flip: 12.0,
+            inclination_error_integral: 3.0,
+            prev_realized_bank: 0.15,
+        };
+        let all: Vec<usize> = (0..NN_FULL_INPUT_SIZE).collect();
+        let legacy: Vec<usize> = (0..16).collect();
+        for scale_v in [1.0_f64, 0.45] {
+            let mut nav = test_nav();
+            let mut velocity = nav.velocity_estimated;
+            velocity[0] *= scale_v;
+            nav.set_estimated_state(nav.position_estimated, velocity, &planet);
+            for ablated_input in [None, Some(5), Some(16)] {
+                let build = |input_mask: Option<&[usize]>| {
+                    let view = NnModelView {
+                        input_mask,
+                        ablated_input,
+                        ablated_value: -1.0,
+                    };
+                    build_nn_input(&nav, view, &data, &planet, &ctx)
+                };
+                let full = build(Some(&all));
+                assert_eq!(full.len(), NN_FULL_INPUT_SIZE);
+                for mask in [&HEADLINE[..], &PERMUTED[..], &all[..]] {
+                    let got = build(Some(mask));
+                    assert_eq!(got.len(), mask.len());
+                    for (k, &i) in mask.iter().enumerate() {
+                        assert_eq!(got[k].to_bits(), full[i].to_bits(), "candidate {i}");
+                    }
+                }
+                let got = build(None);
+                assert_eq!(got.len(), 16);
+                for (k, &i) in legacy.iter().enumerate() {
+                    assert_eq!(got[k].to_bits(), full[i].to_bits(), "candidate {i}");
+                }
             }
         }
     }

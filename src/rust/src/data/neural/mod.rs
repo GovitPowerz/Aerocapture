@@ -1017,8 +1017,8 @@ pub struct NeuralNetModel {
     pub input_mask: Option<Vec<usize>>,
     /// Optional index of a single input to freeze (ablation analysis).
     /// Must be in [0, NN_FULL_INPUT_SIZE). None means no ablation.
-    /// When set, `build_nn_input` overwrites `full_input[ablated_input]` with
-    /// `ablated_value` (default 0.0 => classic zero-ablation).
+    /// When set and selected by the mask, `build_nn_input` emits `ablated_value`
+    /// in place of the normalized candidate (default 0.0 => classic zero-ablation).
     pub ablated_input: Option<usize>,
     /// Value to freeze the ablated input to. Default 0.0 (zero-ablation).
     /// Used for flip-ablation: freeze a binary ±1 flag to -1 / +1 instead of

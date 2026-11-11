@@ -15,7 +15,6 @@ use crate::gnc::control::pilot;
 use crate::gnc::guidance::dispatch;
 use crate::gnc::navigation::coordinates::geodetic_from_spherical;
 use crate::integration::events::{self, EventContext, EventDef, EventType};
-use crate::orbit::elements;
 use crate::physics::atmosphere;
 use crate::physics::dynamics::loads_at;
 use crate::simulation::photo::push_photo_snapshot;
@@ -201,18 +200,8 @@ pub fn act_tick(
             forced_bank,
         );
 
-        // Compute current inclination error once -- needed by both supervised collect
-        // (when active) and the post-guidance telemetry update for the next tick.
-        let current_orbit = elements::from_spherical(
-            nav_out.position_estimated[0],
-            nav_out.position_estimated[1],
-            nav_out.position_estimated[2],
-            nav_out.velocity_estimated[0],
-            nav_out.velocity_estimated[1],
-            nav_out.velocity_estimated[2],
-            planet,
-        );
-        let current_incl_err = current_orbit.inclination - data.target_orbit.inclination;
+        // Inclination error for the post-guidance telemetry update (next tick's NN inputs).
+        let current_incl_err = nav_out.orbit_estimated.inclination - data.target_orbit.inclination;
 
         // Supervised-trace push gates on guidance.longitudinal_active so we
         // don't pollute the dataset with inhibited-guidance ticks where the

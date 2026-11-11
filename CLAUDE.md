@@ -229,6 +229,23 @@ assessed" no longer exists (an omitted limit is the default and is gated). The b
 for that reason; any new elementwise scorer that must match a batched path bit for bit needs the same care and a per-record test over a whole grid
 (`tests/test_cost.py::TestPerSimCost`), not one lucky cell.
 
+### sin/cos fusion: the same expression is not the same bits across builds (macOS)
+
+When `x.sin()` and `x.cos()` land in one basic block LLVM fuses them into one sincos call, and on macOS that call
+(`__sincos_stret`) returns a sine one ulp off plain `sin(x)` for about 0.35% of arguments (the cosine agrees; optimized builds
+only). So a lone `x.sin()` changes value when an unrelated call that happened to inline a `x.cos()` next to it is removed or
+moved. #239 hit it three times: dropping `guidance_step`'s own `total_energy` call moved the energy controller's `hdot`,
+dropping the NN input builder's moved candidate 2, and putting the two halves of a (sin, cos) input pair in separate `if`
+branches moved the sine. 2 to 34 flights of 300 changed (up to 6e-4 m/s of DV, no outcome flip) while every gate stayed
+green: the goldens compare at 1e-9 relative, the test configs fly too few ticks, and the seam gates compare one build with
+itself. Where a value owes its bits to a fused sine, say so with `coordinates::sin_cos_fused` (never inlined, cosine kept
+opaque: under LTO an unused cosine return is eliminated across the call and the sine goes plain again). A change that
+claims byte identity has to show it between builds: build `main` in a scratch directory, fly both CLI binaries on each
+scheme's training config at `n_sims = 300` (NN rows with a deployed model) plus every `configs/test/*.toml`, and byte-compare
+the output CSVs; do the same for the extension (the `main` wheel in a scratch venv, `run_mc` records compared as raw bytes), a
+separate link unit with its own inlining. When they differ, dump the NN input bits per tick from both and read off the first
+candidate that moves.
+
 ## Conventions
 
 - **Rust**: Edition 2024, nalgebra for linear algebra, release profile with LTO. Every aero/physics expression is pinned by goldens and bit-identity gates: never reassociate or `mul_add`.
