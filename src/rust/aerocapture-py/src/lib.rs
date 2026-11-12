@@ -26,8 +26,10 @@
 //!           no training path calls them -- PSO evaluates through `run_grid` with in-memory weights).
 //! env       `BatchedSimulation` (`env.rs`, the RL step API; gate `tests/test_env_pyo3.py`).
 //!
-//! `run_grid`, `run_seeds` and `run_batch` are adapters over one kernel (`kernel.rs`): the
-//! only place an override set becomes a `SimData`, and the only seed-axis fan-out.
+//! `run_grid`, `run_seeds` and `run_batch` are adapters over one kernel (`kernel.rs`), which
+//! holds their override-set build and their seed-axis fan-out. `run_mc`, `run_with_draws`,
+//! the env and `collect_*` still build through `config::load_and_override`, and
+//! `collect_trace` keeps its own seed loop.
 
 use std::collections::HashSet;
 use std::time::Duration;

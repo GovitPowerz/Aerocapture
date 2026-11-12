@@ -99,13 +99,13 @@ pub fn run_seeds(
     include_trajectories: bool,
     wall_timeout: Option<Duration>,
 ) -> Result<Vec<RunOutput>, String> {
+    let base = BaseConfig::load(toml_path)?;
     if seeds.is_empty() {
         return Ok(Vec::new());
     }
     overrides.push(("simulation.n_sims".to_string(), OverrideValue::Int(1)));
     overrides.push(("monte_carlo.seed".to_string(), OverrideValue::Int(0)));
 
-    let base = BaseConfig::load(toml_path)?;
     kernel::in_pool(n_threads, || {
         let cell = base.build(&overrides, None)?;
         kernel::fly(

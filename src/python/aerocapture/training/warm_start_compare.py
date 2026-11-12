@@ -16,7 +16,7 @@ and consumed by `src/typst/warm_start_report.typ` via `warm_start_report.py`.
 
 Trajectories on the same (pool, seed) ARE run twice -- once for supervisor, once
 for NN -- because we want like-for-like dispersion draws between the two sides.
-Reusing `aerocapture_rs.run_batch` with `monte_carlo.seed` overrides gives us
+Flying both sides through `cell_eval.evaluate_cell` (`aerocapture_rs.run_seeds`) gives us
 deterministic seeds matching the rest of the training pipeline.
 
 Memory: trajectories are processed one (pool, side) at a time and released

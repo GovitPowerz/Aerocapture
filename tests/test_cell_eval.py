@@ -248,11 +248,12 @@ def test_no_cell_dir_means_base_toml_and_nothing_else(fake_rs: FakeRs, tmp_path:
 def test_extra_overrides_win_over_scaffolding_but_not_over_the_seed(fake_rs: FakeRs, nn_cell: tuple[Path, Path]) -> None:
     base, cell = nn_cell
     extra = {"navigation.density_filter_gain": 0.1, "monte_carlo.noise_seeding": "legacy", "monte_carlo.seed": 999}
-    evaluate_cell(cell, base, [5], extra_overrides=extra)
+    res = evaluate_cell(cell, base, [5], extra_overrides=extra)
     ov = fake_rs.calls[0]["overrides"]
     assert ov["navigation.density_filter_gain"] == 0.1
     assert ov["monte_carlo.noise_seeding"] == "legacy"
     assert "monte_carlo.seed" not in ov and fake_rs.calls[0]["seeds"] == [5]
+    assert "monte_carlo.seed" not in res.overrides  # provenance names no seed nothing flew
 
 
 def test_per_seed_overrides_apply_by_index(fake_rs: FakeRs, tmp_path: Path) -> None:

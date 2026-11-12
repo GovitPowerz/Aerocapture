@@ -36,7 +36,7 @@ simulation over `run_grid` (`docs/performance.md` section 2). `aerocapture_rs.ru
 seeds, overrides)` is that sweep on the seed axis: the config is built once and each seed is a
 `run_for_api_cell`, returning records, dispersions and optional trajectories. `run_grid`,
 `run_seeds` and `run_batch` are adapters over one kernel (`aerocapture-py/src/kernel.rs`), which
-holds the only override-set-to-`SimData` build and the only seed-axis fan-out.
+holds their override-set-to-`SimData` build and their seed-axis fan-out.
 `cell_eval.evaluate_cell` calls `run_seeds` for a plain sweep and keeps `run_batch` for
 `per_seed_overrides`. `run_seeds` rejects `monte_carlo.seed` / `simulation.n_sims` like `run_grid`
 and is gated byte-identical to the per-seed `run_batch` path under both noise regimes and at any

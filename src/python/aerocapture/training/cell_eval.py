@@ -155,10 +155,11 @@ def evaluate_cell(
     seed_list = [int(s) for s in seeds] if seeds is not None else reserved_pool(eval_toml, *pool)  # type: ignore[misc]
     if per_seed_overrides is not None and len(per_seed_overrides) != len(seed_list):
         raise ValueError(f"per_seed_overrides has {len(per_seed_overrides)} entries for {len(seed_list)} seeds")
-    base: dict[str, object] = {"simulation.n_sims": 1, **cell_overrides, **(extra_overrides or {})}
+    shared: dict[str, object] = {**cell_overrides, **(extra_overrides or {})}
+    shared.pop("monte_carlo.seed", None)  # the pool's seed always wins
+    base: dict[str, object] = {"simulation.n_sims": 1, **shared}
     if per_seed_overrides is None:
-        # The seam owns the seed axis and n_sims = 1; a seed in the overrides never won over the pool.
-        shared = {k: v for k, v in base.items() if k not in ("simulation.n_sims", "monte_carlo.seed")}
+        # run_seeds owns the seed axis and n_sims = 1 (a `simulation.n_sims` in extra_overrides raises there).
         results = aerocapture_rs.run_seeds(
             str(eval_toml),
             seed_list,

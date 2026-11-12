@@ -7,7 +7,6 @@ Extends ADR-0004's chokepoint to deploy-side evaluation."""
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -79,26 +78,24 @@ def test_run_seeds_without_trajectories_returns_empty_ones() -> None:
     assert all(np.asarray(t).shape == (0, 17) for t in new.trajectories)
 
 
-def test_run_seeds_on_a_config_without_a_monte_carlo_section() -> None:
+def test_run_seeds_on_a_config_without_a_monte_carlo_section(tmp_path: Path) -> None:
     # The per-seed path's `monte_carlo.seed` override creates the section; the kernel
     # must build the same config, not fall back to "no dispersion config".
-    cfg = 'base = ["../missions/mars.toml"]\n[guidance]\ntype = "equilibrium_glide"\n'
-    with tempfile.NamedTemporaryFile("w", suffix=".toml", dir="configs/training", delete=False) as f:  # so the relative base resolves
-        f.write(cfg)
-        path = f.name
-    try:
-        assert "monte_carlo" not in aero.load_config(path)
-        old = _per_seed(path, {}, SEEDS[:2])
-        new = aero.run_seeds(path, SEEDS[:2], include_trajectories=True)
-        _assert_same_bytes(new, old)
-    finally:
-        Path(path).unlink(missing_ok=True)
+    cfg = tmp_path / "no_mc.toml"
+    cfg.write_text(f'base = ["{Path("configs/missions/mars.toml").resolve()}"]\n[guidance]\ntype = "equilibrium_glide"\n')
+    path = str(cfg)
+    assert "monte_carlo" not in aero.load_config(path)
+    old = _per_seed(path, {}, SEEDS[:2])
+    new = aero.run_seeds(path, SEEDS[:2], include_trajectories=True)
+    _assert_same_bytes(new, old)
 
 
 def test_run_seeds_empty_pool() -> None:
     res = aero.run_seeds(EQGLIDE_TOML, [])
     assert len(res) == 0
     assert np.asarray(res.final_records).shape == (0, int(aero.FINAL_RECORD_LEN))
+    with pytest.raises(RuntimeError, match="Cannot read"):  # the config is still read, as run_batch reads it
+        aero.run_seeds("configs/test/does_not_exist_xyz.toml", [])
 
 
 class TestRunSeedsOwnedKeys:

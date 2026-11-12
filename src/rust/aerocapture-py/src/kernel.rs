@@ -1,6 +1,6 @@
 //! The cell-by-seeds kernel behind `run_grid`, `run_seeds` and `run_batch`.
 //!
-//! Two rules live here and nowhere else in the seam:
+//! The two rules those three entries share live here:
 //!
 //! - an override set becomes a `SimData` (`BaseConfig::build`): patch the resolved
 //!   base tree, serialize, parse, validate, build over the base config's shared
@@ -11,8 +11,10 @@
 //! `run_grid` is N configs x K seeds keeping the final records, `run_seeds` is
 //! 1 config x K seeds keeping the whole `RunOutput`, and `run_batch` builds one
 //! config per override set and flies each on its own `[monte_carlo] seed`.
+//! Not yet routed here: `run_mc`, `run_with_draws`, the env and `collect_*` build
+//! through `config::load_and_override`, and `collect_*` keeps its own seed loop
+//! (`lib.rs::collect_trace`).
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
@@ -21,9 +23,9 @@ use aerocapture::config::SimInput;
 use aerocapture::data::neural::NeuralNetModel;
 use aerocapture::data::{SharedTables, SimData};
 use rayon::prelude::*;
-use toml::{Table, Value};
+use toml::Value;
 
-use crate::config::{OverrideValue, apply_override};
+use crate::config::{OverrideValue, apply_override, resolve_toml};
 
 /// The disk-backed tables of the base config and the paths they were loaded from.
 struct BaseTables {
@@ -43,17 +45,7 @@ pub struct BaseConfig {
 
 impl BaseConfig {
     pub fn load(toml_path: &Path) -> Result<Self, String> {
-        let toml_content = std::fs::read_to_string(toml_path)
-            .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
-        let base_table: Table =
-            toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
-        let mut visited = HashSet::new();
-        let value = aerocapture::config::resolve_toml_bases(
-            Value::Table(base_table),
-            toml_path,
-            &mut visited,
-        )
-        .map_err(|e| format!("Base resolution error: {}", e))?;
+        let value = resolve_toml(toml_path)?;
         let tables = Self::load_tables(&value);
         Ok(Self { value, tables })
     }

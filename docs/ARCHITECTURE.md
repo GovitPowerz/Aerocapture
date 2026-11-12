@@ -19,8 +19,8 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
     paper scripts; one override dict built once and flown on a seed pool), `run_batch` (one
     override dict per simulation), `run_mc` (one config, its own `n_sims`), `run_with_draws`
     (external dispersion draws). The first three are adapters over one kernel
-    (`aerocapture-py/src/kernel.rs`): the only place an override set becomes a `SimData` and the
-    only seed-axis fan-out; `run_seeds` is gated byte-identical to per-seed `run_batch`
+    (`aerocapture-py/src/kernel.rs`), which holds their override-set build and their seed-axis
+    fan-out; `run_seeds` is gated byte-identical to per-seed `run_batch`
     (`tests/test_run_seeds.py`).
   - **config**: `validate_config`, `load_config` (the parity oracle for the Python base resolution).
   - **contract**: `candidate_inputs`, `final_record_indices`, `layer_schema`, the width constants.

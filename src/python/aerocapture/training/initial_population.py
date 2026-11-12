@@ -215,14 +215,10 @@ def _make_warm_start_eval_callback(
         # chromosome -> weights step (we already have the weights on disk).
         from aerocapture.training.evaluate import _aero_rs as _aero  # noqa: PLC0415
 
-        overrides_list = []
-        for seed in seeds:
-            ovr = problem._build_overrides(decoded_params, mc_seed=int(seed))
-            ovr["data.neural_network"] = str(temp_nn_json_path)
-            overrides_list.append(ovr)
-        result = _aero.run_batch(
+        result = _aero.run_seeds(
             problem.toml_path,
-            overrides_list,
+            [int(s) for s in seeds],
+            {**problem._build_grid_overrides(decoded_params), "data.neural_network": str(temp_nn_json_path)},
             n_threads=None,
             include_trajectories=False,
             sim_timeout_secs=problem.sim_timeout,

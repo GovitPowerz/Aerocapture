@@ -379,8 +379,8 @@ use `--sim-timeout` against NaN hangs).
   `probe_common.score_model`, `mamba3_962_compare`, `warm_start_compare`, `ablation`, `animate`,
   every paper script, `experiments/ou_marginal`, `experiments/fnpag_ab`. The seam is still called
   directly where the override builder is genuinely different: `problem.py` (`run_grid`, the
-  training chokepoint), `initial_population.py` (the warm-start eval callback on
-  `problem._build_overrides`), `corridor.py` (the piecewise corridor accumulation over a
+  training chokepoint), `initial_population.py` (the warm-start eval callback: `run_seeds` on
+  `problem._build_grid_overrides` + the temp model), `corridor.py` (the piecewise corridor accumulation over a
   population), `train.py` (the piecewise best nominal via `nominal_flight_overrides`), `reference.py` / `make_reference.py` (reference generation),
   `sensitivity.py` (`run_with_draws`), `aerocapture.physics_crosscheck` (undispersed AMAT cells),
   and `articles/paper/scripts/compute_benchmark.py`'s timed repeats (the warmup resolves the cell
