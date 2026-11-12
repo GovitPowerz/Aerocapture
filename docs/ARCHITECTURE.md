@@ -15,9 +15,13 @@ actually flow through this code. Vocabulary is `CONTEXT.md`'s; decisions this pa
 - They meet at **one seam**, the PyO3 crate `aerocapture_rs` (`src/rust/aerocapture-py/`), in
   five tiers (ADR-0007; each names its gate in `lib.rs`'s module doc):
   - **evaluate**: `run_grid` (training; one GIL-releasing call per population x seed grid, the
-    bit-identity chokepoint of ADR-0004), `run_batch` (deploy-side evaluation: reports, demo,
-    paper scripts; one override dict per seed), `run_mc` (one config, its own `n_sims`),
-    `run_with_draws` (external dispersion draws).
+    bit-identity chokepoint of ADR-0004), `run_seeds` (deploy-side evaluation: reports, demo,
+    paper scripts; one override dict built once and flown on a seed pool), `run_batch` (one
+    override dict per simulation), `run_mc` (one config, its own `n_sims`), `run_with_draws`
+    (external dispersion draws). The first three are adapters over one kernel
+    (`aerocapture-py/src/kernel.rs`): the only place an override set becomes a `SimData` and the
+    only seed-axis fan-out; `run_seeds` is gated byte-identical to per-seed `run_batch`
+    (`tests/test_run_seeds.py`).
   - **config**: `validate_config`, `load_config` (the parity oracle for the Python base resolution).
   - **contract**: `candidate_inputs`, `final_record_indices`, `layer_schema`, the width constants.
   - **nn**: `flat_weights_to_json`, `collect_supervised` / `collect_nn_inputs`, and the gate-only
@@ -65,7 +69,7 @@ Checkpoints (`checkpoint_g*.{json,npz}`) make every step resumable; `--n-gen` on
 
 ## A simulation tick in eight lines
 
-`aerocapture_rs.run_batch` / `run_grid` -> `runner::run_for_api_cell` -> `run_init::build_sim_state`
+`aerocapture_rs.run_seeds` / `run_grid` -> `runner::run_for_api_cell` -> `run_init::build_sim_state`
 (one `SimState` per dispersion draw), then `tick::step_one_tick` until termination:
 
 1. Navigation (`runner::navigate_from_state` -> `gnc::navigation::estimator`): bias-mode or EKF

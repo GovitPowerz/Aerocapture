@@ -5,10 +5,13 @@ TOML (`optimized_<scheme>.toml` when the cell baked its tuned params into one, e
 the base TOML plus the cell's `best_params.json` scaffolding routed as overrides),
 pin the NN to the cell's own `best_model.json` when there is one (the TOML's
 `[data] neural_network` path is shared by every `--output-dir` sibling of a config
-and can hold a foreign model), then run one sim per seed through
-`aerocapture_rs.run_batch`. Every report, demo, comparison and paper number goes
-through `evaluate_cell`; `fly_mc` / `fly_nominal` are the same resolution for a
-config's own Monte Carlo and for the undispersed nominal.
+and can hold a foreign model), then run one sim per seed: a plain seed sweep through
+`aerocapture_rs.run_seeds` (the config is built once and flown on the seed axis), a
+sweep with per-seed overrides through `aerocapture_rs.run_batch` (one override dict
+per seed). The two are byte-identical for the same overrides (`tests/test_run_seeds.py`).
+Every report, demo, comparison and paper number goes through `evaluate_cell`; `fly_mc` /
+`fly_nominal` are the same resolution for a config's own Monte Carlo and for the
+undispersed nominal.
 
 Training-internal callers (`problem.py` population evaluation, the trainer's
 corridor accumulation, reference generation, `sensitivity.run_with_draws`) build
@@ -132,7 +135,8 @@ def evaluate_cell(
     sim_timeout_secs: float | None = None,
     n_threads: int | None = None,
 ) -> CellResult:
-    """Fly `cell_dir` on a seed pool, one sim per seed (`aerocapture_rs.run_batch`).
+    """Fly `cell_dir` on a seed pool, one sim per seed (`aerocapture_rs.run_seeds`, or
+    `run_batch` when `per_seed_overrides` is given).
 
     The pool is `seeds` explicitly, or `pool=(offset, n)`: `n` seeds of the
     reserved pool registered at `offset` (`seeds.py`), keyed by the `[monte_carlo]
@@ -152,14 +156,26 @@ def evaluate_cell(
     if per_seed_overrides is not None and len(per_seed_overrides) != len(seed_list):
         raise ValueError(f"per_seed_overrides has {len(per_seed_overrides)} entries for {len(seed_list)} seeds")
     base: dict[str, object] = {"simulation.n_sims": 1, **cell_overrides, **(extra_overrides or {})}
-    overrides_list = [{**base, **(per_seed_overrides[i] if per_seed_overrides is not None else {}), "monte_carlo.seed": s} for i, s in enumerate(seed_list)]
-    results = aerocapture_rs.run_batch(
-        str(eval_toml),
-        overrides_list,
-        n_threads=n_threads,
-        include_trajectories=include_trajectories,
-        sim_timeout_secs=sim_timeout_secs,
-    )
+    if per_seed_overrides is None:
+        # The seam owns the seed axis and n_sims = 1; a seed in the overrides never won over the pool.
+        shared = {k: v for k, v in base.items() if k not in ("simulation.n_sims", "monte_carlo.seed")}
+        results = aerocapture_rs.run_seeds(
+            str(eval_toml),
+            seed_list,
+            shared,
+            n_threads=n_threads,
+            include_trajectories=include_trajectories,
+            sim_timeout_secs=sim_timeout_secs,
+        )
+    else:
+        overrides_list = [{**base, **per_seed, "monte_carlo.seed": s} for per_seed, s in zip(per_seed_overrides, seed_list, strict=True)]
+        results = aerocapture_rs.run_batch(
+            str(eval_toml),
+            overrides_list,
+            n_threads=n_threads,
+            include_trajectories=include_trajectories,
+            sim_timeout_secs=sim_timeout_secs,
+        )
     return _pack(results, seed_list, eval_toml, base, include_trajectories)
 
 

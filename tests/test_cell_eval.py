@@ -34,10 +34,32 @@ def _records(n: int) -> np.ndarray:
 
 
 class FakeRs:
-    """Records every run_batch / run_mc call; returns synthetic BatchResults."""
+    """Records every run_seeds / run_batch / run_mc call; returns synthetic BatchResults."""
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+
+    def run_seeds(
+        self,
+        toml_path: str,
+        seeds: list[int],
+        overrides: dict | None = None,
+        n_threads: int | None = None,
+        include_trajectories: bool = False,
+        sim_timeout_secs: float | None = None,
+    ) -> Any:
+        self.calls.append(
+            {
+                "fn": "run_seeds",
+                "toml_path": toml_path,
+                "seeds": seeds,
+                "overrides": overrides,
+                "n_threads": n_threads,
+                "include_trajectories": include_trajectories,
+                "sim_timeout_secs": sim_timeout_secs,
+            }
+        )
+        return self._results(len(seeds), include_trajectories)
 
     def run_batch(
         self,
@@ -104,11 +126,13 @@ def test_evaluate_cell_override_shape(fake_rs: FakeRs, nn_cell: tuple[Path, Path
     base, cell = nn_cell
     res = evaluate_cell(cell, base, [11, 22], include_trajectories=True, sim_timeout_secs=5.0, n_threads=1)
     [call] = fake_rs.calls
-    assert call["fn"] == "run_batch"
+    assert call["fn"] == "run_seeds"
     assert call["toml_path"] == str(base.resolve())
     assert call["include_trajectories"] is True and call["sim_timeout_secs"] == 5.0 and call["n_threads"] == 1
     expected_base = {"simulation.n_sims": 1, **SCAFFOLDING, "data.neural_network": str((cell / "best_model.json").resolve())}
-    assert call["overrides_list"] == [{**expected_base, "monte_carlo.seed": 11}, {**expected_base, "monte_carlo.seed": 22}]
+    # the seam owns the seed axis and n_sims = 1: neither key travels in the override dict
+    assert call["seeds"] == [11, 22]
+    assert call["overrides"] == {**SCAFFOLDING, "data.neural_network": str((cell / "best_model.json").resolve())}
     assert res.seeds == [11, 22]
     assert res.toml_path == base.resolve()
     assert res.overrides == expected_base
@@ -124,7 +148,7 @@ def test_optimized_toml_wins_with_no_scaffolding_and_no_pin(fake_rs: FakeRs, tmp
     res = evaluate_cell(cell, base, [1])
     [call] = fake_rs.calls
     assert call["toml_path"] == str((cell / "optimized_ftc.toml").resolve())
-    assert call["overrides_list"] == [{"simulation.n_sims": 1, "monte_carlo.seed": 1}]
+    assert call["overrides"] == {} and call["seeds"] == [1]
     assert res.toml_path == (cell / "optimized_ftc.toml").resolve()
 
 
@@ -133,7 +157,7 @@ def test_explicit_model_beats_the_cell_model(fake_rs: FakeRs, nn_cell: tuple[Pat
     other = tmp_path / "bundle.json"
     other.write_text("{}")
     evaluate_cell(cell, base, [1], model=other)
-    assert fake_rs.calls[0]["overrides_list"][0]["data.neural_network"] == str(other.resolve())
+    assert fake_rs.calls[0]["overrides"]["data.neural_network"] == str(other.resolve())
 
 
 def test_missing_explicit_model_raises(fake_rs: FakeRs, nn_cell: tuple[Path, Path], tmp_path: Path) -> None:
@@ -176,7 +200,7 @@ def test_scaffolded_nn_cell_without_best_params_is_refused(fake_rs: FakeRs, tmp_
     assert fake_rs.calls == []
     (cell / "best_params.json").write_text(json.dumps({"nav.density_filter_gain": 0.9}))
     evaluate_cell(cell, base, [1])
-    assert fake_rs.calls[0]["overrides_list"][0]["navigation.density_filter_gain"] == 0.9
+    assert fake_rs.calls[0]["overrides"]["navigation.density_filter_gain"] == 0.9
 
 
 def test_explicit_model_with_a_params_less_cell_is_refused_under_inherited_scaffolding(fake_rs: FakeRs, tmp_path: Path) -> None:
@@ -197,7 +221,7 @@ def test_unscaffolded_nn_cell_flies_without_best_params(fake_rs: FakeRs, tmp_pat
     cell.mkdir()
     (cell / "best_model.json").write_text("{}")
     evaluate_cell(cell, base, [1])
-    assert fake_rs.calls[0]["overrides_list"][0]["data.neural_network"] == str((cell / "best_model.json").resolve())
+    assert fake_rs.calls[0]["overrides"]["data.neural_network"] == str((cell / "best_model.json").resolve())
 
 
 def test_explicit_model_uses_a_model_less_cell_for_scaffolding_only(fake_rs: FakeRs, tmp_path: Path) -> None:
@@ -209,7 +233,7 @@ def test_explicit_model_uses_a_model_less_cell_for_scaffolding_only(fake_rs: Fak
     model = tmp_path / "bundle.json"
     model.write_text("{}")
     evaluate_cell(cell, base, [1], model=model)
-    [ov] = fake_rs.calls[0]["overrides_list"]
+    ov = fake_rs.calls[0]["overrides"]
     assert ov["navigation.density_filter_gain"] == 0.9 and ov["data.neural_network"] == str(model.resolve())
 
 
@@ -218,24 +242,26 @@ def test_no_cell_dir_means_base_toml_and_nothing_else(fake_rs: FakeRs, tmp_path:
     base.write_text("")
     evaluate_cell(None, base, [3])
     assert fake_rs.calls[0]["toml_path"] == str(base.resolve())
-    assert fake_rs.calls[0]["overrides_list"] == [{"simulation.n_sims": 1, "monte_carlo.seed": 3}]
+    assert fake_rs.calls[0]["overrides"] == {} and fake_rs.calls[0]["seeds"] == [3]
 
 
 def test_extra_overrides_win_over_scaffolding_but_not_over_the_seed(fake_rs: FakeRs, nn_cell: tuple[Path, Path]) -> None:
     base, cell = nn_cell
     extra = {"navigation.density_filter_gain": 0.1, "monte_carlo.noise_seeding": "legacy", "monte_carlo.seed": 999}
     evaluate_cell(cell, base, [5], extra_overrides=extra)
-    [ov] = fake_rs.calls[0]["overrides_list"]
+    ov = fake_rs.calls[0]["overrides"]
     assert ov["navigation.density_filter_gain"] == 0.1
     assert ov["monte_carlo.noise_seeding"] == "legacy"
-    assert ov["monte_carlo.seed"] == 5
+    assert "monte_carlo.seed" not in ov and fake_rs.calls[0]["seeds"] == [5]
 
 
 def test_per_seed_overrides_apply_by_index(fake_rs: FakeRs, tmp_path: Path) -> None:
     base = tmp_path / "base.toml"
     base.write_text("")
     evaluate_cell(None, base, [1, 2], per_seed_overrides=[{"simulation.random_seed": 1000.0}, {"simulation.random_seed": 1007.0}])
+    assert fake_rs.calls[0]["fn"] == "run_batch"  # not a plain seed sweep: one override dict per seed
     ovs = fake_rs.calls[0]["overrides_list"]
+    assert [o["simulation.n_sims"] for o in ovs] == [1, 1]
     assert [o["simulation.random_seed"] for o in ovs] == [1000.0, 1007.0]
     assert [o["monte_carlo.seed"] for o in ovs] == [1, 2]
 
@@ -252,7 +278,7 @@ def test_seeds_are_plain_ints(fake_rs: FakeRs, tmp_path: Path) -> None:
     base.write_text("")
     res = evaluate_cell(None, base, np.array([4, 5], dtype=np.int64))
     assert all(type(s) is int for s in res.seeds)
-    assert all(type(o["monte_carlo.seed"]) is int for o in fake_rs.calls[0]["overrides_list"])
+    assert all(type(s) is int for s in fake_rs.calls[0]["seeds"])
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +373,7 @@ def test_pool_seeds_are_keyed_by_the_toml_actually_flown(fake_rs: FakeRs, tmp_pa
     (cell / "optimized_ftc.toml").write_text("[monte_carlo]\nseed = 9\n")
     res = evaluate_cell(cell, base, pool=(FINAL_EVAL_SEED_OFFSET, 4))
     assert res.seeds == make_reserved_seeds(9, FINAL_EVAL_SEED_OFFSET, 4)
-    assert [o["monte_carlo.seed"] for o in fake_rs.calls[0]["overrides_list"]] == res.seeds
+    assert fake_rs.calls[0]["seeds"] == res.seeds
 
 
 def test_seeds_and_pool_are_exclusive(fake_rs: FakeRs, tmp_path: Path) -> None:

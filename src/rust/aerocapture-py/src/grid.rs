@@ -7,18 +7,15 @@
 //! `simulation.random_seed`), reproducing both the dispersion draw and the
 //! per-sim EKF / Gauss-Markov RNG stream.
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
 
-use aerocapture::config::SimInput;
 use aerocapture::data::neural::{LayerSpec, NormSpec, OutputParam};
-use aerocapture::data::{SharedTables, SimData};
 use aerocapture::simulation::final_record::FINAL_RECORD_LEN;
 use rayon::prelude::*;
-use toml::{Table, Value};
 
-use crate::config::{OverrideValue, apply_override};
+use crate::config::OverrideValue;
+use crate::kernel::{self, BaseConfig};
 
 /// Per-individual NN weight payload built once, before `py.detach`.
 pub struct NnSpec {
@@ -58,20 +55,10 @@ pub fn run_grid(
         ));
     }
 
-    // Read + parse + resolve base inheritance ONCE.
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
-    let base_table: Table =
-        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
-    let mut visited = HashSet::new();
-    let base_value =
-        aerocapture::config::resolve_toml_bases(Value::Table(base_table), toml_path, &mut visited)
-            .map_err(|e| format!("Base resolution error: {}", e))?;
-
     // Atmosphere / wind tables are loaded once from the base config and shared
-    // across the grid — a per-individual override of their paths would be
-    // silently ignored (the reference trajectory is the one table
-    // `from_toml_with_tables` reloads per individual, for the joint ref_bank gene).
+    // across the grid: an override that retargets them is refused here instead
+    // of reloading both tables per individual (the reference trajectory is the one
+    // table `from_toml_with_tables` reloads per individual, for the joint ref_bank gene).
     for ovs in &overrides_list {
         for (k, _) in ovs {
             if k == "data.atmosphere" || k == "data.wind_table" {
@@ -83,31 +70,14 @@ pub fn run_grid(
         }
     }
 
-    let run = || -> Result<Vec<[f64; FINAL_RECORD_LEN]>, String> {
-        // SharedTables once from the base config. Per-individual overrides may
-        // retarget `data.reference_trajectory` (joint ref_bank); SimData's
-        // `from_toml_with_tables` reloads that table when the patched path
-        // differs from the shared load.
-        let base_str =
-            toml::to_string(&base_value).map_err(|e| format!("TOML serialize error: {}", e))?;
-        let (base_input, base_toml) =
-            SimInput::from_toml(&base_str).map_err(|e| format!("Config parse error: {}", e))?;
-        let shared = SharedTables::from_toml(&base_toml, &base_input)
-            .map_err(|e| format!("Shared table load error: {}", e))?;
+    let base = BaseConfig::load(toml_path)?;
+    base.require_shared_tables()?;
 
-        // Build N SimData (in parallel) — each gets its own NN model when nn is Some.
-        let built: Vec<Result<(SimInput, SimData), String>> = (0..n_pop)
+    let run = || -> Result<Vec<[f64; FINAL_RECORD_LEN]>, String> {
+        // Build N SimData (in parallel): each gets its own NN model when nn is Some.
+        let built: Vec<Result<_, String>> = (0..n_pop)
             .into_par_iter()
             .map(|i| {
-                let mut patched = base_value.clone();
-                for (k, v) in &overrides_list[i] {
-                    apply_override(&mut patched, k, v)?;
-                }
-                let toml_str = toml::to_string(&patched)
-                    .map_err(|e| format!("TOML serialize error: {}", e))?;
-                let (sim_input, toml_config) = SimInput::from_toml(&toml_str)
-                    .map_err(|e| format!("Config parse error: {}", e))?;
-
                 let injected = match &nn {
                     Some(spec) => Some(
                         crate::build_model_from_flat(
@@ -123,53 +93,18 @@ pub fn run_grid(
                     ),
                     None => None,
                 };
-
-                let sim_data =
-                    SimData::from_toml_with_tables(&toml_config, &sim_input, &shared, injected)
-                        .map_err(|e| format!("Data load error: {}", e))?;
-                Ok((sim_input, sim_data))
+                base.build(&overrides_list[i], injected)
             })
             .collect();
+        let cells = built.into_iter().collect::<Result<Vec<_>, String>>()?;
 
-        let mut siminputs: Vec<SimInput> = Vec::with_capacity(n_pop);
-        let mut simdatas: Vec<SimData> = Vec::with_capacity(n_pop);
-        for r in built {
-            let (si, sd) = r?;
-            siminputs.push(si);
-            simdatas.push(sd);
-        }
-
-        // Run the N x K grid in parallel, row-major flat index = i * n_seeds + k.
-        let cells: Vec<Result<[f64; FINAL_RECORD_LEN], String>> = (0..n_pop * n_seeds)
-            .into_par_iter()
-            .map(|flat| {
-                let i = flat / n_seeds;
-                let k = flat % n_seeds;
-                aerocapture::simulation::runner::run_for_api_cell(
-                    &siminputs[i],
-                    &simdatas[i],
-                    seeds[k],
-                    false,
-                    wall_timeout,
-                )
-                .map(|o| o.final_record)
-                .map_err(|e| format!("Simulation error: {}", e))
-            })
-            .collect();
-
-        cells.into_iter().collect()
+        // The N x K grid, row-major flat index = i * n_seeds + k.
+        kernel::fly(&cells, &seeds, false, wall_timeout, |output| {
+            output.final_record
+        })
     };
 
-    let records = match n_threads {
-        Some(n) => {
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(n)
-                .build()
-                .map_err(|e| format!("Failed to create thread pool: {}", e))?;
-            pool.install(run)?
-        }
-        None => run()?,
-    };
+    let records = kernel::in_pool(n_threads, run)??;
 
     Ok((n_pop, n_seeds, records))
 }

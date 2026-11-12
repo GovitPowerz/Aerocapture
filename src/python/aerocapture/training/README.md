@@ -352,7 +352,9 @@ use `--sim-timeout` against NaN hangs).
   files' spellings and map the record once at the write site. Pure numpy + scipy, soft-import clean.
 - `cell_eval.py` — the ONE deploy-side evaluation path. `evaluate_cell(cell_dir, base_toml,
   seeds | pool=(offset, n), *, model, extra_overrides, per_seed_overrides, include_trajectories,
-  sim_timeout_secs, n_threads)` flies a cell one sim per seed through `run_batch`: TOML via
+  sim_timeout_secs, n_threads)` flies a cell one sim per seed, through `run_seeds` (the config
+  built once) or, with `per_seed_overrides`, through `run_batch` (one override dict per seed;
+  the two are byte-identical for equal overrides, `tests/test_run_seeds.py`): TOML via
   `resolve_eval_toml` (optimized TOML wins, else base + `best_params.json` scaffolding), NN pinned
   to `<cell_dir>/best_model.json` unless `model=` (a bundle's frozen weights, a temp ablated or
   checkpoint model; a `model=` that does not exist raises), `extra_overrides` (noise regime,
