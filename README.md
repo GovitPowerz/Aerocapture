@@ -462,9 +462,9 @@ Results saved to `output_dir/sensitivity_results.json` with mu_star/sigma (Morri
 
 The `aerocapture_rs` Python module is the one seam between the two languages. Its entries are
 tiered (see the module doc in `src/rust/aerocapture-py/src/lib.rs`): **evaluate** (`run_grid` for
-training, `run_batch` for every deploy-side number, reached through the one Python module
+training, `run_seeds` for every deploy-side seed sweep, reached through the one Python module
 `aerocapture.training.cell_eval` -- the demo, the reports, the head-to-head compare tool and every
-paper script fly a cell with `evaluate_cell`; `run_mc`, `run_with_draws`), **config**
+paper script fly a cell with `evaluate_cell`; `run_batch`, `run_mc`, `run_with_draws`), **config**
 (`validate_config`, `load_config`), **contract** (`candidate_inputs`, `final_record_indices`,
 `layer_schema`, width constants), **nn** utilities, and the RL **env**.
 
@@ -478,9 +478,12 @@ idx = aero.final_record_indices()
 fr = batch.final_records[0]                                      # (52,)
 print(f"Captured: {batch.captured[0]}, dV: {fr[idx['dv_total_ms']]:.1f} m/s")
 
-# Per-seed sweeps and parameter overrides are the same call
+# A parameter sweep is the same call: one override dict per run
 overrides = [{"guidance.equilibrium_glide.gain_kp": v} for v in [0.1, 0.5, 1.0]]
 batch = aero.run_batch("config.toml", overrides)
+
+# One config on a seed pool: built once, one sim per seed
+sweep = aero.run_seeds("config.toml", list(range(1000)), {"monte_carlo.noise_seeding": "per_draw"})
 
 # One config with its own n_sims, with trajectory data
 mc = aero.run_mc("config.toml", overrides={"simulation.n_sims": 1000},

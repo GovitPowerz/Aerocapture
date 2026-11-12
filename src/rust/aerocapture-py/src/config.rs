@@ -102,25 +102,24 @@ fn override_type_name(v: &OverrideValue) -> &'static str {
     }
 }
 
+/// Read a TOML file into a generic value tree with `base` inheritance resolved.
+pub fn resolve_toml(toml_path: &Path) -> Result<Value, String> {
+    let toml_content = std::fs::read_to_string(toml_path)
+        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
+    let table: Table =
+        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
+    let mut visited = HashSet::new();
+    aerocapture::config::resolve_toml_bases(Value::Table(table), toml_path, &mut visited)
+        .map_err(|e| format!("Base resolution error: {}", e))
+}
+
 /// Read a TOML file, resolve `base` inheritance, apply overrides, and
 /// serialize the patched tree back to TOML text for the normal parse pipeline.
 fn resolve_and_patch(
     toml_path: &Path,
     overrides: &[(String, OverrideValue)],
 ) -> Result<String, String> {
-    let toml_content = std::fs::read_to_string(toml_path)
-        .map_err(|e| format!("Cannot read '{}': {}", toml_path.display(), e))?;
-
-    // Parse into a generic TOML value tree so we can patch it.
-    let table: Table =
-        toml::from_str(&toml_content).map_err(|e| format!("TOML parse error: {}", e))?;
-    let root = Value::Table(table);
-
-    // Resolve base inheritance before applying overrides.
-    let mut visited = HashSet::new();
-    let mut root = aerocapture::config::resolve_toml_bases(root, toml_path, &mut visited)
-        .map_err(|e| format!("Base resolution error: {}", e))?;
-
+    let mut root = resolve_toml(toml_path)?;
     for (key, value) in overrides {
         apply_override(&mut root, key, value)?;
     }

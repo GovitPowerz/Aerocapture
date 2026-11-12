@@ -3,8 +3,10 @@
 //! belongs to one, and each tier names the gate that proves it (ADR-0007).
 //!
 //! evaluate  `run_grid` (training: one GIL-releasing call per population x seed grid, the
-//!           bit-identity chokepoint of ADR-0004; gate `tests/test_run_grid.py`), `run_batch`
-//!           (deploy-side evaluation: one override dict per seed over preloaded shared tables;
+//!           bit-identity chokepoint of ADR-0004; gate `tests/test_run_grid.py`), `run_seeds`
+//!           (deploy-side evaluation: one override dict flown on a seed pool, the config built
+//!           once; gate `tests/test_run_seeds.py`, byte-identical to per-seed `run_batch`),
+//!           `run_batch` (one override dict per simulation over preloaded shared tables;
 //!           gates `tests/test_pyo3.py::TestBitIdenticalRegression` vs the CLI and
 //!           `tests/test_noise_seeding.py` for the noise regime), `run_mc` (one config with its
 //!           own `n_sims`: nominal overlays, ablation), `run_with_draws` (external dispersion
@@ -23,6 +25,11 @@
 //!           equivalence tests, `tests/test_nn_equivalence.py` + `tests/test_v2_rust_python_equivalence.py`;
 //!           no training path calls them -- PSO evaluates through `run_grid` with in-memory weights).
 //! env       `BatchedSimulation` (`env.rs`, the RL step API; gate `tests/test_env_pyo3.py`).
+//!
+//! `run_grid`, `run_seeds` and `run_batch` are adapters over one kernel (`kernel.rs`), which
+//! holds their override-set build and their seed-axis fan-out. `run_mc`, `run_with_draws`,
+//! the env and `collect_*` still build through `config::load_and_override`, and
+//! `collect_trace` keeps its own seed loop.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -35,6 +42,7 @@ mod batch;
 mod config;
 mod env;
 mod grid;
+mod kernel;
 mod results;
 
 use aerocapture::simulation::final_record::FR_DV_TOTAL_MS;
@@ -80,8 +88,9 @@ fn extract_overrides(dict: Option<&Bound<'_, PyDict>>) -> PyResult<Vec<(String, 
 /// Run a Monte Carlo simulation returning all results.
 ///
 /// One config with its own `n_sims`: every result as a `BatchResults` (nominal
-/// overlays, ablation). Per-seed evaluation goes through `run_batch`, one
-/// override dict per seed; a single run is `run_batch(toml, [{}])` row 0.
+/// overlays, ablation). A seed sweep of one config goes through `run_seeds`;
+/// per-simulation overrides through `run_batch`, one override dict per
+/// simulation; a single run is `run_batch(toml, [{}])` row 0.
 ///
 /// Args:
 ///     toml_path: Path to the TOML config file.
@@ -175,6 +184,71 @@ fn run_batch(
             batch::BatchError::Contract(m) => pyo3::exceptions::PyValueError::new_err(m),
             batch::BatchError::Runtime(m) => pyo3::exceptions::PyRuntimeError::new_err(m),
         })?;
+
+    Ok(BatchResults::from_outputs(outputs, include_trajectories))
+}
+
+/// The keys the seed-axis entries own: the seed comes from the `seeds` argument
+/// and every cell is one sim, so either key in an override dict would be
+/// silently ignored. Reject it instead.
+fn reject_seed_axis_keys(entry: &str, overrides: &[(String, OverrideValue)]) -> PyResult<()> {
+    const OWNED: &[&str] = &["monte_carlo.seed", "simulation.n_sims"];
+    match overrides.iter().find(|(k, _)| OWNED.contains(&k.as_str())) {
+        Some((key, _)) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "{entry}: '{key}' must not appear in the overrides: {entry} owns the seed axis \
+             (each cell re-seeds its own draw and runs one sim)"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// Fly one override set on a seed pool, in parallel: the deploy-side seed sweep.
+///
+/// The config is built once (TOML patch, parse, validation, model load) and
+/// reused across the seed axis. Byte-identical to
+/// `run_batch(toml_path, [{"simulation.n_sims": 1, **overrides, "monte_carlo.seed": s} for s in seeds])`
+/// (gate: tests/test_run_seeds.py). Use `run_batch` when the override dict
+/// differs per simulation.
+///
+/// Args:
+///     toml_path: Path to the base TOML config file.
+///     seeds: MC seed list; one simulation per seed, in this order.
+///     overrides: Optional dict of "dotted.key" -> value overrides shared by every seed.
+///         MUST NOT contain monte_carlo.seed or simulation.n_sims (run_seeds owns those).
+///     n_threads: Number of Rayon threads (None = global pool).
+///     include_trajectories: If True, keep per-timestep trajectory data.
+///     sim_timeout_secs: Optional wall-clock timeout per simulation in seconds.
+///
+/// Returns:
+///     BatchResults with final_records (N,52), dispersions (N,26), captured (N,),
+///     and optionally trajectories.
+#[pyfunction]
+#[pyo3(signature = (toml_path, seeds, overrides=None, n_threads=None, include_trajectories=false, sim_timeout_secs=None))]
+fn run_seeds(
+    py: Python<'_>,
+    toml_path: &str,
+    seeds: Vec<u64>,
+    overrides: Option<&Bound<'_, PyDict>>,
+    n_threads: Option<usize>,
+    include_trajectories: bool,
+    sim_timeout_secs: Option<f64>,
+) -> PyResult<BatchResults> {
+    let overrides = extract_overrides(overrides)?;
+    reject_seed_axis_keys("run_seeds", &overrides)?;
+    let wall_timeout = sim_timeout_secs.map(Duration::from_secs_f64);
+
+    let outputs = py
+        .detach(|| {
+            batch::run_seeds(
+                std::path::Path::new(toml_path),
+                overrides,
+                seeds,
+                n_threads,
+                include_trajectories,
+                wall_timeout,
+            )
+        })
+        .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
 
     Ok(BatchResults::from_outputs(outputs, include_trajectories))
 }
@@ -294,22 +368,10 @@ fn run_grid<'py>(
         overrides_vec.push(extract_overrides(Some(dict))?);
     }
 
-    // Contract: run_grid owns the seed axis and runs one sim per cell.
-    // Callers must never inject these keys — they would be silently ignored
+    // Contract: run_grid owns the seed axis and runs one sim per cell
     // (run_for_api_cell bypasses n_sims and takes the seed from the grid axis).
-    const FORBIDDEN: &[&str] = &["monte_carlo.seed", "simulation.n_sims"];
     for overrides in &overrides_vec {
-        for (key, _) in overrides {
-            if FORBIDDEN.contains(&key.as_str()) {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "run_grid: '{}' must not appear in overrides_list — \
-                     run_grid owns the seed axis (re-seeds each cell via the \
-                     external-draws path and runs one sim per cell). \
-                     Remove this key from _build_grid_overrides.",
-                    key
-                )));
-            }
-        }
+        reject_seed_axis_keys("run_grid", overrides)?;
     }
 
     // Build the NN payload (GIL: numpy + JSON parse) iff weights provided.
@@ -1042,6 +1104,7 @@ fn aerocapture_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // evaluate
     m.add_class::<BatchResults>()?;
     m.add_function(wrap_pyfunction!(run_grid, m)?)?;
+    m.add_function(wrap_pyfunction!(run_seeds, m)?)?;
     m.add_function(wrap_pyfunction!(run_batch, m)?)?;
     m.add_function(wrap_pyfunction!(run_mc, m)?)?;
     m.add_function(wrap_pyfunction!(run_with_draws, m)?)?;

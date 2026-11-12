@@ -78,9 +78,9 @@ uv run python -m aerocapture.training.report training_output/equilibrium_glide/ 
 ```
 
 Gates before declaring a change done: `./lint_code.sh`, `./check_all.sh`, `uv run pytest tests -q -m "not slow"`;
-the slow PyO3 suite (`tests/test_pyo3.py`, `tests/test_run_grid.py`) after any change that touches the seam or the version; the slow `tests/test_external_validation.py` after
+the slow PyO3 suite (`tests/test_pyo3.py`, `tests/test_run_grid.py`, `tests/test_run_seeds.py`) after any change that touches the seam or the version; the slow `tests/test_external_validation.py` after
 any physics, aerodynamics, atmosphere or integrator change (tolerance gate against frozen AMAT outputs, and it fails when `docs/validation.md` quotes stale tables). Numbers must not move: the six guidance goldens
-(`tests/reference_data/rust_golden/`), `tests/test_pyo3.py::test_pyo3_matches_subprocess`, `tests/test_run_grid.py`, `tests/test_thread_invariance.py` (`run_grid` byte-identical at any thread count); name any additional bit-identity gate a change touches.
+(`tests/reference_data/rust_golden/`), `tests/test_pyo3.py::test_pyo3_matches_subprocess`, `tests/test_run_grid.py`, `tests/test_run_seeds.py` (`run_seeds`, the deploy-side seed sweep, byte-identical to per-seed `run_batch`), `tests/test_thread_invariance.py` (`run_grid` byte-identical at any thread count); name any additional bit-identity gate a change touches.
 
 ## Key Lessons & Pitfalls
 

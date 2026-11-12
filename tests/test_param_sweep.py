@@ -92,23 +92,20 @@ def test_score_entry_includes_cotrained_scaffolding(tmp_path: Path, monkeypatch:
     model.write_text("{}")
     entry = {"arch": "dense", "params": 515, "config": "configs/training/sweep/dense_p515.toml", "output_dir": str(out_dir)}
 
-    calls: list[list[dict]] = []
+    calls: list[tuple[list[int], dict]] = []
 
-    def fake_run_batch(toml_path: str, overrides_list: list[dict], **_: object) -> SimpleNamespace:
-        calls.append(overrides_list)
-        n = len(overrides_list)
+    def fake_run_seeds(toml_path: str, seeds: list[int], overrides: dict, **_: object) -> SimpleNamespace:
+        calls.append((seeds, overrides))
+        n = len(seeds)
         return SimpleNamespace(final_records=np.zeros((n, 52)), dispersions=np.zeros((n, 26)), trajectories=[])
 
-    monkeypatch.setitem(sys.modules, "aerocapture_rs", SimpleNamespace(run_batch=fake_run_batch))
+    monkeypatch.setitem(sys.modules, "aerocapture_rs", SimpleNamespace(run_seeds=fake_run_seeds))
     ps._score_entry(entry, model, [3, 4], None)
 
-    [overrides] = calls
-    assert len(overrides) == 2
-    for ov, seed in zip(overrides, [3, 4], strict=True):
-        assert ov["monte_carlo.seed"] == seed
-        assert ov["simulation.n_sims"] == 1
-        assert ov["monte_carlo.noise_seeding"] == "legacy"
-        assert ov["data.neural_network"] == str(model.resolve())
-        assert ov["navigation.density_filter_gain"] == 0.7
-        assert ov["guidance.command_shaping.max_bank_acceleration"] == 11.0
-        assert ov["guidance.command_shaping.enabled"] is True
+    [(seeds, ov)] = calls
+    assert seeds == [3, 4]
+    assert ov["monte_carlo.noise_seeding"] == "legacy"
+    assert ov["data.neural_network"] == str(model.resolve())
+    assert ov["navigation.density_filter_gain"] == 0.7
+    assert ov["guidance.command_shaping.max_bank_acceleration"] == 11.0
+    assert ov["guidance.command_shaping.enabled"] is True

@@ -36,7 +36,7 @@ src/rust/src/
                                      + validate(&TomlConfig): every no-IO rule in one pass (sections, enum strings, incidence, piecewise, command_shaping, normalization width,
                                      output_parameterization vs mode+arch, MC levels/keys/bounds via build_dispersion_config, nav mode + EKF sigmas, integration mode); run by
                                      SimData::from_toml BEFORE its table IO (CLI, run_mc, run_with_draws, collect_*, env) and by from_toml_with_tables on every post-override
-                                     config (run_batch / run_grid preload SharedTables from the unvalidated base first); exposed as PyO3 validate_config.
+                                     config (run_batch / run_seeds / run_grid preload SharedTables from the unvalidated base first); exposed as PyO3 validate_config.
                                      Config keys (ADR-0008): a Toml* field is its TOML key (`#[serde(rename)]` is the declared exception, as `type` is) and a runtime relay
                                      keeps it (`data.guidance.neural_network.reset_state_every_tick` greps end to end); every serde type that reads a section is
                                      `deny_unknown_fields` (root included, its seven Python-only sections declared as pass-through tables) and section-struct fields are

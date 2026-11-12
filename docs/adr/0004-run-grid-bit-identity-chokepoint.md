@@ -1,6 +1,6 @@
 # ADR-0004: Every training-side evaluation goes through `run_grid`, bit-identical to the per-seed `run_batch` path
 
-**Status:** accepted · **Date:** 2026-06-04 (commit `86a8b93`); reference-override fix 2026-06-12
+**Status:** accepted · **Date:** 2026-06-04 (commit `86a8b93`); reference-override fix 2026-06-12; extended to deploy-side seed sweeps 2026-11-12 (#240)
 
 ## Context
 
@@ -27,3 +27,17 @@ that one table (the joint `ref_bank` gene trained dead until this was honored).
 - One place to reason about training-side numbers; deploy-side tools use `run_batch` and must
   stay value-identical to it (a documented gate, not an assumption).
 - New per-individual data overrides must be added to `SharedTables` explicitly or hard-error.
+
+## 2026-11-12: the deploy side joins the chokepoint (#240)
+
+Deploy-side evaluation flew a seed pool by handing `run_batch` one override dict per seed, so the
+config was patched, parsed, validated and (for an NN cell) its model read once per seed: 8% per
+simulation over `run_grid` (`docs/performance.md` section 2). `aerocapture_rs.run_seeds(toml,
+seeds, overrides)` is that sweep on the seed axis: the config is built once and each seed is a
+`run_for_api_cell`, returning records, dispersions and optional trajectories. `run_grid`,
+`run_seeds` and `run_batch` are adapters over one kernel (`aerocapture-py/src/kernel.rs`), which
+holds their override-set-to-`SimData` build and their seed-axis fan-out.
+`cell_eval.evaluate_cell` calls `run_seeds` for a plain sweep and keeps `run_batch` for
+`per_seed_overrides`. `run_seeds` rejects `monte_carlo.seed` / `simulation.n_sims` like `run_grid`
+and is gated byte-identical to the per-seed `run_batch` path under both noise regimes and at any
+thread count (`tests/test_run_seeds.py`); `run_batch`'s contract is unchanged.

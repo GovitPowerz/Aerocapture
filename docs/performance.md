@@ -61,6 +61,9 @@ Monte Carlo instead: the same dispersion model, different scenarios.
 the model JSON read and parse. That costs 0.07 ms per sim for FTC and 0.27 ms for Mamba, 8% in
 both cases. For FNPAG the 2% gap is inside the repeat spread (17.0-17.8 s for the 200 sims).
 `run_grid` builds one `SimData` per individual and reuses it across the seed axis (ADR-0004).
+Since #240 a deploy-side seed sweep (`cell_eval.evaluate_cell`) no longer pays the `run_batch`
+column: it goes through `run_seeds`, which builds the config once like `run_grid`; `run_batch`
+keeps that cost for per-simulation overrides.
 Amortized over 200 sims, the CLI costs the same as the seam. Each CLI invocation spends 8.4-9.8
 ms outside its own simulation phase (process start, config and table load, CSV output), measured
 as the 200-sim run's wall minus the simulation time it prints, repeat by repeat. That is about ten
